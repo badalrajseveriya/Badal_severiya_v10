@@ -1,3 +1,4 @@
 name = "badal-severiya-v10"
-main = "src/index.js"
+main = "index.js"
 compatibility_date = "2026-11-20"
+,,

@@ -53,20 +53,44 @@ function tag(xml, name) {
   return m ? decodeXml(m[1]) : "";
 }
 
+function escapeHtml(value) {
+  return String(value || "").replace(/[&<>"']/g, function(c) {
+    return {
+      "&": "&amp;",
+      "<": "&lt;",
+      ">": "&gt;",
+      '"': "&quot;",
+      "'": "&#39;"
+    }[c];
+  });
+}
+
+function safeUrl(value) {
+  try {
+    const url = new URL(String(value || ""));
+    return url.protocol === "https:" ? url.href : "";
+  } catch {
+    return "";
+  }
+}
+
 function classify(title, description) {
   const text = (title + " " + description).toLowerCase();
 
-  const p = POSITIVE.filter(k => text.includes(k)).length;
-  const n = NEGATIVE.filter(k => text.includes(k)).length;
+  const positiveCount =
+    POSITIVE.filter(k => text.includes(k)).length;
 
-  if (p > n) {
+  const negativeCount =
+    NEGATIVE.filter(k => text.includes(k)).length;
+
+  if (positiveCount > negativeCount) {
     return {
       label: "Positive keywords",
       tone: "positive"
     };
   }
 
-  if (n > p) {
+  if (negativeCount > positiveCount) {
     return {
       label: "Negative keywords",
       tone: "negative"
@@ -83,7 +107,7 @@ async function getNews() {
   const results = await Promise.all(
     FEEDS.map(async feed => {
       try {
-        const res = await fetch(feed.url, {
+        const response = await fetch(feed.url, {
           headers: {
             "User-Agent": "BadalSeveriyaNews/1.0"
           },
@@ -93,11 +117,11 @@ async function getNews() {
           }
         });
 
-        if (!res.ok) {
-          throw new Error("Feed returned " + res.status);
+        if (!response.ok) {
+          throw new Error("Feed returned " + response.status);
         }
 
-        const xml = await res.text();
+        const xml = await response.text();
 
         const items = [
           ...xml.matchAll(
@@ -105,8 +129,8 @@ async function getNews() {
           )
         ].slice(0, 12);
 
-        return items.map(m => {
-          const item = m[1];
+        return items.map(match => {
+          const item = match[1];
 
           const title = tag(item, "title");
           const link = tag(item, "link");
@@ -120,9 +144,9 @@ async function getNews() {
             pubDate,
             ...classify(title, description)
           };
-        }).filter(x => x.title && x.link);
+        }).filter(item => item.title);
 
-      } catch (e) {
+      } catch (error) {
         return [{
           source: feed.name,
           title: "Feed temporarily unavailable",
@@ -143,12 +167,53 @@ async function getNews() {
     );
 }
 
-function page() {
+function renderNewsItem(item) {
+  const tone = ["positive", "negative", "neutral"].includes(item.tone)
+    ? item.tone
+    : "neutral";
+
+  const link = safeUrl(item.link);
+
+  const titleHtml = link
+    ? '<a href="' + escapeHtml(link) +
+      '" target="_blank" rel="noopener noreferrer">' +
+      escapeHtml(item.title) + '</a>'
+    : '<span>' + escapeHtml(item.title) + '</span>';
+
+  return `
+    <article class="item">
+      <div class="meta">
+        ${escapeHtml(item.source)}
+        ·
+        ${escapeHtml(item.pubDate || "Date unavailable")}
+      </div>
+
+      <div class="pill ${tone}">
+        ${escapeHtml(item.label)}
+      </div>
+
+      <div class="headline">
+        ${titleHtml}
+      </div>
+    </article>
+  `;
+}
+
+function page(items) {
+  const newsHtml = items.length
+    ? items.map(renderNewsItem).join("")
+    : '<p class="empty">No headlines available right now. Please refresh.</p>';
+
+  const updatedAt = new Date().toLocaleString("en-IN", {
+    timeZone: "Asia/Kolkata"
+  });
+
   return `<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#0b1220">
 <title>BADAL SEVERIYA V10</title>
 
 <style>
@@ -164,22 +229,22 @@ body {
   margin: 0;
   background: #0b1220;
   color: #e8eefc;
-  font: 15px system-ui, Arial;
+  font: 15px system-ui, Arial, sans-serif;
 }
 
 header {
-  padding: 22px 16px;
+  padding: 24px 16px;
   background: #111c30;
   border-bottom: 1px solid #26344d;
 }
 
 h1 {
   margin: 0;
-  font-size: 22px;
+  font-size: 23px;
 }
 
 header p {
-  margin: 6px 0 0;
+  margin: 7px 0 0;
   color: #aab8d0;
 }
 
@@ -191,19 +256,22 @@ header p {
 
 .bar {
   display: flex;
-  gap: 10px;
+  gap: 12px;
   align-items: center;
   flex-wrap: wrap;
   margin: 10px 0 18px;
 }
 
 .btn {
+  display: inline-block;
   background: #2563eb;
   color: white;
   border: 0;
   border-radius: 9px;
-  padding: 10px 14px;
-  font-weight: 600;
+  padding: 11px 16px;
+  font-weight: 700;
+  font-size: 15px;
+  text-decoration: none;
 }
 
 .muted {
@@ -212,25 +280,33 @@ header p {
 }
 
 .notice {
-  padding: 12px;
+  padding: 13px;
   border: 1px solid #594b22;
   background: #2a2414;
   border-radius: 10px;
   color: #f6df9b;
-  margin: 14px 0;
+  margin: 14px 0 20px;
+  line-height: 1.5;
 }
 
 .item {
   background: #121e32;
   border: 1px solid #263650;
   border-radius: 12px;
-  padding: 14px;
-  margin: 10px 0;
+  padding: 15px;
+  margin: 11px 0;
 }
 
 .meta {
   color: #9eafca;
   font-size: 12px;
+  line-height: 1.5;
+}
+
+.headline {
+  margin-top: 5px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
 }
 
 .item a {
@@ -239,12 +315,16 @@ header p {
   font-weight: 650;
 }
 
+.item a:hover {
+  text-decoration: underline;
+}
+
 .pill {
   display: inline-block;
-  padding: 3px 8px;
+  padding: 4px 9px;
   border-radius: 20px;
   font-size: 11px;
-  margin: 8px 0;
+  margin: 8px 0 5px;
 }
 
 .positive {
@@ -262,10 +342,16 @@ header p {
   color: #d0daeb;
 }
 
+.empty {
+  color: #aab8d0;
+  padding: 20px 0;
+}
+
 footer {
   color: #8998b2;
   font-size: 12px;
   padding: 22px 0;
+  line-height: 1.6;
 }
 </style>
 </head>
@@ -282,24 +368,23 @@ footer {
 <main class="wrap">
 
   <div class="bar">
-    <button class="btn" onclick="loadNews()">
-      Refresh news
-    </button>
-
-    <span class="muted" id="status">
-      Loading headlines...
+    <a class="btn" href="/">Refresh news</a>
+    <span class="muted">
+      Updated: ${escapeHtml(updatedAt)} (IST)
     </span>
   </div>
 
   <div class="notice">
     <b>Important:</b>
-    This is an early news-monitoring prototype.
-    Labels are simple keyword matches, not verified
-    market impact, trading signals, forecasts, or
-    probability of profit. Check original sources.
+    News labels are based on simple keyword matching.
+    They are not verified market impact, trading signals,
+    forecasts, or probability of profit.
+    Always check original news sources.
   </div>
 
-  <section id="news"></section>
+  <section id="news">
+    ${newsHtml}
+  </section>
 
   <footer>
     News headlines are collected from Google News RSS.
@@ -308,72 +393,6 @@ footer {
   </footer>
 
 </main>
-
-<script>
-async function loadNews() {
-  const s = document.getElementById("status");
-  const n = document.getElementById("news");
-
-  s.textContent = "Refreshing...";
-
-  try {
-    const r = await fetch("/api/news");
-
-    if (!r.ok) {
-      throw new Error("News API error");
-    }
-
-    const d = await r.json();
-    const items = Array.isArray(d.items) ? d.items : [];
-
-    n.innerHTML = items.map(function(x) {
-      return '<article class="item">' +
-        '<div class="meta">' +
-        esc(x.source) + ' · ' +
-        esc(x.pubDate || "Date unavailable") +
-        '</div>' +
-        '<div class="pill ' + esc(x.tone) + '">' +
-        esc(x.label) +
-        '</div>' +
-        '<div><a href="' + safeHref(x.link) +
-        '" target="_blank" rel="noopener">' +
-        esc(x.title) +
-        '</a></div>' +
-        '</article>';
-    }).join("") || "<p>No headlines returned.</p>";
-
-    s.textContent = "Updated: " + new Date().toLocaleString();
-
-  } catch (e) {
-    s.textContent = "Could not load news. Try again.";
-    n.textContent = "News could not be loaded. Please retry.";
-  }
-}
-
-function esc(v) {
-  return String(v || "").replace(/[&<>"']/g, function(c) {
-    return {
-      "&": "&amp;",
-      "<": "&lt;",
-      ">": "&gt;",
-      '"': "&quot;",
-      "'": "&#39;"
-    }[c];
-  });
-}
-
-function safeHref(v) {
-  const s = String(v || "");
-
-  if (/^https:\/\//i.test(s)) {
-    return esc(s);
-  }
-
-  return "#";
-}
-
-loadNews();
-</script>
 
 </body>
 </html>`;
@@ -400,7 +419,7 @@ export default {
         items
       }, {
         headers: {
-          "Cache-Control": "public, max-age=120"
+          "Cache-Control": "no-store"
         }
       });
     }
@@ -409,9 +428,12 @@ export default {
       url.pathname === "/" ||
       url.pathname === "/index.html"
     ) {
-      return new Response(page(), {
+      const items = await getNews();
+
+      return new Response(page(items), {
         headers: {
-          "content-type": "text/html; charset=utf-8"
+          "content-type": "text/html; charset=utf-8",
+          "Cache-Control": "no-store"
         }
       });
     }

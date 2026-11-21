@@ -1,55 +1,77 @@
 
 import { analyzeMarket } from "./market-data.js";
 
-// ================================================
-// BADAL SEVERIYA V10.2 - OFFICIAL NEWS ENGINE
-// ================================================
+// ==================================================
+// BADAL SEVERIYA V10.3
+// SMART NEWS + HISTORICAL MARKET DASHBOARD
+// Educational prototype only
+// ==================================================
 
+const APP_NAME = "BADAL SEVERIYA V10.3";
 const NEWS_DAYS = 30;
-const MAX_ITEMS_PER_FEED = 10;
-const MAX_TOTAL_NEWS = 50;
+const MAX_ITEMS_PER_FEED = 15;
+const MAX_TOTAL_NEWS = 75;
+const MAX_CANDLES = 5000;
 
 const FEEDS = [
   {
+    id: "rbi",
     name: "RBI / India Economy",
     category: "RBI Official Press Release",
+    description: "भारतीय रिजर्व बैंक के आधिकारिक अपडेट",
     url: "https://rbi.org.in/pressreleases_rss.xml"
   },
   {
+    id: "sebi",
     name: "SEBI / Market Regulations",
     category: "Regulatory Update",
+    description: "बाजार नियम और नियामक घोषणाएँ",
     url: "https://www.sebi.gov.in/sebirss.xml"
   },
   {
+    id: "nse-corporate",
     name: "NSE / Corporate Announcements",
     category: "Company Filing",
+    description: "कंपनियों की आधिकारिक घोषणाएँ",
     url: "https://archives.nseindia.com/content/RSS/Online_announcements.xml"
   },
   {
+    id: "nse-results",
     name: "NSE / Financial Results",
     category: "Financial Results",
+    description: "कंपनियों के वित्तीय परिणाम",
     url: "https://nsearchives.nseindia.com/content/RSS/Financial_Results.xml"
   },
   {
+    id: "fed",
     name: "Federal Reserve / Global Economy",
     category: "Global Monetary Policy",
+    description: "अमेरिकी केंद्रीय बैंक के आर्थिक अपडेट",
     url: "https://www.federalreserve.gov/feeds/press_all.xml"
   }
 ];
 
-// ================================================
+// ==================================================
 // XML HELPERS
-// ================================================
+// ==================================================
 
 function decodeXml(value = "") {
   return String(value)
     .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/gi, "$1")
-    .replace(/&#x([0-9a-f]+);/gi, (_, code) =>
-      String.fromCodePoint(parseInt(code, 16))
-    )
-    .replace(/&#([0-9]+);/g, (_, code) =>
-      String.fromCodePoint(parseInt(code, 10))
-    )
+    .replace(/&#x([0-9a-f]+);/gi, (_, code) => {
+      try {
+        return String.fromCodePoint(parseInt(code, 16));
+      } catch {
+        return "";
+      }
+    })
+    .replace(/&#([0-9]+);/g, (_, code) => {
+      try {
+        return String.fromCodePoint(parseInt(code, 10));
+      } catch {
+        return "";
+      }
+    })
     .replace(/&amp;/g, "&")
     .replace(/&quot;/g, '"')
     .replace(/&#39;|&apos;/g, "'")
@@ -70,13 +92,13 @@ function getTag(xml, name) {
 }
 
 function getAtomLink(xml) {
-  const links = String(xml || "").match(
+  const tags = String(xml || "").match(
     /<(?:[\w.-]+:)?link\b[^>]*>/gi
   ) || [];
 
-  for (const linkTag of links) {
-    const rel = linkTag.match(/\brel=["']([^"']+)["']/i);
-    const href = linkTag.match(/\bhref=["']([^"']+)["']/i);
+  for (const tag of tags) {
+    const rel = tag.match(/\brel=["']([^"']+)["']/i);
+    const href = tag.match(/\bhref=["']([^"']+)["']/i);
 
     if (href && (!rel || rel[1] === "alternate")) {
       return decodeXml(href[1]);
@@ -87,18 +109,26 @@ function getAtomLink(xml) {
 }
 
 function extractEntries(xml) {
-  const matches = [
-    ...String(xml || "").matchAll(
-      /<(item|entry)\b[^>]*>([\s\S]*?)<\/\1\s*>/gi
-    )
-  ];
+  const source = String(xml || "");
 
-  return matches.map(match => match[2]);
+  const rss = [
+    ...source.matchAll(
+      /<(?:[\w.-]+:)?item\b[^>]*>([\s\S]*?)<\/(?:[\w.-]+:)?item\s*>/gi
+    )
+  ].map(match => match[1]);
+
+  if (rss.length) return rss;
+
+  return [
+    ...source.matchAll(
+      /<(?:[\w.-]+:)?entry\b[^>]*>([\s\S]*?)<\/(?:[\w.-]+:)?entry\s*>/gi
+    )
+  ].map(match => match[1]);
 }
 
-// ================================================
+// ==================================================
 // SECURITY HELPERS
-// ================================================
+// ==================================================
 
 function escapeHtml(value) {
   return String(value ?? "").replace(/[&<>"']/g, char => ({
@@ -122,9 +152,9 @@ function safeUrl(value) {
   }
 }
 
-// ================================================
+// ==================================================
 // DATE HELPERS
-// ================================================
+// ==================================================
 
 function parseNewsDate(value) {
   if (!value) return null;
@@ -152,15 +182,15 @@ function formatNewsDate(timestamp) {
   }) + " IST";
 }
 
-// ================================================
-// FETCH ONE NEWS FEED
-// ================================================
+// ==================================================
+// FETCH ONE FEED
+// ==================================================
 
 async function fetchFeed(feed) {
   try {
     const response = await fetch(feed.url, {
       headers: {
-        "User-Agent": "BadalSeveriyaNews/2.0",
+        "User-Agent": "BadalSeveriyaNews/3.0",
         "Accept": "application/rss+xml, application/atom+xml, application/xml, text/xml"
       },
       cf: {
@@ -185,7 +215,7 @@ async function fetchFeed(feed) {
       throw new Error("No RSS or Atom entries found");
     }
 
-    const news = entries.map(entry => {
+    const parsedItems = entries.map(entry => {
       const title = getTag(entry, "title");
 
       const description =
@@ -203,6 +233,7 @@ async function fetchFeed(feed) {
       const timestamp = parseNewsDate(pubDate);
 
       return {
+        id: feed.id,
         source: feed.name,
         category: feed.category,
         title,
@@ -210,45 +241,70 @@ async function fetchFeed(feed) {
         link: safeUrl(link),
         pubDate,
         timestamp,
-        label: feed.category,
-        tone: "neutral"
+        dateAvailable: Boolean(timestamp),
+        label: feed.category
       };
     }).filter(item => {
-      return (
-        item.title &&
-        item.timestamp &&
-        isRecent(item.timestamp)
-      );
+      if (!item.title) return false;
+
+      // Keep undated entries visible, but mark them clearly.
+      if (!item.timestamp) return true;
+
+      return isRecent(item.timestamp);
     });
 
-    const limitedNews = news
-      .sort((a, b) => b.timestamp - a.timestamp)
-      .slice(0, MAX_ITEMS_PER_FEED);
+    parsedItems.sort((a, b) =>
+      (b.timestamp || 0) - (a.timestamp || 0)
+    );
+
+    const limited = parsedItems.slice(0, MAX_ITEMS_PER_FEED);
+
+    const datedCount = limited.filter(
+      item => item.dateAvailable
+    ).length;
+
+    const undatedCount = limited.length - datedCount;
+
+    let status = "CONNECTED";
+
+    if (!limited.length) {
+      status = "NO RECENT NEWS";
+    } else if (!datedCount && undatedCount) {
+      status = "DATE CHECK";
+    }
 
     return {
+      id: feed.id,
       name: feed.name,
-      status: limitedNews.length
-        ? "CONNECTED"
-        : "NO RECENT NEWS",
-      count: limitedNews.length,
+      category: feed.category,
+      description: feed.description,
+      status,
+      count: limited.length,
+      datedCount,
+      undatedCount,
       error: null,
-      items: limitedNews
+      items: limited
     };
 
   } catch (error) {
     return {
+      id: feed.id,
       name: feed.name,
+      category: feed.category,
+      description: feed.description,
       status: "ERROR",
       count: 0,
+      datedCount: 0,
+      undatedCount: 0,
       error: String(error?.message || "Feed request failed"),
       items: []
     };
   }
 }
 
-// ================================================
+// ==================================================
 // FETCH ALL NEWS
-// ================================================
+// ==================================================
 
 async function getNews() {
   const feeds = await Promise.all(
@@ -263,15 +319,13 @@ async function getNews() {
   const uniqueItems = allItems.filter(item => {
     const titleKey = item.title
       .toLowerCase()
-      .replace(/[^a-z0-9]+/g, " ")
+      .replace(/[^\p{L}\p{N}]+/gu, " ")
       .trim();
 
     const linkKey = item.link.toLowerCase();
 
     if (!titleKey) return false;
-
     if (seenTitles.has(titleKey)) return false;
-
     if (linkKey && seenLinks.has(linkKey)) return false;
 
     seenTitles.add(titleKey);
@@ -284,94 +338,136 @@ async function getNews() {
   });
 
   uniqueItems.sort(
-    (a, b) => b.timestamp - a.timestamp
+    (a, b) => (b.timestamp || 0) - (a.timestamp || 0)
   );
 
   return {
+    app: APP_NAME,
     updatedAt: new Date().toISOString(),
     feedCount: feeds.length,
     connectedFeeds: feeds.filter(
-      feed => feed.status === "CONNECTED"
+      feed => feed.status === "CONNECTED" ||
+        feed.status === "DATE CHECK"
+    ).length,
+    errorFeeds: feeds.filter(
+      feed => feed.status === "ERROR"
     ).length,
     totalNews: uniqueItems.length,
+    newsDays: NEWS_DAYS,
     feeds,
     items: uniqueItems.slice(0, MAX_TOTAL_NEWS)
   };
 }
 
-// ================================================
-// NEWS HTML
-// ================================================
+// ==================================================
+// HTML RENDER HELPERS
+// ==================================================
+
+function statusClass(status) {
+  if (status === "CONNECTED") return "status-ok";
+  if (status === "DATE CHECK") return "status-warn";
+  if (status === "NO RECENT NEWS") return "status-warn";
+  return "status-error";
+}
+
+function renderFeedStatus(feed) {
+  return `
+    <article class="feed-card">
+      <div class="feed-top">
+        <div>
+          <h3>${escapeHtml(feed.name)}</h3>
+          <p>${escapeHtml(feed.description)}</p>
+        </div>
+        <span class="status ${statusClass(feed.status)}">
+          ${escapeHtml(feed.status)}
+        </span>
+      </div>
+
+      <div class="feed-numbers">
+        <span>News: <b>${feed.count}</b></span>
+        <span>Dated: <b>${feed.datedCount}</b></span>
+        <span>Undated: <b>${feed.undatedCount}</b></span>
+      </div>
+
+      ${
+        feed.error
+          ? `<p class="error-text">${escapeHtml(feed.error)}</p>`
+          : ""
+      }
+    </article>
+  `;
+}
 
 function renderNewsItem(item) {
   const link = safeUrl(item.link);
 
   const titleHtml = link
-    ? '<a href="' + escapeHtml(link) +
-      '" target="_blank" rel="noopener noreferrer">' +
-      escapeHtml(item.title) + '</a>'
-    : '<span>' + escapeHtml(item.title) + '</span>';
+    ? `<a href="${escapeHtml(link)}" target="_blank" rel="noopener noreferrer">${escapeHtml(item.title)}</a>`
+    : `<span>${escapeHtml(item.title)}</span>`;
+
+  const dateText = item.timestamp
+    ? formatNewsDate(item.timestamp)
+    : "Date unavailable — please verify original source";
+
+  const description = item.description
+    ? `<p class="description">${escapeHtml(item.description)}</p>`
+    : "";
 
   return `
-    <article class="item">
-      <div class="meta">
+    <article class="news-card">
+      <div class="news-meta">
         ${escapeHtml(item.source)}
         ·
-        ${escapeHtml(formatNewsDate(item.timestamp))}
+        ${escapeHtml(dateText)}
       </div>
 
-      <div class="pill neutral">
+      <span class="category">
         ${escapeHtml(item.category)}
-      </div>
+      </span>
 
-      <div class="headline">
-        ${titleHtml}
-      </div>
+      <h3>${titleHtml}</h3>
+
+      ${description}
+
+      ${
+        link
+          ? `<a class="read-link" href="${escapeHtml(link)}" target="_blank" rel="noopener noreferrer">Read original source ↗</a>`
+          : `<span class="muted">Original link unavailable</span>`
+      }
     </article>
   `;
 }
 
-function renderFeedStatus(feed) {
-  const statusClass =
-    feed.status === "CONNECTED"
-      ? "status-ok"
-      : feed.status === "NO RECENT NEWS"
-        ? "status-warn"
-        : "status-error";
+function renderFeedSections(feeds) {
+  return feeds.map(feed => {
+    const news = feed.items.length
+      ? feed.items.map(renderNewsItem).join("")
+      : `<p class="empty">इस स्रोत से अभी कोई हालिया खबर उपलब्ध नहीं है।</p>`;
 
-  return `
-    <div class="feed-status">
-      <div>
-        <strong>${escapeHtml(feed.name)}</strong>
-
-        <div class="muted">
-          ${feed.count} recent headlines
-          ${feed.error ? " · " + escapeHtml(feed.error) : ""}
+    return `
+      <section class="source-section" id="source-${escapeHtml(feed.id)}">
+        <div class="source-heading">
+          <div>
+            <h2>${escapeHtml(feed.name)}</h2>
+            <p>${escapeHtml(feed.description)}</p>
+          </div>
+          <span class="status ${statusClass(feed.status)}">
+            ${escapeHtml(feed.status)}
+          </span>
         </div>
-      </div>
-
-      <span class="status ${statusClass}">
-        ${escapeHtml(feed.status)}
-      </span>
-    </div>
-  `;
+        ${news}
+      </section>
+    `;
+  }).join("");
 }
 
-// ================================================
+// ==================================================
 // MAIN PAGE
-// ================================================
+// ==================================================
 
 function page(newsData) {
-  const items = newsData.items || [];
   const feeds = newsData.feeds || [];
-
-  const newsHtml = items.length
-    ? items.map(renderNewsItem).join("")
-    : '<p class="empty">No recent headlines available right now.</p>';
-
-  const feedStatusHtml = feeds.length
-    ? feeds.map(renderFeedStatus).join("")
-    : '<p class="muted">Feed status unavailable.</p>';
+  const items = newsData.items || [];
 
   const updatedAt = new Date(
     newsData.updatedAt || Date.now()
@@ -379,15 +475,20 @@ function page(newsData) {
     timeZone: "Asia/Kolkata"
   });
 
-  return `<!doctype html>
-<html lang="en">
+  const feedSections = renderFeedSections(feeds);
 
+  const total = newsData.totalNews || 0;
+  const connected = newsData.connectedFeeds || 0;
+  const errors = newsData.errorFeeds || 0;
+
+  return `<!doctype html>
+<html lang="hi">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="theme-color" content="#0b1220">
 
-<title>BADAL SEVERIYA V10.2</title>
+<title>${APP_NAME}</title>
 
 <style>
 * {
@@ -403,13 +504,19 @@ body {
 
 header {
   padding: 22px 16px;
-  background: #111c30;
+  background: linear-gradient(120deg,#111c30,#172b49);
   border-bottom: 1px solid #26344d;
+}
+
+.header-inner,
+.wrap {
+  max-width: 1000px;
+  margin: auto;
 }
 
 h1 {
   margin: 0;
-  font-size: 23px;
+  font-size: 24px;
 }
 
 header p {
@@ -418,22 +525,43 @@ header p {
 }
 
 .wrap {
-  max-width: 900px;
-  margin: auto;
   padding: 16px;
 }
 
 .panel {
   background: #121e32;
   border: 1px solid #263650;
-  border-radius: 12px;
+  border-radius: 14px;
   padding: 16px;
   margin: 16px 0;
 }
 
 h2 {
   font-size: 19px;
-  margin-top: 0;
+  margin: 0 0 12px;
+}
+
+h3 {
+  font-size: 15px;
+  margin: 0;
+}
+
+.muted,
+.feed-top p,
+.source-heading p {
+  color: #9aaac4;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.notice {
+  padding: 12px;
+  border: 1px solid #594b22;
+  background: #2a2414;
+  border-radius: 10px;
+  color: #f6df9b;
+  line-height: 1.5;
+  margin: 12px 0;
 }
 
 .btn {
@@ -442,7 +570,7 @@ h2 {
   color: white;
   border: 0;
   border-radius: 9px;
-  padding: 12px 15px;
+  padding: 11px 15px;
   font-weight: 700;
   font-size: 14px;
   margin: 5px 5px 5px 0;
@@ -455,8 +583,183 @@ h2 {
 }
 
 .btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
+  opacity: .5;
+}
+
+.stats {
+  display: grid;
+  grid-template-columns: repeat(3,minmax(0,1fr));
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.stat {
+  background: #080f1c;
+  border: 1px solid #263650;
+  border-radius: 10px;
+  padding: 12px;
+}
+
+.stat b {
+  display: block;
+  font-size: 23px;
+  margin-top: 4px;
+}
+
+.stat span {
+  color: #9aaac4;
+  font-size: 12px;
+}
+
+.feed-grid {
+  display: grid;
+  grid-template-columns: repeat(2,minmax(0,1fr));
+  gap: 10px;
+}
+
+.feed-card {
+  background: #080f1c;
+  border: 1px solid #263650;
+  border-radius: 11px;
+  padding: 13px;
+  min-width: 0;
+}
+
+.feed-top {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.feed-top h3 {
+  line-height: 1.4;
+}
+
+.feed-top p {
+  margin: 5px 0;
+}
+
+.feed-numbers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 12px;
+  color: #9aaac4;
+  font-size: 12px;
+}
+
+.feed-numbers b {
+  color: #e8eefc;
+}
+
+.status {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 800;
+  padding: 6px 8px;
+  border-radius: 20px;
+  white-space: nowrap;
+}
+
+.status-ok {
+  background: #123b2e;
+  color: #8df0c1;
+}
+
+.status-warn {
+  background: #493a1c;
+  color: #f6df9b;
+}
+
+.status-error {
+  background: #4a2028;
+  color: #ffabb4;
+}
+
+.error-text {
+  color: #ffabb4;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.source-section {
+  border-top: 1px solid #263650;
+  padding-top: 18px;
+  margin-top: 20px;
+}
+
+.source-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.source-heading p {
+  margin: 5px 0 0;
+}
+
+.news-card {
+  background: #080f1c;
+  border: 1px solid #263650;
+  border-radius: 11px;
+  padding: 14px;
+  margin: 10px 0;
+  overflow-wrap: anywhere;
+}
+
+.news-meta {
+  color: #9eafca;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.category {
+  display: inline-block;
+  padding: 4px 9px;
+  border-radius: 20px;
+  font-size: 11px;
+  margin-top: 8px;
+  background: #344056;
+  color: #d0daeb;
+}
+
+.news-card h3 {
+  margin-top: 9px;
+  line-height: 1.5;
+}
+
+.news-card h3 a {
+  color: #e8eefc;
+  text-decoration: none;
+}
+
+.news-card h3 a:hover {
+  text-decoration: underline;
+}
+
+.description {
+  color: #aab8d0;
+  font-size: 13px;
+  line-height: 1.6;
+  margin: 8px 0;
+}
+
+.read-link {
+  display: inline-block;
+  color: #8db7ff;
+  font-size: 12px;
+  margin-top: 10px;
+  text-decoration: none;
+}
+
+.empty {
+  color: #9aaac4;
+  padding: 12px;
+  background: #080f1c;
+  border-radius: 9px;
 }
 
 textarea {
@@ -478,16 +781,6 @@ input[type="file"] {
   color: #dce8ff;
 }
 
-.notice {
-  padding: 12px;
-  border: 1px solid #594b22;
-  background: #2a2414;
-  border-radius: 10px;
-  color: #f6df9b;
-  line-height: 1.5;
-  margin: 12px 0;
-}
-
 .result {
   background: #080f1c;
   border: 1px solid #40516d;
@@ -496,93 +789,7 @@ input[type="file"] {
   margin-top: 14px;
   overflow-wrap: anywhere;
   white-space: pre-wrap;
-}
-
-.muted {
-  color: #9aaac4;
   font-size: 13px;
-}
-
-.item {
-  background: #121e32;
-  border: 1px solid #263650;
-  border-radius: 12px;
-  padding: 15px;
-  margin: 11px 0;
-}
-
-.meta {
-  color: #9eafca;
-  font-size: 12px;
-}
-
-.headline {
-  margin-top: 8px;
-  line-height: 1.5;
-}
-
-.item a {
-  color: #dce8ff;
-  text-decoration: none;
-  font-weight: 650;
-}
-
-.item a:hover {
-  text-decoration: underline;
-}
-
-.pill {
-  display: inline-block;
-  padding: 4px 9px;
-  border-radius: 20px;
-  font-size: 11px;
-  margin-top: 8px;
-}
-
-.neutral {
-  background: #344056;
-  color: #d0daeb;
-}
-
-.feed-status {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 12px;
-  padding: 12px 0;
-  border-bottom: 1px solid #263650;
-}
-
-.feed-status:last-child {
-  border-bottom: 0;
-}
-
-.status {
-  font-size: 11px;
-  font-weight: 700;
-  padding: 5px 8px;
-  border-radius: 20px;
-  white-space: nowrap;
-}
-
-.status-ok {
-  background: #123b2e;
-  color: #8df0c1;
-}
-
-.status-warn {
-  background: #493a1c;
-  color: #f6df9b;
-}
-
-.status-error {
-  background: #4a2028;
-  color: #ffabb4;
-}
-
-.empty {
-  color: #9aaac4;
-  padding: 10px 0;
 }
 
 footer {
@@ -592,10 +799,25 @@ footer {
   line-height: 1.6;
 }
 
-@media (max-width: 480px) {
-  .feed-status {
-    align-items: flex-start;
-    flex-direction: column;
+@media(max-width:650px) {
+  .feed-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .stats {
+    grid-template-columns: repeat(3,minmax(0,1fr));
+  }
+
+  .stat {
+    padding: 9px;
+  }
+
+  .stat b {
+    font-size: 19px;
+  }
+
+  h1 {
+    font-size: 21px;
   }
 }
 </style>
@@ -604,27 +826,79 @@ footer {
 <body>
 
 <header>
-  <div class="wrap">
-    <h1>BADAL SEVERIYA V10.2</h1>
-    <p>Market Data Intelligence Prototype</p>
+  <div class="header-inner">
+    <h1>BADAL SEVERIYA V10.3</h1>
+    <p>Smart News & Historical Market Analysis</p>
   </div>
 </header>
 
 <main class="wrap">
 
   <section class="panel">
-
-    <h2>Market Engine Test</h2>
+    <h2>News Engine Dashboard</h2>
 
     <p class="muted">
-      Generate demo candles, upload a JSON file,
-      or paste historical OHLCV data.
+      Last checked: ${escapeHtml(updatedAt)} IST
+    </p>
+
+    <div class="stats">
+      <div class="stat">
+        <span>Connected Feeds</span>
+        <b>${connected}/${feeds.length}</b>
+      </div>
+
+      <div class="stat">
+        <span>Feed Errors</span>
+        <b>${errors}</b>
+      </div>
+
+      <div class="stat">
+        <span>News Headlines</span>
+        <b>${total}</b>
+      </div>
+    </div>
+
+    <p class="notice">
+      समाचार आधिकारिक स्रोतों से लिए जाते हैं।
+      समाचार का होना किसी बाजार प्रभाव, दिशा या भविष्य के मूल्य की पुष्टि नहीं करता।
+      खबरों को मूल स्रोत से सत्यापित करें।
+    </p>
+
+    <a class="btn" href="/?refresh=1">Refresh All News</a>
+    <a class="btn secondary" href="/api/news">View News API</a>
+  </section>
+
+  <section class="panel">
+    <h2>All News Feed Status</h2>
+    <p class="muted">
+      हर स्रोत की स्थिति अलग से दिखाई गई है।
+    </p>
+
+    <div class="feed-grid">
+      ${feeds.map(renderFeedStatus).join("")}
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>News By Source</h2>
+    <p class="muted">
+      RBI, SEBI, NSE और Global Economy की खबरें अलग-अलग।
+    </p>
+
+    ${feedSections || '<p class="empty">Feed data unavailable.</p>'}
+  </section>
+
+  <section class="panel">
+    <h2>Historical Market Analysis</h2>
+
+    <p class="muted">
+      Historical OHLCV data से तकनीकी गणना।
     </p>
 
     <div class="notice">
-      Demo data is synthetic and is not actual NIFTY market data.
-      Historical indicator results are educational calculations,
-      not forecasts or trading recommendations.
+      Demo candles वास्तविक NIFTY डेटा नहीं हैं।
+      यह सुविधा केवल ऐतिहासिक और शैक्षिक विश्लेषण के लिए है।
+      यह भविष्यवाणी या ट्रेडिंग सलाह नहीं देती।
     </div>
 
     <button class="btn secondary" id="demoButton">
@@ -640,8 +914,8 @@ footer {
     <h2>Historical JSON Data Import</h2>
 
     <p class="muted">
-      Select a JSON file containing a candles array or a direct
-      array of OHLCV candles. Maximum file size: 2 MB.
+      JSON file में candles array या direct OHLCV array होना चाहिए।
+      Maximum file size: 2 MB.
     </p>
 
     <input
@@ -660,49 +934,18 @@ footer {
 
     <textarea
       id="candleInput"
-      placeholder="Paste JSON candle data here."
+      placeholder="Paste historical JSON candle data here."
     ></textarea>
 
     <div id="result" class="result">
-      <p class="muted">Analysis result will appear here.</p>
+      Analysis result will appear here.
     </div>
-
-  </section>
-
-  <section class="panel">
-
-    <h2>News Feed Status</h2>
-
-    <p class="muted">
-      Official news sources are checked separately.
-    </p>
-
-    ${feedStatusHtml}
-
-  </section>
-
-  <section class="panel">
-
-    <h2>Market News</h2>
-
-    <p class="muted">
-      Updated: ${escapeHtml(updatedAt)} (IST)
-      · Showing dated news from the last ${NEWS_DAYS} days.
-    </p>
-
-    <a class="btn" href="/">Refresh news</a>
-
-    <section id="news">
-      ${newsHtml}
-    </section>
-
   </section>
 
   <footer>
-    BADAL SEVERIYA V10.2 — Educational prototype.
-    News items are official-source updates, not verified
-    market-impact measurements or future price predictions.
-    Historical indicators are educational calculations only.
+    ${APP_NAME} — Educational prototype only.
+    No live market connection, future prediction,
+    or trading recommendation is provided.
   </footer>
 
 </main>
@@ -724,24 +967,18 @@ footer {
   function extractCandles(data) {
     if (Array.isArray(data)) return data;
 
-    if (
-      data &&
-      typeof data === "object" &&
-      Array.isArray(data.candles)
-    ) {
+    if (data && typeof data === "object" &&
+        Array.isArray(data.candles)) {
       return data.candles;
     }
 
-    if (
-      data &&
-      typeof data === "object" &&
-      Array.isArray(data.data)
-    ) {
+    if (data && typeof data === "object" &&
+        Array.isArray(data.data)) {
       return data.data;
     }
 
     throw new Error(
-      "JSON must contain a candle array or a candles property."
+      "JSON must contain a candles array or direct array."
     );
   }
 
@@ -757,16 +994,14 @@ footer {
       );
     }
 
-    if (candles.length > 5000) {
+    if (candles.length > ${MAX_CANDLES}) {
       throw new Error("Maximum 5000 candles are allowed.");
     }
 
     return candles;
   }
 
-  // ----------------------------------------------
   // DEMO CANDLES
-  // ----------------------------------------------
 
   demoButton.addEventListener("click", function() {
     const candles = [];
@@ -805,9 +1040,7 @@ footer {
     );
   });
 
-  // ----------------------------------------------
   // JSON FILE IMPORT
-  // ----------------------------------------------
 
   jsonFile.addEventListener("change", async function() {
     const file = jsonFile.files[0];
@@ -816,7 +1049,7 @@ footer {
 
     if (file.size > 2 * 1024 * 1024) {
       showMessage(
-        "File is too large. Maximum allowed size is 2 MB."
+        "File too large. Maximum allowed size is 2 MB."
       );
 
       jsonFile.value = "";
@@ -832,10 +1065,7 @@ footer {
     try {
       const text = await file.text();
       const parsed = JSON.parse(text);
-
-      const candles = checkCandles(
-        extractCandles(parsed)
-      );
+      const candles = checkCandles(extractCandles(parsed));
 
       input.value = JSON.stringify(candles, null, 2);
 
@@ -853,9 +1083,7 @@ footer {
     }
   });
 
-  // ----------------------------------------------
   // CLEAR DATA
-  // ----------------------------------------------
 
   clearButton.addEventListener("click", function() {
     input.value = "";
@@ -864,13 +1092,11 @@ footer {
     fileStatus.textContent = "Data cleared.";
 
     showMessage(
-      "Data cleared. Upload a JSON file or generate demo candles."
+      "Data cleared. Upload JSON or generate demo candles."
     );
   });
 
-  // ----------------------------------------------
   // HISTORICAL ANALYSIS
-  // ----------------------------------------------
 
   analyzeButton.addEventListener("click", async function() {
     analyzeButton.disabled = true;
@@ -879,10 +1105,7 @@ footer {
 
     try {
       const parsed = JSON.parse(input.value);
-
-      const candles = checkCandles(
-        extractCandles(parsed)
-      );
+      const candles = checkCandles(extractCandles(parsed));
 
       const response = await fetch("/api/analyze", {
         method: "POST",
@@ -904,8 +1127,7 @@ footer {
       result.textContent = JSON.stringify(data, null, 2);
 
     } catch (error) {
-      result.textContent =
-        "TEST ERROR: " + error.message;
+      result.textContent = "TEST ERROR: " + error.message;
 
     } finally {
       analyzeButton.disabled = false;
@@ -919,34 +1141,31 @@ footer {
 </html>`;
 }
 
-// ================================================
+// ==================================================
 // CLOUDFLARE WORKER
-// ================================================
+// ==================================================
 
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
 
-    // --------------------------------------------
     // HEALTH CHECK
-    // --------------------------------------------
 
     if (url.pathname === "/api/health") {
       return Response.json({
         ok: true,
-        app: "BADAL SEVERIYA V10.2",
-        mode: "prototype",
+        app: APP_NAME,
+        mode: "educational-prototype",
         marketEngine: "connected",
         jsonImport: "client-side-enabled",
         newsEngine: "official-sources",
         newsDays: NEWS_DAYS,
-        feedsConfigured: FEEDS.length
+        feedsConfigured: FEEDS.length,
+        dashboard: "v10.3"
       });
     }
 
-    // --------------------------------------------
     // NEWS API
-    // --------------------------------------------
 
     if (url.pathname === "/api/news") {
       if (request.method !== "GET") {
@@ -965,9 +1184,7 @@ export default {
       });
     }
 
-    // --------------------------------------------
     // HISTORICAL ANALYSIS API
-    // --------------------------------------------
 
     if (url.pathname === "/api/analyze") {
       if (request.method !== "POST") {
@@ -987,7 +1204,7 @@ export default {
           }, { status: 400 });
         }
 
-        if (body.candles.length > 5000) {
+        if (body.candles.length > MAX_CANDLES) {
           return Response.json({
             status: "DATA_LIMIT_EXCEEDED",
             error: "Maximum 5000 candles allowed"
@@ -997,7 +1214,7 @@ export default {
         const result = analyzeMarket(body.candles);
 
         return Response.json({
-          app: "BADAL SEVERIYA V10.2",
+          app: APP_NAME,
           analysisTime: new Date().toISOString(),
           result
         }, {
@@ -1017,9 +1234,7 @@ export default {
       }
     }
 
-    // --------------------------------------------
-    // HOME PAGE
-    // --------------------------------------------
+    // MAIN PAGE
 
     if (
       url.pathname === "/" ||

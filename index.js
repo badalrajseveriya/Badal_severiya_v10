@@ -2,12 +2,12 @@
 import { analyzeMarket } from "./market-data.js";
 
 // ==================================================
-// BADAL SEVERIYA V10.6
+// BADAL SEVERIYA V11.0
 // SMART NEWS + HISTORICAL MARKET DASHBOARD
 // Educational prototype only
 // ==================================================
 
-const APP_NAME = "BADAL SEVERIYA V10.6";
+const APP_NAME = "BADAL SEVERIYA V11.0";
 
 const NEWS_DAYS = 30;
 const OLD_FINANCIAL_PERIOD_DAYS = 180;
@@ -498,7 +498,6 @@ function parseEntry(entry, feed) {
     label: feed.category
   };
 
-  // Financial period is reviewed only for NSE results.
   if (feed.id === "nse-results") {
     Object.assign(
       item,
@@ -619,7 +618,7 @@ async function fetchSebiWebsiteFallback(feed) {
     headers: {
       "Accept": "text/html,application/xhtml+xml",
       "Accept-Language": "en-IN,en;q=0.9",
-      "User-Agent": "Mozilla/5.0 (compatible; BadalSeveriyaNews/6.0)"
+      "User-Agent": "Mozilla/5.0 (compatible; BadalSeveriyaNews/11.0)"
     },
     cf: {
       cacheTtl: 0,
@@ -685,7 +684,7 @@ async function fetchFeed(feed) {
       method: "GET",
       redirect: "follow",
       headers: {
-        "User-Agent": "Mozilla/5.0 (compatible; BadalSeveriyaNews/6.0)",
+        "User-Agent": "Mozilla/5.0 (compatible; BadalSeveriyaNews/11.0)",
         "Accept": "application/rss+xml, application/atom+xml, application/xml, text/xml, */*",
         "Accept-Language": "en-IN,en;q=0.9",
         "Referer": "https://www.sebi.gov.in/"
@@ -736,7 +735,6 @@ async function fetchFeed(feed) {
       .filter(item => {
         if (!item.title) return false;
 
-        // Undated entries are retained but marked for verification.
         if (!item.timestamp) return true;
 
         return isRecent(item.timestamp);
@@ -878,8 +876,6 @@ function deduplicateNews(items) {
       return true;
     }
 
-    // Do not remove same headline from different sources
-    // unless source and publication timestamp also match.
     const fallbackKey = [
       item.id || item.source || "",
       titleKey,
@@ -923,7 +919,7 @@ async function getNews() {
 
   return {
     app: APP_NAME,
-    version: "10.6",
+    version: "11.0",
     updatedAt: new Date().toISOString(),
     feedCount: feeds.length,
     connectedFeeds: feeds.filter(
@@ -1789,7 +1785,7 @@ export default {
       return Response.json({
         ok: true,
         app: APP_NAME,
-        version: "10.6",
+        version: "11.0",
         mode: "educational-prototype",
         marketEngine: "connected",
         jsonImport: "client-side-enabled",
@@ -1799,7 +1795,7 @@ export default {
         financialPeriodCheck: "enabled",
         duplicateCheck: "enabled",
         feedsConfigured: FEEDS.length,
-        dashboard: "v10.6"
+        dashboard: "v11.0"
       });
     }
 

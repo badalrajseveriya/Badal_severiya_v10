@@ -2,12 +2,12 @@
 import { analyzeMarket } from "./market-data.js";
 
 // ==================================================
-// BADAL SEVERIYA V10.3
+// BADAL SEVERIYA V10.4
 // SMART NEWS + HISTORICAL MARKET DASHBOARD
 // Educational prototype only
 // ==================================================
 
-const APP_NAME = "BADAL SEVERIYA V10.3";
+const APP_NAME = "BADAL SEVERIYA V10.4";
 const NEWS_DAYS = 30;
 const MAX_ITEMS_PER_FEED = 15;
 const MAX_TOTAL_NEWS = 75;
@@ -72,22 +72,34 @@ function decodeXml(value = "") {
         return "";
       }
     })
-    .replace(/&amp;/g, "&")
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;|&apos;/g, "'")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
+    .replace(/&amp;/gi, "&")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;|&apos;/gi, "'")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
     .replace(/<[^>]*>/g, "")
+    .replace(/\s+/g, " ")
     .trim();
 }
 
 function getTag(xml, name) {
+  const safeName = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
   const pattern = new RegExp(
-    `<(?:[\\w.-]+:)?${name}\\b[^>]*>([\\s\\S]*?)<\\/(?:[\\w.-]+:)?${name}\\s*>`,
+    `<(?:[\\w.-]+:)?${safeName}\\b[^>]*>([\\s\\S]*?)<\\/(?:[\\w.-]+:)?${safeName}\\s*>`,
     "i"
   );
 
   const match = String(xml || "").match(pattern);
+  return match ? decodeXml(match[1]) : "";
+}
+
+function getAttribute(tag, name) {
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const match = String(tag || "").match(
+    new RegExp("\\b" + escaped + "\\s*=\\s*[\"']([^\"']*)[\"']", "i")
+  );
+
   return match ? decodeXml(match[1]) : "";
 }
 
@@ -97,11 +109,11 @@ function getAtomLink(xml) {
   ) || [];
 
   for (const tag of tags) {
-    const rel = tag.match(/\brel=["']([^"']+)["']/i);
-    const href = tag.match(/\bhref=["']([^"']+)["']/i);
+    const rel = getAttribute(tag, "rel");
+    const href = getAttribute(tag, "href");
 
-    if (href && (!rel || rel[1] === "alternate")) {
-      return decodeXml(href[1]);
+    if (href && (!rel || rel === "alternate")) {
+      return href;
     }
   }
 
@@ -111,6 +123,7 @@ function getAtomLink(xml) {
 function extractEntries(xml) {
   const source = String(xml || "");
 
+  // Standard RSS 2.0
   const rss = [
     ...source.matchAll(
       /<(?:[\w.-]+:)?item\b[^>]*>([\s\S]*?)<\/(?:[\w.-]+:)?item\s*>/gi
@@ -119,11 +132,26 @@ function extractEntries(xml) {
 
   if (rss.length) return rss;
 
-  return [
+  // Atom
+  const atom = [
     ...source.matchAll(
       /<(?:[\w.-]+:)?entry\b[^>]*>([\s\S]*?)<\/(?:[\w.-]+:)?entry\s*>/gi
     )
   ].map(match => match[1]);
+
+  if (atom.length) return atom;
+
+  // RDF/RSS 1.0 fallback
+  const rdf = [
+    ...source.matchAll(
+      /<(?:[\w.-]+:)?Description\b[^>]*>[\s\S]*?<\/(?:[\w.-]+:)?Description\s*>/gi
+    )
+  ].map(match => match[0]);
+
+  return rdf.filter(entry =>
+    getTag(entry, "title") &&
+    (getTag(entry, "link") || getAttribute(entry, "about"))
+  );
 }
 
 // ==================================================
@@ -159,7 +187,28 @@ function safeUrl(value) {
 function parseNewsDate(value) {
   if (!value) return null;
 
-  const timestamp = Date.parse(value);
+  let input = String(value).trim();
+
+  // Handle dates such as: 12 Nov, 2026 +0530
+  input = input.replace(
+    /(\d{1,2}\s+[A-Za-z]{3,9},?\s+\d{4})\s+([+-]\d{4})$/,
+    "$1 $2"
+  );
+
+  // Handle common SEBI date format: 12 Nov, 2026
+  let timestamp = Date.parse(input);
+
+  if (!Number.isFinite(timestamp)) {
+    const match = input.match(
+      /(\d{1,2})\s+([A-Za-z]{3,9}),?\s+(\d{4})/
+    );
+
+    if (match) {
+      timestamp = Date.parse(
+        match[1] + " " + match[2] + " " + match[3]
+      );
+    }
+  }
 
   return Number.isFinite(timestamp) ? timestamp : null;
 }
@@ -183,19 +232,72 @@ function formatNewsDate(timestamp) {
 }
 
 // ==================================================
+// PARSE ONE ENTRY
+// ==================================================
+
+function parseEntry(entry, feed) {
+  const title = getTag(entry, "title");
+
+  const description =
+    getTag(entry, "description") ||
+    getTag(entry, "summary") ||
+    getTag(entry, "encoded") ||
+    getTag(entry, "content");
+
+  const pubDate =
+    getTag(entry, "pubDate") ||
+    getTag(entry, "published") ||
+    getTag(entry, "updated") ||
+    getTag(entry, "date") ||
+    getTag(entry, "issued") ||
+    getTag(entry, "created");
+
+  let link = getAtomLink(entry);
+
+  // RDF description may store the URL in rdf:about
+  if (!link) {
+    const openingTag = entry.match(/^<[^>]+>/);
+    if (openingTag) {
+      link =
+        getAttribute(openingTag[0], "rdf:about") ||
+        getAttribute(openingTag[0], "about");
+    }
+  }
+
+  const timestamp = parseNewsDate(pubDate);
+
+  return {
+    id: feed.id,
+    source: feed.name,
+    category: feed.category,
+    title,
+    description,
+    link: safeUrl(link),
+    pubDate,
+    timestamp,
+    dateAvailable: Boolean(timestamp),
+    label: feed.category
+  };
+}
+
+// ==================================================
 // FETCH ONE FEED
 // ==================================================
 
 async function fetchFeed(feed) {
   try {
     const response = await fetch(feed.url, {
+      method: "GET",
+      redirect: "follow",
       headers: {
-        "User-Agent": "BadalSeveriyaNews/3.0",
-        "Accept": "application/rss+xml, application/atom+xml, application/xml, text/xml"
+        "User-Agent": "Mozilla/5.0 (compatible; BadalSeveriyaNews/3.1)",
+        "Accept": "application/rss+xml, application/atom+xml, application/xml, text/xml, */*",
+        "Accept-Language": "en-IN,en;q=0.9",
+        "Referer": "https://www.sebi.gov.in/"
       },
       cf: {
-        cacheTtl: 120,
-        cacheEverything: true
+        cacheTtl: 0,
+        cacheEverything: false
       }
     });
 
@@ -203,55 +305,49 @@ async function fetchFeed(feed) {
       throw new Error("HTTP " + response.status);
     }
 
+    const contentType =
+      response.headers.get("content-type") || "";
+
     const xml = await response.text();
 
     if (!xml || !xml.trim()) {
       throw new Error("Empty feed response");
     }
 
+    // Detect HTML error pages returned with HTTP 200
+    const beginning = xml.trim().slice(0, 500).toLowerCase();
+
+    if (
+      beginning.startsWith("<!doctype html") ||
+      beginning.startsWith("<html") ||
+      beginning.includes("<title>access denied") ||
+      beginning.includes("captcha")
+    ) {
+      throw new Error(
+        "Source returned HTML instead of RSS/XML. Content-Type: " +
+        contentType
+      );
+    }
+
     const entries = extractEntries(xml);
 
     if (!entries.length) {
-      throw new Error("No RSS or Atom entries found");
+      throw new Error(
+        "XML received, but no RSS item, Atom entry or RDF description found. Content-Type: " +
+        contentType
+      );
     }
 
-    const parsedItems = entries.map(entry => {
-      const title = getTag(entry, "title");
+    const parsedItems = entries
+      .map(entry => parseEntry(entry, feed))
+      .filter(item => {
+        if (!item.title) return false;
 
-      const description =
-        getTag(entry, "description") ||
-        getTag(entry, "summary") ||
-        getTag(entry, "content");
+        // Keep undated entries visible, but mark them clearly.
+        if (!item.timestamp) return true;
 
-      const pubDate =
-        getTag(entry, "pubDate") ||
-        getTag(entry, "published") ||
-        getTag(entry, "updated") ||
-        getTag(entry, "date");
-
-      const link = getAtomLink(entry);
-      const timestamp = parseNewsDate(pubDate);
-
-      return {
-        id: feed.id,
-        source: feed.name,
-        category: feed.category,
-        title,
-        description,
-        link: safeUrl(link),
-        pubDate,
-        timestamp,
-        dateAvailable: Boolean(timestamp),
-        label: feed.category
-      };
-    }).filter(item => {
-      if (!item.title) return false;
-
-      // Keep undated entries visible, but mark them clearly.
-      if (!item.timestamp) return true;
-
-      return isRecent(item.timestamp);
-    });
+        return isRecent(item.timestamp);
+      });
 
     parsedItems.sort((a, b) =>
       (b.timestamp || 0) - (a.timestamp || 0)
@@ -467,7 +563,6 @@ function renderFeedSections(feeds) {
 
 function page(newsData) {
   const feeds = newsData.feeds || [];
-  const items = newsData.items || [];
 
   const updatedAt = new Date(
     newsData.updatedAt || Date.now()
@@ -827,7 +922,7 @@ footer {
 
 <header>
   <div class="header-inner">
-    <h1>BADAL SEVERIYA V10.3</h1>
+    <h1>BADAL SEVERIYA V10.4</h1>
     <p>Smart News & Historical Market Analysis</p>
   </div>
 </header>
@@ -1161,7 +1256,7 @@ export default {
         newsEngine: "official-sources",
         newsDays: NEWS_DAYS,
         feedsConfigured: FEEDS.length,
-        dashboard: "v10.3"
+        dashboard: "v10.4"
       });
     }
 

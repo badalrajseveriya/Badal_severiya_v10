@@ -1,6 +1,14 @@
 
 import { analyzeMarket } from "./market-data.js";
 
+// ================================================
+// BADAL SEVERIYA V10.1 - NEWS ENGINE FIX
+// ================================================
+
+const NEWS_DAYS = 30;
+const MAX_ITEMS_PER_FEED = 10;
+const MAX_TOTAL_NEWS = 40;
+
 const FEEDS = [
   {
     name: "NIFTY / Indian Markets",
@@ -20,21 +28,60 @@ const FEEDS = [
   }
 ];
 
+// These are headline indicators, not verified market-impact signals.
 const POSITIVE = [
-  "beats estimates", "profit rises", "growth", "surge",
-  "record high", "rate cut", "approval", "strong results",
-  "inflows", "upgrade"
+  "beats estimates",
+  "profit rises",
+  "profit increased",
+  "record high",
+  "rate cut",
+  "strong results",
+  "foreign inflows",
+  "inflows rise",
+  "shares gain",
+  "market gains",
+  "stocks rise",
+  "inflation eases",
+  "gdp growth projected",
+  "earnings beat",
+  "upgrade",
+  "debt reduced"
 ];
 
 const NEGATIVE = [
-  "misses estimates", "loss widens", "decline", "falls",
-  "crash", "rate hike", "warning", "fraud",
-  "outflows", "downgrade", "ban"
+  "misses estimates",
+  "loss widens",
+  "rate hike",
+  "heavy outflows",
+  "outflows rise",
+  "market falls",
+  "shares fall",
+  "stocks decline",
+  "sell-off",
+  "sharp decline",
+  "profit falls",
+  "earnings miss",
+  "fraud",
+  "default",
+  "downgrade",
+  "inflation rises",
+  "recession fears",
+  "growth slows"
 ];
 
-function decodeXml(s = "") {
-  return s
-    .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, "$1")
+// ================================================
+// XML HELPERS
+// ================================================
+
+function decodeXml(value = "") {
+  return String(value)
+    .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/gi, "$1")
+    .replace(/&#x([0-9a-f]+);/gi, (_, code) =>
+      String.fromCodePoint(parseInt(code, 16))
+    )
+    .replace(/&#([0-9]+);/g, (_, code) =>
+      String.fromCodePoint(parseInt(code, 10))
+    )
     .replace(/&amp;/g, "&")
     .replace(/&quot;/g, '"')
     .replace(/&#39;|&apos;/g, "'")
@@ -44,26 +91,58 @@ function decodeXml(s = "") {
     .trim();
 }
 
-function tag(xml, name) {
-  const m = xml.match(
-    new RegExp(
-      `<${name}(?:\\s[^>]*)?>([\\s\\S]*?)</${name}>`,
-      "i"
-    )
+function getTag(xml, name) {
+  const pattern = new RegExp(
+    `<(?:[\\w.-]+:)?${name}\\b[^>]*>([\\s\\S]*?)<\\/(?:[\\w.-]+:)?${name}\\s*>`,
+    "i"
   );
-  return m ? decodeXml(m[1]) : "";
+
+  const match = String(xml || "").match(pattern);
+  return match ? decodeXml(match[1]) : "";
 }
 
+function getAtomLink(xml) {
+  const links = String(xml || "").match(
+    /<(?:[\w.-]+:)?link\b[^>]*>/gi
+  ) || [];
+
+  for (const linkTag of links) {
+    const rel = linkTag.match(/\brel=["']([^"']+)["']/i);
+    const href = linkTag.match(/\bhref=["']([^"']+)["']/i);
+
+    if (
+      href &&
+      (!rel || rel[1] === "alternate")
+    ) {
+      return decodeXml(href[1]);
+    }
+  }
+
+  return getTag(xml, "link");
+}
+
+function extractEntries(xml) {
+  const matches = [
+    ...String(xml || "").matchAll(
+      /<(item|entry)\b[^>]*>([\s\S]*?)<\/\1\s*>/gi
+    )
+  ];
+
+  return matches.map(match => match[2]);
+}
+
+// ================================================
+// SECURITY HELPERS
+// ================================================
+
 function escapeHtml(value) {
-  return String(value || "").replace(/[&<>"']/g, function(c) {
-    return {
-      "&": "&amp;",
-      "<": "&lt;",
-      ">": "&gt;",
-      '"': "&quot;",
-      "'": "&#39;"
-    }[c];
-  });
+  return String(value ?? "").replace(/[&<>"']/g, char => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#39;"
+  })[char]);
 }
 
 function safeUrl(value) {
@@ -75,86 +154,195 @@ function safeUrl(value) {
   }
 }
 
+// ================================================
+// NEWS CLASSIFICATION
+// ================================================
+
 function classify(title, description) {
-  const text = (title + " " + description).toLowerCase();
+  const text = (title + " " + description)
+    .toLowerCase()
+    .replace(/\s+/g, " ");
 
-  const positiveCount =
-    POSITIVE.filter(k => text.includes(k)).length;
+  const positiveCount = POSITIVE.filter(
+    phrase => text.includes(phrase)
+  ).length;
 
-  const negativeCount =
-    NEGATIVE.filter(k => text.includes(k)).length;
+  const negativeCount = NEGATIVE.filter(
+    phrase => text.includes(phrase)
+  ).length;
 
   if (positiveCount > negativeCount) {
-    return { label: "Positive keywords", tone: "positive" };
+    return {
+      label: "Positive indicators",
+      tone: "positive"
+    };
   }
 
   if (negativeCount > positiveCount) {
-    return { label: "Negative keywords", tone: "negative" };
+    return {
+      label: "Negative indicators",
+      tone: "negative"
+    };
   }
 
-  return { label: "Needs review", tone: "neutral" };
+  return {
+    label: "Needs review",
+    tone: "neutral"
+  };
 }
+
+// ================================================
+// DATE HELPERS
+// ================================================
+
+function parseNewsDate(value) {
+  if (!value) return null;
+
+  const timestamp = Date.parse(value);
+
+  if (!Number.isFinite(timestamp)) return null;
+
+  return timestamp;
+}
+
+function isRecent(timestamp) {
+  if (!timestamp) return false;
+
+  const now = Date.now();
+  const cutoff = now - NEWS_DAYS * 24 * 60 * 60 * 1000;
+
+  return timestamp >= cutoff && timestamp <= now + 5 * 60 * 1000;
+}
+
+// ================================================
+// FETCH ONE NEWS FEED
+// ================================================
+
+async function fetchFeed(feed) {
+  try {
+    const response = await fetch(feed.url, {
+      headers: {
+        "User-Agent": "BadalSeveriyaNews/1.1",
+        "Accept": "application/rss+xml, application/atom+xml, application/xml, text/xml"
+      },
+      cf: {
+        cacheTtl: 120,
+        cacheEverything: true
+      }
+    });
+
+    if (!response.ok) {
+      throw new Error("HTTP " + response.status);
+    }
+
+    const xml = await response.text();
+
+    if (!xml || !xml.trim()) {
+      throw new Error("Empty feed response");
+    }
+
+    const entries = extractEntries(xml);
+
+    if (!entries.length) {
+      throw new Error("No RSS or Atom entries found");
+    }
+
+    const news = entries.map(entry => {
+      const title = getTag(entry, "title");
+
+      const description =
+        getTag(entry, "description") ||
+        getTag(entry, "summary") ||
+        getTag(entry, "content");
+
+      const pubDate =
+        getTag(entry, "pubDate") ||
+        getTag(entry, "published") ||
+        getTag(entry, "updated") ||
+        getTag(entry, "date");
+
+      const link = getAtomLink(entry);
+      const timestamp = parseNewsDate(pubDate);
+
+      return {
+        source: feed.name,
+        title,
+        link: safeUrl(link),
+        pubDate,
+        timestamp,
+        ...classify(title, description)
+      };
+    }).filter(item => {
+      return (
+        item.title &&
+        item.timestamp &&
+        isRecent(item.timestamp)
+      );
+    });
+
+    const limitedNews = news
+      .sort((a, b) => b.timestamp - a.timestamp)
+      .slice(0, MAX_ITEMS_PER_FEED);
+
+    return {
+      name: feed.name,
+      status: limitedNews.length ? "CONNECTED" : "NO RECENT NEWS",
+      count: limitedNews.length,
+      error: null,
+      items: limitedNews
+    };
+
+  } catch (error) {
+    return {
+      name: feed.name,
+      status: "ERROR",
+      count: 0,
+      error: String(error?.message || "Feed request failed"),
+      items: []
+    };
+  }
+}
+
+// ================================================
+// FETCH ALL NEWS
+// ================================================
 
 async function getNews() {
-  const results = await Promise.all(
-    FEEDS.map(async feed => {
-      try {
-        const response = await fetch(feed.url, {
-          headers: {
-            "User-Agent": "BadalSeveriyaNews/1.0"
-          },
-          cf: {
-            cacheTtl: 300,
-            cacheEverything: true
-          }
-        });
-
-        if (!response.ok) {
-          throw new Error("Feed returned " + response.status);
-        }
-
-        const xml = await response.text();
-
-        const items = [
-          ...xml.matchAll(
-            /<item(?:\s[^>]*)?>([\s\S]*?)<\/item>/gi
-          )
-        ].slice(0, 12);
-
-        return items.map(match => {
-          const item = match[1];
-          const title = tag(item, "title");
-          const link = tag(item, "link");
-          const pubDate = tag(item, "pubDate");
-          const description = tag(item, "description");
-
-          return {
-            source: feed.name,
-            title,
-            link,
-            pubDate,
-            ...classify(title, description)
-          };
-        }).filter(item => item.title);
-
-      } catch {
-        return [{
-          source: feed.name,
-          title: "Feed temporarily unavailable",
-          link: "",
-          pubDate: "",
-          label: "No data",
-          tone: "neutral"
-        }];
-      }
-    })
+  const feeds = await Promise.all(
+    FEEDS.map(feed => fetchFeed(feed))
   );
 
-  return results.flat().sort((a, b) =>
-    (Date.parse(b.pubDate) || 0) -
-    (Date.parse(a.pubDate) || 0)
+  const allItems = feeds.flatMap(feed => feed.items);
+
+  // Remove duplicate headlines.
+  const seen = new Set();
+
+  const uniqueItems = allItems.filter(item => {
+    const key = item.title
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, " ")
+      .trim();
+
+    if (!key || seen.has(key)) return false;
+
+    seen.add(key);
+    return true;
+  });
+
+  uniqueItems.sort(
+    (a, b) => b.timestamp - a.timestamp
   );
+
+  return {
+    updatedAt: new Date().toISOString(),
+    feeds,
+    items: uniqueItems.slice(0, MAX_TOTAL_NEWS)
+  };
 }
+
+// ================================================
+// NEWS HTML
+// ================================================
 
 function renderNewsItem(item) {
   const tone = ["positive", "negative", "neutral"].includes(item.tone)
@@ -169,25 +357,69 @@ function renderNewsItem(item) {
       escapeHtml(item.title) + '</a>'
     : '<span>' + escapeHtml(item.title) + '</span>';
 
+  const dateText = item.timestamp
+    ? new Date(item.timestamp).toLocaleString("en-IN", {
+        timeZone: "Asia/Kolkata"
+      }) + " IST"
+    : "Date unavailable";
+
   return `
     <article class="item">
       <div class="meta">
-        ${escapeHtml(item.source)}
-        ·
-        ${escapeHtml(item.pubDate || "Date unavailable")}
+        ${escapeHtml(item.source)} · ${escapeHtml(dateText)}
       </div>
+
       <div class="pill ${tone}">
         ${escapeHtml(item.label)}
       </div>
-      <div class="headline">${titleHtml}</div>
+
+      <div class="headline">
+        ${titleHtml}
+      </div>
     </article>
   `;
 }
 
-function page(items) {
+function renderFeedStatus(feed) {
+  const statusClass =
+    feed.status === "CONNECTED"
+      ? "status-ok"
+      : feed.status === "NO RECENT NEWS"
+        ? "status-warn"
+        : "status-error";
+
+  return `
+    <div class="feed-status">
+      <div>
+        <strong>${escapeHtml(feed.name)}</strong>
+        <div class="muted">
+          ${feed.count} recent headlines
+          ${feed.error ? " · " + escapeHtml(feed.error) : ""}
+        </div>
+      </div>
+
+      <span class="status ${statusClass}">
+        ${escapeHtml(feed.status)}
+      </span>
+    </div>
+  `;
+}
+
+// ================================================
+// PAGE
+// ================================================
+
+function page(newsData) {
+  const items = newsData.items || [];
+  const feeds = newsData.feeds || [];
+
   const newsHtml = items.length
     ? items.map(renderNewsItem).join("")
-    : '<p class="empty">No headlines available right now.</p>';
+    : '<p class="empty">No recent headlines available right now.</p>';
+
+  const feedStatusHtml = feeds.length
+    ? feeds.map(renderFeedStatus).join("")
+    : '<p class="muted">Feed status unavailable.</p>';
 
   const updatedAt = new Date().toLocaleString("en-IN", {
     timeZone: "Asia/Kolkata"
@@ -199,7 +431,8 @@ function page(items) {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="theme-color" content="#0b1220">
-<title>BADAL SEVERIYA V10</title>
+
+<title>BADAL SEVERIYA V10.1</title>
 
 <style>
 * { box-sizing: border-box; }
@@ -251,6 +484,7 @@ h2 { font-size: 19px; margin-top: 0; }
   font-size: 14px;
   margin: 5px 5px 5px 0;
   cursor: pointer;
+  text-decoration: none;
 }
 
 .btn.secondary { background: #344056; }
@@ -298,12 +532,6 @@ input[type="file"] {
   overflow-wrap: anywhere;
 }
 
-.result pre {
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  font-size: 12px;
-}
-
 .muted {
   color: #9aaac4;
   font-size: 13px;
@@ -333,6 +561,10 @@ input[type="file"] {
   font-weight: 650;
 }
 
+.item a:hover {
+  text-decoration: underline;
+}
+
 .pill {
   display: inline-block;
   padding: 4px 9px;
@@ -341,15 +573,74 @@ input[type="file"] {
   margin-top: 8px;
 }
 
-.positive { background: #123b2e; color: #8df0c1; }
-.negative { background: #4a2028; color: #ffabb4; }
-.neutral { background: #344056; color: #d0daeb; }
+.positive {
+  background: #123b2e;
+  color: #8df0c1;
+}
+
+.negative {
+  background: #4a2028;
+  color: #ffabb4;
+}
+
+.neutral {
+  background: #344056;
+  color: #d0daeb;
+}
+
+.feed-status {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 0;
+  border-bottom: 1px solid #263650;
+}
+
+.feed-status:last-child {
+  border-bottom: 0;
+}
+
+.status {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 5px 8px;
+  border-radius: 20px;
+  white-space: nowrap;
+}
+
+.status-ok {
+  background: #123b2e;
+  color: #8df0c1;
+}
+
+.status-warn {
+  background: #493a1c;
+  color: #f6df9b;
+}
+
+.status-error {
+  background: #4a2028;
+  color: #ffabb4;
+}
+
+.empty {
+  color: #9aaac4;
+  padding: 10px 0;
+}
 
 footer {
   color: #8998b2;
   font-size: 12px;
   padding: 22px 0;
   line-height: 1.6;
+}
+
+@media (max-width: 480px) {
+  .feed-status {
+    align-items: flex-start;
+    flex-direction: column;
+  }
 }
 </style>
 </head>
@@ -358,7 +649,7 @@ footer {
 
 <header>
   <div class="wrap">
-    <h1>BADAL SEVERIYA V10</h1>
+    <h1>BADAL SEVERIYA V10.1</h1>
     <p>Market Data Intelligence Prototype</p>
   </div>
 </header>
@@ -411,37 +702,41 @@ footer {
     </p>
 
     <textarea id="candleInput"
-      placeholder='Paste JSON candle data here. Example:
-[
-  {
-    "open": 24000,
-    "high": 24020,
-    "low": 23990,
-    "close": 24010,
-    "volume": 1000
-  }
-]'></textarea>
+      placeholder='Paste JSON candle data here.'></textarea>
 
     <div id="result" class="result">
       <p class="muted">Analysis result will appear here.</p>
     </div>
   </section>
 
-  <div class="panel">
+  <section class="panel">
+    <h2>News Feed Status</h2>
+    <p class="muted">
+      Each news feed is checked separately.
+    </p>
+    ${feedStatusHtml}
+  </section>
+
+  <section class="panel">
     <h2>Market News</h2>
+
     <p class="muted">
       Updated: ${escapeHtml(updatedAt)} (IST)
+      · Showing recent news from the last ${NEWS_DAYS} days.
     </p>
+
     <a class="btn" href="/">Refresh news</a>
+
     <section id="news">
       ${newsHtml}
     </section>
-  </div>
+  </section>
 
   <footer>
-    BADAL SEVERIYA V10 — Educational prototype.
-    News keyword labels and technical indicators are not verified
-    market-impact measurements or future price predictions.
+    BADAL SEVERIYA V10.1 — Educational prototype.
+    News labels are based on headline keywords only.
+    They are not verified market-impact measurements or future
+    price predictions.
   </footer>
 
 </main>
@@ -474,7 +769,6 @@ footer {
     if (
       data &&
       typeof data === "object" &&
-      data.data &&
       Array.isArray(data.data)
     ) {
       return data.data;
@@ -533,6 +827,7 @@ footer {
 
     input.value = JSON.stringify(candles, null, 2);
     fileStatus.textContent = "220 synthetic demo candles created.";
+
     showMessage(
       "Demo candles created. Press Analyze Market to test."
     );
@@ -561,6 +856,7 @@ footer {
       const candles = checkCandles(extractCandles(parsed));
 
       input.value = JSON.stringify(candles, null, 2);
+
       fileStatus.textContent =
         "Loaded " + candles.length + " candles from " + file.name;
 
@@ -578,7 +874,10 @@ footer {
     input.value = "";
     jsonFile.value = "";
     fileStatus.textContent = "Data cleared.";
-    showMessage("Data cleared. Upload a JSON file or generate demo candles.");
+
+    showMessage(
+      "Data cleared. Upload a JSON file or generate demo candles."
+    );
   });
 
   analyzeButton.addEventListener("click", async function() {
@@ -620,6 +919,10 @@ footer {
 </html>`;
 }
 
+// ================================================
+// CLOUDFLARE WORKER
+// ================================================
+
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
@@ -627,10 +930,12 @@ export default {
     if (url.pathname === "/api/health") {
       return Response.json({
         ok: true,
-        app: "BADAL SEVERIYA V10",
+        app: "BADAL SEVERIYA V10.1",
         mode: "prototype",
         marketEngine: "connected",
-        jsonImport: "client-side-enabled"
+        jsonImport: "client-side-enabled",
+        newsEngine: "enabled",
+        newsDays: NEWS_DAYS
       });
     }
 
@@ -642,14 +947,12 @@ export default {
         );
       }
 
-      const items = await getNews();
+      const newsData = await getNews();
 
-      return Response.json({
-        updatedAt: new Date().toISOString(),
-        count: items.length,
-        items
-      }, {
-        headers: { "Cache-Control": "no-store" }
+      return Response.json(newsData, {
+        headers: {
+          "Cache-Control": "no-store"
+        }
       });
     }
 
@@ -681,17 +984,19 @@ export default {
         const result = analyzeMarket(body.candles);
 
         return Response.json({
-          app: "BADAL SEVERIYA V10",
+          app: "BADAL SEVERIYA V10.1",
           analysisTime: new Date().toISOString(),
           result
         }, {
-          headers: { "Cache-Control": "no-store" }
+          headers: {
+            "Cache-Control": "no-store"
+          }
         });
 
-      } catch {
+      } catch (error) {
         return Response.json({
           status: "ERROR",
-          error: "Invalid JSON or analysis request"
+          error: String(error?.message || "Invalid JSON or analysis request")
         }, { status: 400 });
       }
     }
@@ -700,9 +1005,9 @@ export default {
       url.pathname === "/" ||
       url.pathname === "/index.html"
     ) {
-      const items = await getNews();
+      const newsData = await getNews();
 
-      return new Response(page(items), {
+      return new Response(page(newsData), {
         headers: {
           "content-type": "text/html; charset=utf-8",
           "Cache-Control": "no-store"

@@ -1,18 +1,40 @@
 
 /*
-  BADAL SEVERIYA V10
-  MARKET DATA ENGINE
-  Educational analysis module
+BADAL SEVERIYA V10
+MARKET DATA ENGINE
+Improved Educational Analysis Module
 */
 
-// 1. EMA CALCULATION
+// ==================================================
+// 1. HELPER: VALIDATE NUMBER
+// ==================================================
+
+function isValidNumber(value) {
+  if (value === null || value === undefined) return false;
+  if (typeof value === "string" && value.trim() === "") return false;
+
+  return (
+    (typeof value === "number" || typeof value === "string") &&
+    Number.isFinite(Number(value))
+  );
+}
+
+// ==================================================
+// 2. EMA CALCULATION
+// ==================================================
+
 export function calculateEMA(values, period) {
-  if (!Array.isArray(values) || values.length < period) {
+  if (
+    !Array.isArray(values) ||
+    !Number.isInteger(period) ||
+    period <= 0 ||
+    values.length < period ||
+    !values.every(isValidNumber)
+  ) {
     return [];
   }
 
   const result = new Array(values.length).fill(null);
-
   const multiplier = 2 / (period + 1);
 
   let sum = 0;
@@ -36,9 +58,18 @@ export function calculateEMA(values, period) {
   return result;
 }
 
-// 2. RSI CALCULATION
+// ==================================================
+// 3. RSI CALCULATION
+// ==================================================
+
 export function calculateRSI(values, period = 14) {
-  if (!Array.isArray(values) || values.length <= period) {
+  if (
+    !Array.isArray(values) ||
+    !Number.isInteger(period) ||
+    period <= 0 ||
+    values.length <= period ||
+    !values.every(isValidNumber)
+  ) {
     return [];
   }
 
@@ -48,7 +79,8 @@ export function calculateRSI(values, period = 14) {
   let losses = 0;
 
   for (let i = 1; i <= period; i++) {
-    const change = Number(values[i]) - Number(values[i - 1]);
+    const change =
+      Number(values[i]) - Number(values[i - 1]);
 
     if (change > 0) gains += change;
     if (change < 0) losses += Math.abs(change);
@@ -60,15 +92,20 @@ export function calculateRSI(values, period = 14) {
   function getRSI(gain, loss) {
     if (gain === 0 && loss === 0) return 50;
     if (loss === 0) return 100;
+    if (gain === 0) return 0;
 
     const rs = gain / loss;
     return 100 - (100 / (1 + rs));
   }
 
-  result[period] = getRSI(averageGain, averageLoss);
+  result[period] = getRSI(
+    averageGain,
+    averageLoss
+  );
 
   for (let i = period + 1; i < values.length; i++) {
-    const change = Number(values[i]) - Number(values[i - 1]);
+    const change =
+      Number(values[i]) - Number(values[i - 1]);
 
     const gain = Math.max(change, 0);
     const loss = Math.max(-change, 0);
@@ -79,34 +116,73 @@ export function calculateRSI(values, period = 14) {
     averageLoss =
       ((averageLoss * (period - 1)) + loss) / period;
 
-    result[i] = getRSI(averageGain, averageLoss);
+    result[i] = getRSI(
+      averageGain,
+      averageLoss
+    );
   }
 
   return result;
 }
 
-// 3. VWAP CALCULATION
-// Input candles should belong to one trading session.
+// ==================================================
+// 4. VWAP CALCULATION
+// Resets automatically when valid timestamps
+// move to a new calendar day.
+// Without timestamps, uses the supplied series.
+// ==================================================
+
 export function calculateVWAP(candles) {
   if (!Array.isArray(candles)) return [];
 
   let totalPriceVolume = 0;
   let totalVolume = 0;
+  let previousDay = null;
 
   return candles.map(candle => {
+    if (!candle || typeof candle !== "object") {
+      return null;
+    }
+
     const high = Number(candle.high);
     const low = Number(candle.low);
     const close = Number(candle.close);
     const volume = Number(candle.volume);
 
     if (
+      !isValidNumber(candle.high) ||
+      !isValidNumber(candle.low) ||
+      !isValidNumber(candle.close) ||
+      !isValidNumber(candle.volume) ||
       !Number.isFinite(high) ||
       !Number.isFinite(low) ||
       !Number.isFinite(close) ||
       !Number.isFinite(volume) ||
-      volume < 0
+      volume < 0 ||
+      high < low ||
+      high < close ||
+      low > close
     ) {
       return null;
+    }
+
+    const timestamp = candle.timestamp ?? candle.time;
+
+    if (timestamp !== undefined && timestamp !== null) {
+      const date = new Date(timestamp);
+
+      if (!Number.isFinite(date.getTime())) {
+        return null;
+      }
+
+      const day = date.toISOString().slice(0, 10);
+
+      if (previousDay !== null && day !== previousDay) {
+        totalPriceVolume = 0;
+        totalVolume = 0;
+      }
+
+      previousDay = day;
     }
 
     const typicalPrice = (high + low + close) / 3;
@@ -120,7 +196,10 @@ export function calculateVWAP(candles) {
   });
 }
 
-// 4. VALIDATE CANDLE DATA
+// ==================================================
+// 5. CANDLE DATA VALIDATION
+// ==================================================
+
 export function validateCandles(candles) {
   if (!Array.isArray(candles)) {
     return {
@@ -129,25 +208,43 @@ export function validateCandles(candles) {
     };
   }
 
+  if (candles.length === 0) {
+    return {
+      valid: false,
+      error: "Candle data is empty"
+    };
+  }
+
+  let timestampMode = null;
+  let previousTimestamp = null;
+
   for (let i = 0; i < candles.length; i++) {
     const c = candles[i];
 
-    const values = [
+    if (!c || typeof c !== "object" || Array.isArray(c)) {
+      return {
+        valid: false,
+        error: "Invalid candle object at index " + i
+      };
+    }
+
+    const rawValues = [
       c.open,
       c.high,
       c.low,
       c.close,
       c.volume
-    ].map(Number);
+    ];
 
-    if (!values.every(Number.isFinite)) {
+    if (!rawValues.every(isValidNumber)) {
       return {
         valid: false,
-        error: "Invalid candle at index " + i
+        error: "Missing or invalid OHLCV data at index " + i
       };
     }
 
-    const [open, high, low, close, volume] = values;
+    const [open, high, low, close, volume] =
+      rawValues.map(Number);
 
     if (
       high < low ||
@@ -162,15 +259,61 @@ export function validateCandles(candles) {
         error: "Invalid OHLCV values at index " + i
       };
     }
+
+    const hasTimestamp =
+      c.timestamp !== undefined && c.timestamp !== null;
+
+    const hasTime =
+      c.time !== undefined && c.time !== null;
+
+    const hasDate = hasTimestamp || hasTime;
+
+    if (timestampMode === null) {
+      timestampMode = hasDate;
+    } else if (timestampMode !== hasDate) {
+      return {
+        valid: false,
+        error: "Timestamp missing in some candles"
+      };
+    }
+
+    if (hasDate) {
+      const rawTime = hasTimestamp ? c.timestamp : c.time;
+      const currentTimestamp = new Date(rawTime).getTime();
+
+      if (!Number.isFinite(currentTimestamp)) {
+        return {
+          valid: false,
+          error: "Invalid timestamp at index " + i
+        };
+      }
+
+      if (
+        previousTimestamp !== null &&
+        currentTimestamp <= previousTimestamp
+      ) {
+        return {
+          valid: false,
+          error: "Candles are not in chronological order at index " + i
+        };
+      }
+
+      previousTimestamp = currentTimestamp;
+    }
   }
 
   return {
     valid: true,
-    count: candles.length
+    count: candles.length,
+    hasTimestamps: timestampMode === true
   };
 }
 
-// 5. MARKET INDICATOR ANALYSIS
+// ==================================================
+// 6. MARKET INDICATOR ANALYSIS
+// Educational historical-data analysis only.
+// ==================================================
+
 export function analyzeMarket(candles) {
   const validation = validateCandles(candles);
 
@@ -200,10 +343,8 @@ export function analyzeMarket(candles) {
 
   const last = candles.length - 1;
 
-  const close = closes[last];
-
   const values = {
-    close,
+    close: closes[last],
     ema20: ema20[last],
     ema50: ema50[last],
     ema200: ema200[last],
@@ -217,31 +358,35 @@ export function analyzeMarket(candles) {
     )
   ) {
     return {
-      status: "INDICATOR_ERROR"
+      status: "INDICATOR_ERROR",
+      error: "Unable to calculate one or more indicators"
     };
   }
 
   let score = 0;
 
-  if (close > values.ema20) score++;
-  else score--;
+  if (values.close > values.ema20) score++;
+  else if (values.close < values.ema20) score--;
 
   if (values.ema20 > values.ema50) score++;
-  else score--;
+  else if (values.ema20 < values.ema50) score--;
 
   if (values.ema50 > values.ema200) score++;
-  else score--;
+  else if (values.ema50 < values.ema200) score--;
 
-  if (close > values.vwap) score++;
-  else score--;
+  if (values.close > values.vwap) score++;
+  else if (values.close < values.vwap) score--;
 
   if (values.rsi14 > 55) score++;
   else if (values.rsi14 < 45) score--;
 
   let bias = "SIDEWAYS";
 
-  if (score >= 3) bias = "UPWARD_BIAS";
-  if (score <= -3) bias = "DOWNWARD_BIAS";
+  if (score >= 3) {
+    bias = "UPWARD_BIAS";
+  } else if (score <= -3) {
+    bias = "DOWNWARD_BIAS";
+  }
 
   return {
     status: "OK",
@@ -249,6 +394,13 @@ export function analyzeMarket(candles) {
     bias,
     score,
     indicators: values,
-    note: "Indicator-based educational analysis, not a forecast."
+    dataInfo: {
+      candleCount: candles.length,
+      timestampAvailable: validation.hasTimestamps,
+      vwapMethod: validation.hasTimestamps
+        ? "Session reset by calendar date"
+        : "Cumulative supplied data; timestamps unavailable"
+    },
+    note: "Historical indicator analysis for education only. Not a forecast or trading recommendation."
   };
 }

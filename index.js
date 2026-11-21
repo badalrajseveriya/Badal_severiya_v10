@@ -51,7 +51,6 @@ function tag(xml, name) {
       "i"
     )
   );
-
   return m ? decodeXml(m[1]) : "";
 }
 
@@ -86,23 +85,14 @@ function classify(title, description) {
     NEGATIVE.filter(k => text.includes(k)).length;
 
   if (positiveCount > negativeCount) {
-    return {
-      label: "Positive keywords",
-      tone: "positive"
-    };
+    return { label: "Positive keywords", tone: "positive" };
   }
 
   if (negativeCount > positiveCount) {
-    return {
-      label: "Negative keywords",
-      tone: "negative"
-    };
+    return { label: "Negative keywords", tone: "negative" };
   }
 
-  return {
-    label: "Needs review",
-    tone: "neutral"
-  };
+  return { label: "Needs review", tone: "neutral" };
 }
 
 async function getNews() {
@@ -133,7 +123,6 @@ async function getNews() {
 
         return items.map(match => {
           const item = match[1];
-
           const title = tag(item, "title");
           const link = tag(item, "link");
           const pubDate = tag(item, "pubDate");
@@ -148,7 +137,7 @@ async function getNews() {
           };
         }).filter(item => item.title);
 
-      } catch (error) {
+      } catch {
         return [{
           source: feed.name,
           title: "Feed temporarily unavailable",
@@ -189,14 +178,10 @@ function renderNewsItem(item) {
         ·
         ${escapeHtml(item.pubDate || "Date unavailable")}
       </div>
-
       <div class="pill ${tone}">
         ${escapeHtml(item.label)}
       </div>
-
-      <div class="headline">
-        ${titleHtml}
-      </div>
+      <div class="headline">${titleHtml}</div>
     </article>
   `;
 }
@@ -204,7 +189,7 @@ function renderNewsItem(item) {
 function page(items) {
   const newsHtml = items.length
     ? items.map(renderNewsItem).join("")
-    : '<p class="empty">No headlines available right now. Please refresh.</p>';
+    : '<p class="empty">No headlines available right now.</p>';
 
   const updatedAt = new Date().toLocaleString("en-IN", {
     timeZone: "Asia/Kolkata"
@@ -219,13 +204,7 @@ function page(items) {
 <title>BADAL SEVERIYA V10</title>
 
 <style>
-:root {
-  color-scheme: dark;
-}
-
-* {
-  box-sizing: border-box;
-}
+* { box-sizing: border-box; }
 
 body {
   margin: 0;
@@ -235,15 +214,12 @@ body {
 }
 
 header {
-  padding: 24px 16px;
+  padding: 22px 16px;
   background: #111c30;
   border-bottom: 1px solid #26344d;
 }
 
-h1 {
-  margin: 0;
-  font-size: 23px;
-}
+h1 { margin: 0; font-size: 23px; }
 
 header p {
   margin: 7px 0 0;
@@ -256,13 +232,15 @@ header p {
   padding: 16px;
 }
 
-.bar {
-  display: flex;
-  gap: 12px;
-  align-items: center;
-  flex-wrap: wrap;
-  margin: 10px 0 18px;
+.panel {
+  background: #121e32;
+  border: 1px solid #263650;
+  border-radius: 12px;
+  padding: 16px;
+  margin: 16px 0;
 }
+
+h2 { font-size: 19px; margin-top: 0; }
 
 .btn {
   display: inline-block;
@@ -270,25 +248,55 @@ header p {
   color: white;
   border: 0;
   border-radius: 9px;
-  padding: 11px 16px;
+  padding: 12px 15px;
   font-weight: 700;
-  font-size: 15px;
-  text-decoration: none;
+  font-size: 14px;
+  margin: 5px 5px 5px 0;
+  cursor: pointer;
+}
+
+.btn.secondary { background: #344056; }
+
+textarea {
+  width: 100%;
+  min-height: 190px;
+  resize: vertical;
+  background: #080f1c;
+  color: #dce8ff;
+  border: 1px solid #40516d;
+  border-radius: 9px;
+  padding: 12px;
+  font: 12px monospace;
+}
+
+.notice {
+  padding: 12px;
+  border: 1px solid #594b22;
+  background: #2a2414;
+  border-radius: 10px;
+  color: #f6df9b;
+  line-height: 1.5;
+  margin: 12px 0;
+}
+
+.result {
+  background: #080f1c;
+  border: 1px solid #40516d;
+  border-radius: 10px;
+  padding: 14px;
+  margin-top: 14px;
+  overflow-wrap: anywhere;
+}
+
+.result pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 12px;
 }
 
 .muted {
   color: #9aaac4;
   font-size: 13px;
-}
-
-.notice {
-  padding: 13px;
-  border: 1px solid #594b22;
-  background: #2a2414;
-  border-radius: 10px;
-  color: #f6df9b;
-  margin: 14px 0 20px;
-  line-height: 1.5;
 }
 
 .item {
@@ -302,13 +310,11 @@ header p {
 .meta {
   color: #9eafca;
   font-size: 12px;
-  line-height: 1.5;
 }
 
 .headline {
-  margin-top: 5px;
+  margin-top: 8px;
   line-height: 1.5;
-  overflow-wrap: anywhere;
 }
 
 .item a {
@@ -317,37 +323,17 @@ header p {
   font-weight: 650;
 }
 
-.item a:hover {
-  text-decoration: underline;
-}
-
 .pill {
   display: inline-block;
   padding: 4px 9px;
   border-radius: 20px;
   font-size: 11px;
-  margin: 8px 0 5px;
+  margin-top: 8px;
 }
 
-.positive {
-  background: #123b2e;
-  color: #8df0c1;
-}
-
-.negative {
-  background: #4a2028;
-  color: #ffabb4;
-}
-
-.neutral {
-  background: #344056;
-  color: #d0daeb;
-}
-
-.empty {
-  color: #aab8d0;
-  padding: 20px 0;
-}
+.positive { background: #123b2e; color: #8df0c1; }
+.negative { background: #4a2028; color: #ffabb4; }
+.neutral { background: #344056; color: #d0daeb; }
 
 footer {
   color: #8998b2;
@@ -363,38 +349,151 @@ footer {
 <header>
   <div class="wrap">
     <h1>BADAL SEVERIYA V10</h1>
-    <p>Market news and data intelligence dashboard</p>
+    <p>Market Data Intelligence Prototype</p>
   </div>
 </header>
 
 <main class="wrap">
 
-  <div class="bar">
-    <a class="btn" href="/">Refresh news</a>
-    <span class="muted">
-      Updated: ${escapeHtml(updatedAt)} (IST)
-    </span>
-  </div>
+  <section class="panel">
+    <h2>Market Engine Test</h2>
 
-  <div class="notice">
-    <b>Important:</b>
-    News labels are based on simple keyword matching.
-    They are not verified market impact, trading signals,
-    forecasts, or probability of profit.
-    Always check original news sources.
-  </div>
+    <p class="muted">
+      Generate demo candles or paste your own historical OHLCV data.
+      Minimum 200 candles required.
+    </p>
 
-  <section id="news">
-    ${newsHtml}
+    <div class="notice">
+      Demo data is synthetic and is not actual NIFTY market data.
+      Results are educational indicator calculations, not forecasts
+      or trading recommendations.
+    </div>
+
+    <button class="btn secondary" id="demoButton">
+      Generate Demo Candles
+    </button>
+
+    <button class="btn" id="analyzeButton">
+      Analyze Market
+    </button>
+
+    <textarea id="candleInput"
+      placeholder='Paste JSON candle data here. Example:
+[
+  {
+    "open": 24000,
+    "high": 24020,
+    "low": 23990,
+    "close": 24010,
+    "volume": 1000
+  }
+]'></textarea>
+
+    <div id="result" class="result">
+      <p class="muted">Analysis result will appear here.</p>
+    </div>
   </section>
 
+  <div class="panel">
+    <h2>Market News</h2>
+    <p class="muted">
+      Updated: ${escapeHtml(updatedAt)} (IST)
+    </p>
+    <a class="btn" href="/">Refresh news</a>
+    <section id="news">
+      ${newsHtml}
+    </section>
+  </div>
+
   <footer>
-    News headlines are collected from Google News RSS.
-    Availability and coverage can change.
-    Educational information only.
+    BADAL SEVERIYA V10 — Educational prototype.
+    News keyword labels and technical indicators are not verified
+    market-impact measurements or future price predictions.
   </footer>
 
 </main>
+
+<script>
+(function() {
+  const input = document.getElementById("candleInput");
+  const result = document.getElementById("result");
+  const demoButton = document.getElementById("demoButton");
+  const analyzeButton = document.getElementById("analyzeButton");
+
+  function showMessage(message) {
+    result.textContent = message;
+  }
+
+  demoButton.addEventListener("click", function() {
+    const candles = [];
+    let previousClose = 24000;
+
+    for (let i = 0; i < 220; i++) {
+      const movement =
+        Math.sin(i / 8) * 7 +
+        Math.cos(i / 17) * 3 +
+        0.12;
+
+      const open = previousClose;
+      const close = open + movement;
+      const high = Math.max(open, close) + 3;
+      const low = Math.min(open, close) - 3;
+      const volume = 1000 + (i % 20) * 100;
+
+      candles.push({
+        open: Number(open.toFixed(2)),
+        high: Number(high.toFixed(2)),
+        low: Number(low.toFixed(2)),
+        close: Number(close.toFixed(2)),
+        volume
+      });
+
+      previousClose = close;
+    }
+
+    input.value = JSON.stringify(candles, null, 2);
+    showMessage("220 synthetic demo candles created. Now press Analyze Market.");
+  });
+
+  analyzeButton.addEventListener("click", async function() {
+    analyzeButton.disabled = true;
+    showMessage("Analyzing candle data...");
+
+    try {
+      const candles = JSON.parse(input.value);
+
+      if (!Array.isArray(candles)) {
+        throw new Error("Candle data must be a JSON array.");
+      }
+
+      if (candles.length < 200) {
+        throw new Error("At least 200 candles are required.");
+      }
+
+      if (candles.length > 5000) {
+        throw new Error("Maximum 5000 candles are allowed.");
+      }
+
+      const response = await fetch("/api/analyze", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ candles })
+      });
+
+      const data = await response.json();
+
+      result.textContent = JSON.stringify(data, null, 2);
+
+    } catch (error) {
+      result.textContent = "TEST ERROR: " + error.message;
+    } finally {
+      analyzeButton.disabled = false;
+    }
+  });
+})();
+</script>
 
 </body>
 </html>`;
@@ -404,7 +503,6 @@ export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
 
-    // HEALTH CHECK
     if (url.pathname === "/api/health") {
       return Response.json({
         ok: true,
@@ -414,7 +512,6 @@ export default {
       });
     }
 
-    // NEWS API
     if (url.pathname === "/api/news") {
       if (request.method !== "GET") {
         return Response.json(
@@ -430,19 +527,14 @@ export default {
         count: items.length,
         items
       }, {
-        headers: {
-          "Cache-Control": "no-store"
-        }
+        headers: { "Cache-Control": "no-store" }
       });
     }
 
-    // MARKET ANALYSIS API
     if (url.pathname === "/api/analyze") {
       if (request.method !== "POST") {
         return Response.json(
-          {
-            error: "Send candle data using POST"
-          },
+          { error: "Send candle data using POST" },
           { status: 405 }
         );
       }
@@ -451,23 +543,17 @@ export default {
         const body = await request.json();
 
         if (!body || !Array.isArray(body.candles)) {
-          return Response.json(
-            {
-              status: "INVALID_REQUEST",
-              error: "Request must contain a candles array"
-            },
-            { status: 400 }
-          );
+          return Response.json({
+            status: "INVALID_REQUEST",
+            error: "Request must contain a candles array"
+          }, { status: 400 });
         }
 
         if (body.candles.length > 5000) {
-          return Response.json(
-            {
-              status: "DATA_LIMIT_EXCEEDED",
-              error: "Maximum 5000 candles allowed"
-            },
-            { status: 400 }
-          );
+          return Response.json({
+            status: "DATA_LIMIT_EXCEEDED",
+            error: "Maximum 5000 candles allowed"
+          }, { status: 400 });
         }
 
         const result = analyzeMarket(body.candles);
@@ -477,23 +563,17 @@ export default {
           analysisTime: new Date().toISOString(),
           result
         }, {
-          headers: {
-            "Cache-Control": "no-store"
-          }
+          headers: { "Cache-Control": "no-store" }
         });
 
-      } catch (error) {
-        return Response.json(
-          {
-            status: "ERROR",
-            error: "Invalid JSON or analysis request"
-          },
-          { status: 400 }
-        );
+      } catch {
+        return Response.json({
+          status: "ERROR",
+          error: "Invalid JSON or analysis request"
+        }, { status: 400 });
       }
     }
 
-    // MAIN DASHBOARD
     if (
       url.pathname === "/" ||
       url.pathname === "/index.html"
@@ -508,8 +588,6 @@ export default {
       });
     }
 
-    return new Response("Not found", {
-      status: 404
-    });
+    return new Response("Not found", { status: 404 });
   }
 };

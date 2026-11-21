@@ -2,16 +2,19 @@
 import { analyzeMarket } from "./market-data.js";
 
 // ==================================================
-// BADAL SEVERIYA V10.4
+// BADAL SEVERIYA V10.5
 // SMART NEWS + HISTORICAL MARKET DASHBOARD
 // Educational prototype only
 // ==================================================
 
-const APP_NAME = "BADAL SEVERIYA V10.4";
+const APP_NAME = "BADAL SEVERIYA V10.5";
 const NEWS_DAYS = 30;
 const MAX_ITEMS_PER_FEED = 15;
 const MAX_TOTAL_NEWS = 75;
 const MAX_CANDLES = 5000;
+
+const SEBI_PRESS_RELEASES_URL =
+  "https://www.sebi.gov.in/sebiweb/home/HomeAction.do?doListing=yes&sid=6&ssid=23";
 
 const FEEDS = [
   {
@@ -25,7 +28,7 @@ const FEEDS = [
     id: "sebi",
     name: "SEBI / Market Regulations",
     category: "Regulatory Update",
-    description: "बाजार नियम और नियामक घोषणाएँ",
+    description: "SEBI की आधिकारिक प्रेस रिलीज़ और नियामक घोषणाएँ",
     url: "https://www.sebi.gov.in/sebirss.xml"
   },
   {
@@ -52,7 +55,7 @@ const FEEDS = [
 ];
 
 // ==================================================
-// XML HELPERS
+// XML / HTML HELPERS
 // ==================================================
 
 function decodeXml(value = "") {
@@ -96,6 +99,7 @@ function getTag(xml, name) {
 
 function getAttribute(tag, name) {
   const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
   const match = String(tag || "").match(
     new RegExp("\\b" + escaped + "\\s*=\\s*[\"']([^\"']*)[\"']", "i")
   );
@@ -123,7 +127,6 @@ function getAtomLink(xml) {
 function extractEntries(xml) {
   const source = String(xml || "");
 
-  // Standard RSS 2.0
   const rss = [
     ...source.matchAll(
       /<(?:[\w.-]+:)?item\b[^>]*>([\s\S]*?)<\/(?:[\w.-]+:)?item\s*>/gi
@@ -132,7 +135,6 @@ function extractEntries(xml) {
 
   if (rss.length) return rss;
 
-  // Atom
   const atom = [
     ...source.matchAll(
       /<(?:[\w.-]+:)?entry\b[^>]*>([\s\S]*?)<\/(?:[\w.-]+:)?entry\s*>/gi
@@ -141,7 +143,6 @@ function extractEntries(xml) {
 
   if (atom.length) return atom;
 
-  // RDF/RSS 1.0 fallback
   const rdf = [
     ...source.matchAll(
       /<(?:[\w.-]+:)?Description\b[^>]*>[\s\S]*?<\/(?:[\w.-]+:)?Description\s*>/gi
@@ -150,7 +151,7 @@ function extractEntries(xml) {
 
   return rdf.filter(entry =>
     getTag(entry, "title") &&
-    (getTag(entry, "link") || getAttribute(entry, "about"))
+    (getTag(entry, "link") || entry.includes("about="))
   );
 }
 
@@ -187,15 +188,8 @@ function safeUrl(value) {
 function parseNewsDate(value) {
   if (!value) return null;
 
-  let input = String(value).trim();
+  const input = String(value).trim();
 
-  // Handle dates such as: 12 Nov, 2026 +0530
-  input = input.replace(
-    /(\d{1,2}\s+[A-Za-z]{3,9},?\s+\d{4})\s+([+-]\d{4})$/,
-    "$1 $2"
-  );
-
-  // Handle common SEBI date format: 12 Nov, 2026
   let timestamp = Date.parse(input);
 
   if (!Number.isFinite(timestamp)) {
@@ -232,7 +226,7 @@ function formatNewsDate(timestamp) {
 }
 
 // ==================================================
-// PARSE ONE ENTRY
+// PARSE RSS ENTRY
 // ==================================================
 
 function parseEntry(entry, feed) {
@@ -254,9 +248,9 @@ function parseEntry(entry, feed) {
 
   let link = getAtomLink(entry);
 
-  // RDF description may store the URL in rdf:about
   if (!link) {
     const openingTag = entry.match(/^<[^>]+>/);
+
     if (openingTag) {
       link =
         getAttribute(openingTag[0], "rdf:about") ||
@@ -281,6 +275,173 @@ function parseEntry(entry, feed) {
 }
 
 // ==================================================
+// SEBI OFFICIAL WEBSITE FALLBACK
+// ==================================================
+
+function extractSebiPressReleases(html, feed) {
+  const rows = [
+    ...String(html).matchAll(
+      /<tr\b[^>]*>([\s\S]*?)<\/tr>/gi
+    )
+  ];
+
+  const items = [];
+
+  for (const match of rows) {
+    const row = match[1];
+
+    const dateMatch = row.match(
+      /\b([A-Za-z]{3,9}\s+\d{1,2},?\s+\d{4})\b/
+    );
+
+    if (!dateMatch) continue;
+
+    const pubDate = dateMatch[1];
+    const timestamp = parseNewsDate(pubDate);
+
+    if (!timestamp || !isRecent(timestamp)) continue;
+
+    const anchors = [
+      ...row.matchAll(
+        /<a\b([^>]*)>([\s\S]*?)<\/a>/gi
+      )
+    ];
+
+    let selected = null;
+
+    for (const anchor of anchors) {
+      const attributes = anchor[1];
+      const inner = anchor[2];
+
+      const href = getAttribute(
+        `<a ${attributes}>`,
+        "href"
+      );
+
+      const title = decodeXml(inner);
+
+      if (!href || !title) continue;
+
+      // Ignore navigation and pagination links.
+      if (
+        /javascript:|^#|HomeAction\.do\?/i.test(href)
+      ) {
+        continue;
+      }
+
+      selected = { href, title };
+      break;
+    }
+
+    if (!selected) continue;
+
+    let link = "";
+
+    try {
+      link = safeUrl(
+        new URL(
+          selected.href,
+          "https://www.sebi.gov.in"
+        ).href
+      );
+    } catch {
+      link = "";
+    }
+
+    if (!link) continue;
+
+    items.push({
+      id: feed.id,
+      source: feed.name,
+      category: feed.category,
+      title: selected.title,
+      description: "SEBI official press release",
+      link,
+      pubDate,
+      timestamp,
+      dateAvailable: true,
+      label: feed.category,
+      feedMode: "OFFICIAL WEBSITE FALLBACK"
+    });
+  }
+
+  const unique = [
+    ...new Map(
+      items.map(item => [item.link, item])
+    ).values()
+  ];
+
+  unique.sort(
+    (a, b) => b.timestamp - a.timestamp
+  );
+
+  return unique.slice(0, MAX_ITEMS_PER_FEED);
+}
+
+async function fetchSebiWebsiteFallback(feed) {
+  const response = await fetch(SEBI_PRESS_RELEASES_URL, {
+    method: "GET",
+    redirect: "follow",
+    headers: {
+      "Accept": "text/html,application/xhtml+xml",
+      "Accept-Language": "en-IN,en;q=0.9",
+      "User-Agent": "Mozilla/5.0 (compatible; BadalSeveriyaNews/5.0)"
+    },
+    cf: {
+      cacheTtl: 0,
+      cacheEverything: false
+    }
+  });
+
+  if (!response.ok) {
+    throw new Error(
+      "SEBI website HTTP " + response.status
+    );
+  }
+
+  const contentType =
+    response.headers.get("content-type") || "";
+
+  const html = await response.text();
+
+  if (!html || !html.trim()) {
+    throw new Error("SEBI website returned empty response");
+  }
+
+  if (
+    html.trim().toLowerCase().startsWith("<!doctype html") === false &&
+    !html.toLowerCase().includes("<html")
+  ) {
+    throw new Error(
+      "SEBI website did not return HTML. Content-Type: " +
+      contentType
+    );
+  }
+
+  const items = extractSebiPressReleases(html, feed);
+
+  if (!items.length) {
+    throw new Error(
+      "SEBI page opened, but its press release rows could not be extracted"
+    );
+  }
+
+  return {
+    id: feed.id,
+    name: feed.name,
+    category: feed.category,
+    description: feed.description,
+    status: "CONNECTED",
+    count: items.length,
+    datedCount: items.length,
+    undatedCount: 0,
+    error: null,
+    feedMode: "OFFICIAL WEBSITE FALLBACK",
+    items
+  };
+}
+
+// ==================================================
 // FETCH ONE FEED
 // ==================================================
 
@@ -290,7 +451,7 @@ async function fetchFeed(feed) {
       method: "GET",
       redirect: "follow",
       headers: {
-        "User-Agent": "Mozilla/5.0 (compatible; BadalSeveriyaNews/3.1)",
+        "User-Agent": "Mozilla/5.0 (compatible; BadalSeveriyaNews/5.0)",
         "Accept": "application/rss+xml, application/atom+xml, application/xml, text/xml, */*",
         "Accept-Language": "en-IN,en;q=0.9",
         "Referer": "https://www.sebi.gov.in/"
@@ -314,7 +475,6 @@ async function fetchFeed(feed) {
       throw new Error("Empty feed response");
     }
 
-    // Detect HTML error pages returned with HTTP 200
     const beginning = xml.trim().slice(0, 500).toLowerCase();
 
     if (
@@ -333,8 +493,7 @@ async function fetchFeed(feed) {
 
     if (!entries.length) {
       throw new Error(
-        "XML received, but no RSS item, Atom entry or RDF description found. Content-Type: " +
-        contentType
+        "XML received, but no RSS item, Atom entry or RDF description found."
       );
     }
 
@@ -342,18 +501,20 @@ async function fetchFeed(feed) {
       .map(entry => parseEntry(entry, feed))
       .filter(item => {
         if (!item.title) return false;
-
-        // Keep undated entries visible, but mark them clearly.
         if (!item.timestamp) return true;
-
         return isRecent(item.timestamp);
       });
 
-    parsedItems.sort((a, b) =>
-      (b.timestamp || 0) - (a.timestamp || 0)
+    parsedItems.sort(
+      (a, b) => (b.timestamp || 0) - (a.timestamp || 0)
     );
 
     const limited = parsedItems.slice(0, MAX_ITEMS_PER_FEED);
+
+    // If SEBI RSS is empty, use official website.
+    if (feed.id === "sebi" && !limited.length) {
+      return await fetchSebiWebsiteFallback(feed);
+    }
 
     const datedCount = limited.filter(
       item => item.dateAvailable
@@ -379,10 +540,36 @@ async function fetchFeed(feed) {
       datedCount,
       undatedCount,
       error: null,
+      feedMode: "RSS",
       items: limited
     };
 
   } catch (error) {
+
+    // If SEBI RSS fails, try official website.
+    if (feed.id === "sebi") {
+      try {
+        return await fetchSebiWebsiteFallback(feed);
+      } catch (fallbackError) {
+        return {
+          id: feed.id,
+          name: feed.name,
+          category: feed.category,
+          description: feed.description,
+          status: "ERROR",
+          count: 0,
+          datedCount: 0,
+          undatedCount: 0,
+          error:
+            "RSS: " +
+            String(error?.message || "RSS failed") +
+            " | Website fallback: " +
+            String(fallbackError?.message || "Fallback failed"),
+          items: []
+        };
+      }
+    }
+
     return {
       id: feed.id,
       name: feed.name,
@@ -426,9 +613,7 @@ async function getNews() {
 
     seenTitles.add(titleKey);
 
-    if (linkKey) {
-      seenLinks.add(linkKey);
-    }
+    if (linkKey) seenLinks.add(linkKey);
 
     return true;
   });
@@ -442,7 +627,8 @@ async function getNews() {
     updatedAt: new Date().toISOString(),
     feedCount: feeds.length,
     connectedFeeds: feeds.filter(
-      feed => feed.status === "CONNECTED" ||
+      feed =>
+        feed.status === "CONNECTED" ||
         feed.status === "DATE CHECK"
     ).length,
     errorFeeds: feeds.filter(
@@ -484,6 +670,12 @@ function renderFeedStatus(feed) {
         <span>Dated: <b>${feed.datedCount}</b></span>
         <span>Undated: <b>${feed.undatedCount}</b></span>
       </div>
+
+      ${
+        feed.feedMode
+          ? `<p class="muted">Source mode: ${escapeHtml(feed.feedMode)}</p>`
+          : ""
+      }
 
       ${
         feed.error
@@ -586,9 +778,7 @@ function page(newsData) {
 <title>${APP_NAME}</title>
 
 <style>
-* {
-  box-sizing: border-box;
-}
+* { box-sizing: border-box; }
 
 body {
   margin: 0;
@@ -603,25 +793,19 @@ header {
   border-bottom: 1px solid #26344d;
 }
 
-.header-inner,
-.wrap {
+.header-inner,.wrap {
   max-width: 1000px;
   margin: auto;
 }
 
-h1 {
-  margin: 0;
-  font-size: 24px;
-}
+h1 { margin: 0; font-size: 24px; }
 
 header p {
   margin: 7px 0 0;
   color: #aab8d0;
 }
 
-.wrap {
-  padding: 16px;
-}
+.wrap { padding: 16px; }
 
 .panel {
   background: #121e32;
@@ -631,19 +815,10 @@ header p {
   margin: 16px 0;
 }
 
-h2 {
-  font-size: 19px;
-  margin: 0 0 12px;
-}
+h2 { font-size: 19px; margin: 0 0 12px; }
+h3 { font-size: 15px; margin: 0; }
 
-h3 {
-  font-size: 15px;
-  margin: 0;
-}
-
-.muted,
-.feed-top p,
-.source-heading p {
+.muted,.feed-top p,.source-heading p {
   color: #9aaac4;
   font-size: 13px;
   line-height: 1.5;
@@ -673,13 +848,8 @@ h3 {
   text-decoration: none;
 }
 
-.btn.secondary {
-  background: #344056;
-}
-
-.btn:disabled {
-  opacity: .5;
-}
+.btn.secondary { background: #344056; }
+.btn:disabled { opacity: .5; }
 
 .stats {
   display: grid;
@@ -727,13 +897,8 @@ h3 {
   align-items: flex-start;
 }
 
-.feed-top h3 {
-  line-height: 1.4;
-}
-
-.feed-top p {
-  margin: 5px 0;
-}
+.feed-top h3 { line-height: 1.4; }
+.feed-top p { margin: 5px 0; }
 
 .feed-numbers {
   display: flex;
@@ -744,9 +909,7 @@ h3 {
   font-size: 12px;
 }
 
-.feed-numbers b {
-  color: #e8eefc;
-}
+.feed-numbers b { color: #e8eefc; }
 
 .status {
   display: inline-block;
@@ -757,20 +920,9 @@ h3 {
   white-space: nowrap;
 }
 
-.status-ok {
-  background: #123b2e;
-  color: #8df0c1;
-}
-
-.status-warn {
-  background: #493a1c;
-  color: #f6df9b;
-}
-
-.status-error {
-  background: #4a2028;
-  color: #ffabb4;
-}
+.status-ok { background: #123b2e; color: #8df0c1; }
+.status-warn { background: #493a1c; color: #f6df9b; }
+.status-error { background: #4a2028; color: #ffabb4; }
 
 .error-text {
   color: #ffabb4;
@@ -792,9 +944,7 @@ h3 {
   margin-bottom: 12px;
 }
 
-.source-heading p {
-  margin: 5px 0 0;
-}
+.source-heading p { margin: 5px 0 0; }
 
 .news-card {
   background: #080f1c;
@@ -821,19 +971,9 @@ h3 {
   color: #d0daeb;
 }
 
-.news-card h3 {
-  margin-top: 9px;
-  line-height: 1.5;
-}
-
-.news-card h3 a {
-  color: #e8eefc;
-  text-decoration: none;
-}
-
-.news-card h3 a:hover {
-  text-decoration: underline;
-}
+.news-card h3 { margin-top: 9px; line-height: 1.5; }
+.news-card h3 a { color: #e8eefc; text-decoration: none; }
+.news-card h3 a:hover { text-decoration: underline; }
 
 .description {
   color: #aab8d0;
@@ -895,25 +1035,11 @@ footer {
 }
 
 @media(max-width:650px) {
-  .feed-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .stats {
-    grid-template-columns: repeat(3,minmax(0,1fr));
-  }
-
-  .stat {
-    padding: 9px;
-  }
-
-  .stat b {
-    font-size: 19px;
-  }
-
-  h1 {
-    font-size: 21px;
-  }
+  .feed-grid { grid-template-columns: 1fr; }
+  .stats { grid-template-columns: repeat(3,minmax(0,1fr)); }
+  .stat { padding: 9px; }
+  .stat b { font-size: 19px; }
+  h1 { font-size: 21px; }
 }
 </style>
 </head>
@@ -922,126 +1048,113 @@ footer {
 
 <header>
   <div class="header-inner">
-    <h1>BADAL SEVERIYA V10.4</h1>
+    <h1>BADAL SEVERIYA V10.5</h1>
     <p>Smart News & Historical Market Analysis</p>
   </div>
 </header>
 
 <main class="wrap">
 
-  <section class="panel">
-    <h2>News Engine Dashboard</h2>
+<section class="panel">
+  <h2>News Engine Dashboard</h2>
 
-    <p class="muted">
-      Last checked: ${escapeHtml(updatedAt)} IST
-    </p>
+  <p class="muted">
+    Last checked: ${escapeHtml(updatedAt)} IST
+  </p>
 
-    <div class="stats">
-      <div class="stat">
-        <span>Connected Feeds</span>
-        <b>${connected}/${feeds.length}</b>
-      </div>
-
-      <div class="stat">
-        <span>Feed Errors</span>
-        <b>${errors}</b>
-      </div>
-
-      <div class="stat">
-        <span>News Headlines</span>
-        <b>${total}</b>
-      </div>
+  <div class="stats">
+    <div class="stat">
+      <span>Connected Feeds</span>
+      <b>${connected}/${feeds.length}</b>
     </div>
 
-    <p class="notice">
-      समाचार आधिकारिक स्रोतों से लिए जाते हैं।
-      समाचार का होना किसी बाजार प्रभाव, दिशा या भविष्य के मूल्य की पुष्टि नहीं करता।
-      खबरों को मूल स्रोत से सत्यापित करें।
-    </p>
-
-    <a class="btn" href="/?refresh=1">Refresh All News</a>
-    <a class="btn secondary" href="/api/news">View News API</a>
-  </section>
-
-  <section class="panel">
-    <h2>All News Feed Status</h2>
-    <p class="muted">
-      हर स्रोत की स्थिति अलग से दिखाई गई है।
-    </p>
-
-    <div class="feed-grid">
-      ${feeds.map(renderFeedStatus).join("")}
-    </div>
-  </section>
-
-  <section class="panel">
-    <h2>News By Source</h2>
-    <p class="muted">
-      RBI, SEBI, NSE और Global Economy की खबरें अलग-अलग।
-    </p>
-
-    ${feedSections || '<p class="empty">Feed data unavailable.</p>'}
-  </section>
-
-  <section class="panel">
-    <h2>Historical Market Analysis</h2>
-
-    <p class="muted">
-      Historical OHLCV data से तकनीकी गणना।
-    </p>
-
-    <div class="notice">
-      Demo candles वास्तविक NIFTY डेटा नहीं हैं।
-      यह सुविधा केवल ऐतिहासिक और शैक्षिक विश्लेषण के लिए है।
-      यह भविष्यवाणी या ट्रेडिंग सलाह नहीं देती।
+    <div class="stat">
+      <span>Feed Errors</span>
+      <b>${errors}</b>
     </div>
 
-    <button class="btn secondary" id="demoButton">
-      Generate Demo Candles
-    </button>
-
-    <button class="btn" id="analyzeButton">
-      Analyze Market
-    </button>
-
-    <hr>
-
-    <h2>Historical JSON Data Import</h2>
-
-    <p class="muted">
-      JSON file में candles array या direct OHLCV array होना चाहिए।
-      Maximum file size: 2 MB.
-    </p>
-
-    <input
-      type="file"
-      id="jsonFile"
-      accept=".json,application/json"
-    >
-
-    <button class="btn secondary" id="clearButton">
-      Clear Data
-    </button>
-
-    <p class="muted" id="fileStatus">
-      No file selected.
-    </p>
-
-    <textarea
-      id="candleInput"
-      placeholder="Paste historical JSON candle data here."
-    ></textarea>
-
-    <div id="result" class="result">
-      Analysis result will appear here.
+    <div class="stat">
+      <span>News Headlines</span>
+      <b>${total}</b>
     </div>
-  </section>
+  </div>
 
-  <footer>
-    ${APP_NAME} — Educational prototype only.
-    No live market connection, future prediction,
-    or trading recommendation is provided.
-  </footer>
+  <p class="notice">
+    समाचार आधिकारिक स्रोतों से लिए जाते हैं।
+    समाचार का होना किसी बाजार प्रभाव, दिशा या भविष्य के मूल्य की पुष्टि नहीं करता।
+    खबरों को मूल स्रोत से सत्यापित करें।
+  </p>
+
+  <a class="btn" href="/?refresh=1">Refresh All News</a>
+  <a class="btn secondary" href="/api/news">View News API</a>
+</section>
+
+<section class="panel">
+  <h2>All News Feed Status</h2>
+  <p class="muted">हर स्रोत की स्थिति अलग से दिखाई गई है।</p>
+
+  <div class="feed-grid">
+    ${feeds.map(renderFeedStatus).join("")}
+  </div>
+</section>
+
+<section class="panel">
+  <h2>News By Source</h2>
+  <p class="muted">RBI, SEBI, NSE और Global Economy की खबरें अलग-अलग।</p>
+  ${feedSections || '<p class="empty">Feed data unavailable.</p>'}
+</section>
+
+<section class="panel">
+  <h2>Historical Market Analysis</h2>
+
+  <p class="muted">
+    Historical OHLCV data से तकनीकी गणना।
+  </p>
+
+  <div class="notice">
+    Demo candles वास्तविक NIFTY डेटा नहीं हैं।
+    यह सुविधा केवल ऐतिहासिक और शैक्षिक विश्लेषण के लिए है।
+    यह भविष्यवाणी या ट्रेडिंग सलाह नहीं देती।
+  </div>
+
+  <button class="btn secondary" id="demoButton">
+    Generate Demo Candles
+  </button>
+
+  <button class="btn" id="analyzeButton">
+    Analyze Market
+  </button>
+
+  <hr>
+
+  <h2>Historical JSON Data Import</h2>
+
+  <p class="muted">
+    JSON file में candles array या direct OHLCV array होना चाहिए।
+    Maximum file size: 2 MB.
+  </p>
+
+  <input type="file" id="jsonFile" accept=".json,application/json">
+
+  <button class="btn secondary" id="clearButton">
+    Clear Data
+  </button>
+
+  <p class="muted" id="fileStatus">No file selected.</p>
+
+  <textarea id="candleInput"
+    placeholder="Paste historical JSON candle data here."></textarea>
+
+  <div id="result" class="result">
+    Analysis result will appear here.
+  </div>
+</section>
+
+<footer>
+  ${APP_NAME} — Educational prototype only.
+  No live market connection, future prediction,
+  or trading recommendation is provided.
+</footer>
 
 </main>
 
@@ -1089,7 +1202,7 @@ footer {
       );
     }
 
-    if (candles.length > ${MAX_CANDLES}) {
+    if (candles.length > 5000) {
       throw new Error("Maximum 5000 candles are allowed.");
     }
 
@@ -1253,10 +1366,10 @@ export default {
         mode: "educational-prototype",
         marketEngine: "connected",
         jsonImport: "client-side-enabled",
-        newsEngine: "official-sources",
+        newsEngine: "official-sources-with-sebi-fallback",
         newsDays: NEWS_DAYS,
         feedsConfigured: FEEDS.length,
-        dashboard: "v10.4"
+        dashboard: "v10.5"
       });
     }
 

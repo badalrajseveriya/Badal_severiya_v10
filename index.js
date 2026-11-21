@@ -2,13 +2,16 @@
 import { analyzeMarket } from "./market-data.js";
 
 // ==================================================
-// BADAL SEVERIYA V10.5
+// BADAL SEVERIYA V10.6
 // SMART NEWS + HISTORICAL MARKET DASHBOARD
 // Educational prototype only
 // ==================================================
 
-const APP_NAME = "BADAL SEVERIYA V10.5";
+const APP_NAME = "BADAL SEVERIYA V10.6";
+
 const NEWS_DAYS = 30;
+const OLD_FINANCIAL_PERIOD_DAYS = 180;
+
 const MAX_ITEMS_PER_FEED = 15;
 const MAX_TOTAL_NEWS = 75;
 const MAX_CANDLES = 5000;
@@ -94,6 +97,7 @@ function getTag(xml, name) {
   );
 
   const match = String(xml || "").match(pattern);
+
   return match ? decodeXml(match[1]) : "";
 }
 
@@ -185,33 +189,166 @@ function safeUrl(value) {
 // DATE HELPERS
 // ==================================================
 
+const MONTHS = {
+  jan: 0,
+  january: 0,
+  feb: 1,
+  february: 1,
+  mar: 2,
+  march: 2,
+  apr: 3,
+  april: 3,
+  may: 4,
+  jun: 5,
+  june: 5,
+  jul: 6,
+  july: 6,
+  aug: 7,
+  august: 7,
+  sep: 8,
+  sept: 8,
+  september: 8,
+  oct: 9,
+  october: 9,
+  nov: 10,
+  november: 10,
+  dec: 11,
+  december: 11
+};
+
+function validUtcDate(year, month, day) {
+  if (
+    !Number.isInteger(year) ||
+    !Number.isInteger(month) ||
+    !Number.isInteger(day)
+  ) {
+    return null;
+  }
+
+  if (year < 1900 || year > 2200) return null;
+
+  const timestamp = Date.UTC(year, month, day);
+
+  const date = new Date(timestamp);
+
+  if (
+    date.getUTCFullYear() !== year ||
+    date.getUTCMonth() !== month ||
+    date.getUTCDate() !== day
+  ) {
+    return null;
+  }
+
+  return timestamp;
+}
+
 function parseNewsDate(value) {
   if (!value) return null;
 
   const input = String(value).trim();
 
-  let timestamp = Date.parse(input);
+  if (!input) return null;
 
-  if (!Number.isFinite(timestamp)) {
-    const match = input.match(
-      /(\d{1,2})\s+([A-Za-z]{3,9}),?\s+(\d{4})/
+  const isoDate = input.match(
+    /^(\d{4})-(\d{1,2})-(\d{1,2})/
+  );
+
+  if (isoDate) {
+    const timestamp = validUtcDate(
+      Number(isoDate[1]),
+      Number(isoDate[2]) - 1,
+      Number(isoDate[3])
     );
 
-    if (match) {
-      timestamp = Date.parse(
-        match[1] + " " + match[2] + " " + match[3]
-      );
+    if (timestamp !== null) {
+      const parsed = Date.parse(input);
+
+      return Number.isFinite(parsed)
+        ? parsed
+        : timestamp;
     }
   }
 
-  return Number.isFinite(timestamp) ? timestamp : null;
+  const numericDate = input.match(
+    /^(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{4})/
+  );
+
+  if (numericDate) {
+    const timestamp = validUtcDate(
+      Number(numericDate[3]),
+      Number(numericDate[2]) - 1,
+      Number(numericDate[1])
+    );
+
+    if (timestamp !== null) return timestamp;
+  }
+
+  const monthNameDate = input.match(
+    /^(\d{1,2})[-\s]+([A-Za-z]{3,9})[,]?[-\s]+(\d{4})/
+  );
+
+  if (monthNameDate) {
+    const month = MONTHS[
+      monthNameDate[2].toLowerCase()
+    ];
+
+    if (month !== undefined) {
+      const timestamp = validUtcDate(
+        Number(monthNameDate[3]),
+        month,
+        Number(monthNameDate[1])
+      );
+
+      if (timestamp !== null) {
+        const parsed = Date.parse(input);
+
+        return Number.isFinite(parsed)
+          ? parsed
+          : timestamp;
+      }
+    }
+  }
+
+  const americanDate = input.match(
+    /^([A-Za-z]{3,9})\s+(\d{1,2}),?\s+(\d{4})/
+  );
+
+  if (americanDate) {
+    const month = MONTHS[
+      americanDate[1].toLowerCase()
+    ];
+
+    if (month !== undefined) {
+      const timestamp = validUtcDate(
+        Number(americanDate[3]),
+        month,
+        Number(americanDate[2])
+      );
+
+      if (timestamp !== null) {
+        const parsed = Date.parse(input);
+
+        return Number.isFinite(parsed)
+          ? parsed
+          : timestamp;
+      }
+    }
+  }
+
+  const timestamp = Date.parse(input);
+
+  return Number.isFinite(timestamp)
+    ? timestamp
+    : null;
 }
 
 function isRecent(timestamp) {
   if (!timestamp) return false;
 
   const now = Date.now();
-  const cutoff = now - NEWS_DAYS * 24 * 60 * 60 * 1000;
+
+  const cutoff =
+    now - NEWS_DAYS * 24 * 60 * 60 * 1000;
 
   return timestamp >= cutoff &&
     timestamp <= now + 5 * 60 * 1000;
@@ -223,6 +360,94 @@ function formatNewsDate(timestamp) {
   return new Date(timestamp).toLocaleString("en-IN", {
     timeZone: "Asia/Kolkata"
   }) + " IST";
+}
+
+function formatPeriodDate(timestamp) {
+  if (!timestamp) return "Not available";
+
+  return new Date(timestamp).toLocaleDateString("en-IN", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    timeZone: "UTC"
+  });
+}
+
+// ==================================================
+// FINANCIAL PERIOD HELPERS
+// ==================================================
+
+function extractFinancialPeriodDate(text) {
+  const input = String(text || "");
+
+  if (!input.trim()) return null;
+
+  const datePattern =
+    "(\\d{4}-\\d{1,2}-\\d{1,2}|\\d{1,2}[/-]\\d{1,2}[/-]\\d{4}|\\d{1,2}[-\\s]+[A-Za-z]{3,9}[,\\s-]+\\d{4}|[A-Za-z]{3,9}\\s+\\d{1,2},?\\s+\\d{4})";
+
+  const periodPattern = new RegExp(
+    "(?:period|quarter|year|half[-\\s]?year|six months|nine months)\\s+ended(?:\\s+on)?\\s*:?\\s*" +
+    datePattern,
+    "i"
+  );
+
+  const match = input.match(periodPattern);
+
+  if (!match || !match[1]) return null;
+
+  return parseNewsDate(match[1]);
+}
+
+function getFinancialPeriodInfo(description, title) {
+  const timestamp =
+    extractFinancialPeriodDate(description) ||
+    extractFinancialPeriodDate(title);
+
+  if (!timestamp) {
+    return {
+      financialPeriodEnd: null,
+      financialPeriodTimestamp: null,
+      financialPeriodAgeDays: null,
+      financialPeriodStatus: "NOT FOUND"
+    };
+  }
+
+  const now = new Date();
+
+  const todayUtc = Date.UTC(
+    now.getUTCFullYear(),
+    now.getUTCMonth(),
+    now.getUTCDate()
+  );
+
+  const periodUtc = Date.UTC(
+    new Date(timestamp).getUTCFullYear(),
+    new Date(timestamp).getUTCMonth(),
+    new Date(timestamp).getUTCDate()
+  );
+
+  const ageDays = Math.floor(
+    (todayUtc - periodUtc) / 86400000
+  );
+
+  if (ageDays < 0) {
+    return {
+      financialPeriodEnd: formatPeriodDate(timestamp),
+      financialPeriodTimestamp: timestamp,
+      financialPeriodAgeDays: ageDays,
+      financialPeriodStatus: "VERIFY FUTURE DATE"
+    };
+  }
+
+  return {
+    financialPeriodEnd: formatPeriodDate(timestamp),
+    financialPeriodTimestamp: timestamp,
+    financialPeriodAgeDays: ageDays,
+    financialPeriodStatus:
+      ageDays > OLD_FINANCIAL_PERIOD_DAYS
+        ? "OLD FINANCIAL PERIOD"
+        : "WITHIN 180 DAYS"
+  };
 }
 
 // ==================================================
@@ -260,7 +485,7 @@ function parseEntry(entry, feed) {
 
   const timestamp = parseNewsDate(pubDate);
 
-  return {
+  const item = {
     id: feed.id,
     source: feed.name,
     category: feed.category,
@@ -272,6 +497,16 @@ function parseEntry(entry, feed) {
     dateAvailable: Boolean(timestamp),
     label: feed.category
   };
+
+  // Financial period is reviewed only for NSE results.
+  if (feed.id === "nse-results") {
+    Object.assign(
+      item,
+      getFinancialPeriodInfo(description, title)
+    );
+  }
+
+  return item;
 }
 
 // ==================================================
@@ -322,7 +557,6 @@ function extractSebiPressReleases(html, feed) {
 
       if (!href || !title) continue;
 
-      // Ignore navigation and pagination links.
       if (
         /javascript:|^#|HomeAction\.do\?/i.test(href)
       ) {
@@ -385,7 +619,7 @@ async function fetchSebiWebsiteFallback(feed) {
     headers: {
       "Accept": "text/html,application/xhtml+xml",
       "Accept-Language": "en-IN,en;q=0.9",
-      "User-Agent": "Mozilla/5.0 (compatible; BadalSeveriyaNews/5.0)"
+      "User-Agent": "Mozilla/5.0 (compatible; BadalSeveriyaNews/6.0)"
     },
     cf: {
       cacheTtl: 0,
@@ -451,7 +685,7 @@ async function fetchFeed(feed) {
       method: "GET",
       redirect: "follow",
       headers: {
-        "User-Agent": "Mozilla/5.0 (compatible; BadalSeveriyaNews/5.0)",
+        "User-Agent": "Mozilla/5.0 (compatible; BadalSeveriyaNews/6.0)",
         "Accept": "application/rss+xml, application/atom+xml, application/xml, text/xml, */*",
         "Accept-Language": "en-IN,en;q=0.9",
         "Referer": "https://www.sebi.gov.in/"
@@ -501,7 +735,10 @@ async function fetchFeed(feed) {
       .map(entry => parseEntry(entry, feed))
       .filter(item => {
         if (!item.title) return false;
+
+        // Undated entries are retained but marked for verification.
         if (!item.timestamp) return true;
+
         return isRecent(item.timestamp);
       });
 
@@ -511,7 +748,6 @@ async function fetchFeed(feed) {
 
     const limited = parsedItems.slice(0, MAX_ITEMS_PER_FEED);
 
-    // If SEBI RSS is empty, use official website.
     if (feed.id === "sebi" && !limited.length) {
       return await fetchSebiWebsiteFallback(feed);
     }
@@ -530,6 +766,16 @@ async function fetchFeed(feed) {
       status = "DATE CHECK";
     }
 
+    const oldFinancialPeriodCount = limited.filter(
+      item =>
+        item.financialPeriodStatus === "OLD FINANCIAL PERIOD"
+    ).length;
+
+    const periodUnavailableCount = limited.filter(
+      item =>
+        item.financialPeriodStatus === "NOT FOUND"
+    ).length;
+
     return {
       id: feed.id,
       name: feed.name,
@@ -539,6 +785,8 @@ async function fetchFeed(feed) {
       count: limited.length,
       datedCount,
       undatedCount,
+      oldFinancialPeriodCount,
+      periodUnavailableCount,
       error: null,
       feedMode: "RSS",
       items: limited
@@ -546,7 +794,6 @@ async function fetchFeed(feed) {
 
   } catch (error) {
 
-    // If SEBI RSS fails, try official website.
     if (feed.id === "sebi") {
       try {
         return await fetchSebiWebsiteFallback(feed);
@@ -586,6 +833,68 @@ async function fetchFeed(feed) {
 }
 
 // ==================================================
+// NEWS DEDUPLICATION
+// ==================================================
+
+function normalizeTitle(value) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .trim();
+}
+
+function normalizeLink(value) {
+  try {
+    const url = new URL(value);
+
+    url.hash = "";
+
+    return (
+      url.origin.toLowerCase() +
+      url.pathname.replace(/\/+$/, "").toLowerCase() +
+      url.search
+    );
+  } catch {
+    return "";
+  }
+}
+
+function deduplicateNews(items) {
+  const seenLinks = new Set();
+  const seenFallbackKeys = new Set();
+
+  return items.filter(item => {
+    const titleKey = normalizeTitle(item.title);
+
+    if (!titleKey) return false;
+
+    const linkKey = normalizeLink(item.link);
+
+    if (linkKey) {
+      if (seenLinks.has(linkKey)) return false;
+
+      seenLinks.add(linkKey);
+
+      return true;
+    }
+
+    // Do not remove same headline from different sources
+    // unless source and publication timestamp also match.
+    const fallbackKey = [
+      item.id || item.source || "",
+      titleKey,
+      item.timestamp || "NO_DATE"
+    ].join("|");
+
+    if (seenFallbackKeys.has(fallbackKey)) return false;
+
+    seenFallbackKeys.add(fallbackKey);
+
+    return true;
+  });
+}
+
+// ==================================================
 // FETCH ALL NEWS
 // ==================================================
 
@@ -596,34 +905,25 @@ async function getNews() {
 
   const allItems = feeds.flatMap(feed => feed.items);
 
-  const seenTitles = new Set();
-  const seenLinks = new Set();
-
-  const uniqueItems = allItems.filter(item => {
-    const titleKey = item.title
-      .toLowerCase()
-      .replace(/[^\p{L}\p{N}]+/gu, " ")
-      .trim();
-
-    const linkKey = item.link.toLowerCase();
-
-    if (!titleKey) return false;
-    if (seenTitles.has(titleKey)) return false;
-    if (linkKey && seenLinks.has(linkKey)) return false;
-
-    seenTitles.add(titleKey);
-
-    if (linkKey) seenLinks.add(linkKey);
-
-    return true;
-  });
+  const uniqueItems = deduplicateNews(allItems);
 
   uniqueItems.sort(
     (a, b) => (b.timestamp || 0) - (a.timestamp || 0)
   );
 
+  const resultsFeed = feeds.find(
+    feed => feed.id === "nse-results"
+  );
+
+  const oldFinancialPeriodCount =
+    resultsFeed?.oldFinancialPeriodCount || 0;
+
+  const periodUnavailableCount =
+    resultsFeed?.periodUnavailableCount || 0;
+
   return {
     app: APP_NAME,
+    version: "10.6",
     updatedAt: new Date().toISOString(),
     feedCount: feeds.length,
     connectedFeeds: feeds.filter(
@@ -636,6 +936,9 @@ async function getNews() {
     ).length,
     totalNews: uniqueItems.length,
     newsDays: NEWS_DAYS,
+    financialPeriodReviewDays: OLD_FINANCIAL_PERIOD_DAYS,
+    oldFinancialPeriodCount,
+    periodUnavailableCount,
     feeds,
     items: uniqueItems.slice(0, MAX_TOTAL_NEWS)
   };
@@ -649,7 +952,20 @@ function statusClass(status) {
   if (status === "CONNECTED") return "status-ok";
   if (status === "DATE CHECK") return "status-warn";
   if (status === "NO RECENT NEWS") return "status-warn";
+
   return "status-error";
+}
+
+function periodClass(status) {
+  if (status === "OLD FINANCIAL PERIOD") {
+    return "period-old";
+  }
+
+  if (status === "WITHIN 180 DAYS") {
+    return "period-ok";
+  }
+
+  return "period-warn";
 }
 
 function renderFeedStatus(feed) {
@@ -660,6 +976,7 @@ function renderFeedStatus(feed) {
           <h3>${escapeHtml(feed.name)}</h3>
           <p>${escapeHtml(feed.description)}</p>
         </div>
+
         <span class="status ${statusClass(feed.status)}">
           ${escapeHtml(feed.status)}
         </span>
@@ -670,6 +987,17 @@ function renderFeedStatus(feed) {
         <span>Dated: <b>${feed.datedCount}</b></span>
         <span>Undated: <b>${feed.undatedCount}</b></span>
       </div>
+
+      ${
+        feed.id === "nse-results"
+          ? `
+            <div class="period-summary">
+              <span>Old periods: <b>${feed.oldFinancialPeriodCount || 0}</b></span>
+              <span>Period unavailable: <b>${feed.periodUnavailableCount || 0}</b></span>
+            </div>
+          `
+          : ""
+      }
 
       ${
         feed.feedMode
@@ -683,6 +1011,40 @@ function renderFeedStatus(feed) {
           : ""
       }
     </article>
+  `;
+}
+
+function renderFinancialPeriod(item) {
+  if (item.id !== "nse-results") return "";
+
+  const status = item.financialPeriodStatus || "NOT FOUND";
+  const className = periodClass(status);
+
+  let periodText = "Financial period end: Not found";
+
+  if (item.financialPeriodEnd) {
+    periodText =
+      "Financial period end: " +
+      escapeHtml(item.financialPeriodEnd);
+  }
+
+  let ageText = "";
+
+  if (
+    Number.isInteger(item.financialPeriodAgeDays) &&
+    item.financialPeriodAgeDays >= 0
+  ) {
+    ageText =
+      " · Age: " +
+      item.financialPeriodAgeDays +
+      " days";
+  }
+
+  return `
+    <div class="financial-period ${className}">
+      <b>${escapeHtml(status)}</b>
+      <span>${periodText}${escapeHtml(ageText)}</span>
+    </div>
   `;
 }
 
@@ -706,7 +1068,7 @@ function renderNewsItem(item) {
       <div class="news-meta">
         ${escapeHtml(item.source)}
         ·
-        ${escapeHtml(dateText)}
+        Published: ${escapeHtml(dateText)}
       </div>
 
       <span class="category">
@@ -716,6 +1078,8 @@ function renderNewsItem(item) {
       <h3>${titleHtml}</h3>
 
       ${description}
+
+      ${renderFinancialPeriod(item)}
 
       ${
         link
@@ -739,10 +1103,12 @@ function renderFeedSections(feeds) {
             <h2>${escapeHtml(feed.name)}</h2>
             <p>${escapeHtml(feed.description)}</p>
           </div>
+
           <span class="status ${statusClass(feed.status)}">
             ${escapeHtml(feed.status)}
           </span>
         </div>
+
         ${news}
       </section>
     `;
@@ -775,7 +1141,7 @@ function page(newsData) {
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="theme-color" content="#0b1220">
 
-<title>${APP_NAME}</title>
+<title>${escapeHtml(APP_NAME)}</title>
 
 <style>
 * { box-sizing: border-box; }
@@ -911,6 +1277,17 @@ h3 { font-size: 15px; margin: 0; }
 
 .feed-numbers b { color: #e8eefc; }
 
+.period-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 10px;
+  color: #aab8d0;
+  font-size: 12px;
+}
+
+.period-summary b { color: #f6df9b; }
+
 .status {
   display: inline-block;
   font-size: 10px;
@@ -982,6 +1359,35 @@ h3 { font-size: 15px; margin: 0; }
   margin: 8px 0;
 }
 
+.financial-period {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px;
+  margin-top: 10px;
+  border-radius: 8px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.period-old {
+  background: #452329;
+  border: 1px solid #8b3c48;
+  color: #ffb6bd;
+}
+
+.period-ok {
+  background: #123b2e;
+  border: 1px solid #28684f;
+  color: #a4f0cb;
+}
+
+.period-warn {
+  background: #493a1c;
+  border: 1px solid #79602b;
+  color: #f6df9b;
+}
+
 .read-link {
   display: inline-block;
   color: #8db7ff;
@@ -1048,7 +1454,7 @@ footer {
 
 <header>
   <div class="header-inner">
-    <h1>BADAL SEVERIYA V10.5</h1>
+    <h1>${escapeHtml(APP_NAME)}</h1>
     <p>Smart News & Historical Market Analysis</p>
   </div>
 </header>
@@ -1087,6 +1493,20 @@ footer {
 
   <a class="btn" href="/?refresh=1">Refresh All News</a>
   <a class="btn secondary" href="/api/news">View News API</a>
+</section>
+
+<section class="panel">
+  <h2>Financial Period Data Check</h2>
+
+  <p class="muted">
+    खबर की प्रकाशित तारीख और कंपनी के वित्तीय परिणाम की अवधि अलग-अलग जाँची जाती है।
+  </p>
+
+  <p class="notice">
+    OLD FINANCIAL PERIOD का अर्थ है कि वित्तीय अवधि 180 दिन से अधिक पुरानी है।
+    यह केवल डेटा की समीक्षा चेतावनी है, निवेश या बाजार संकेत नहीं।
+    यदि अवधि नहीं मिली तो उसे अनुमान से नहीं भरा जाएगा।
+  </p>
 </section>
 
 <section class="panel">
@@ -1151,7 +1571,7 @@ footer {
 </section>
 
 <footer>
-  ${APP_NAME} — Educational prototype only.
+  ${escapeHtml(APP_NAME)} — Educational prototype only.
   No live market connection, future prediction,
   or trading recommendation is provided.
 </footer>
@@ -1175,13 +1595,19 @@ footer {
   function extractCandles(data) {
     if (Array.isArray(data)) return data;
 
-    if (data && typeof data === "object" &&
-        Array.isArray(data.candles)) {
+    if (
+      data &&
+      typeof data === "object" &&
+      Array.isArray(data.candles)
+    ) {
       return data.candles;
     }
 
-    if (data && typeof data === "object" &&
-        Array.isArray(data.data)) {
+    if (
+      data &&
+      typeof data === "object" &&
+      Array.isArray(data.data)
+    ) {
       return data.data;
     }
 
@@ -1363,13 +1789,17 @@ export default {
       return Response.json({
         ok: true,
         app: APP_NAME,
+        version: "10.6",
         mode: "educational-prototype",
         marketEngine: "connected",
         jsonImport: "client-side-enabled",
         newsEngine: "official-sources-with-sebi-fallback",
         newsDays: NEWS_DAYS,
+        financialPeriodReviewDays: OLD_FINANCIAL_PERIOD_DAYS,
+        financialPeriodCheck: "enabled",
+        duplicateCheck: "enabled",
         feedsConfigured: FEEDS.length,
-        dashboard: "v10.5"
+        dashboard: "v10.6"
       });
     }
 

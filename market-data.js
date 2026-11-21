@@ -1,6 +1,6 @@
 
 // ==================================================
-// BADAL SEVERIYA V10.6
+// BADAL SEVERIYA V10.7
 // HISTORICAL MARKET INDICATOR ENGINE
 // Educational analysis only
 // ==================================================
@@ -10,6 +10,41 @@ const MAX_CANDLES = 5000;
 
 const NOTE =
   "Historical indicator analysis for education only. Not a forecast or trading recommendation.";
+
+// --------------------------------------------------
+// Timestamp validation
+// --------------------------------------------------
+
+function parseTimestamp(value) {
+  if (value === null || value === undefined || value === "") {
+    return null;
+  }
+
+  let timestamp;
+
+  if (typeof value === "number" || /^\d+$/.test(String(value))) {
+    const numeric = Number(value);
+
+    if (!Number.isFinite(numeric)) return null;
+
+    timestamp = numeric < 1e12
+      ? numeric * 1000
+      : numeric;
+  } else {
+    timestamp = Date.parse(String(value));
+  }
+
+  return Number.isFinite(timestamp) ? timestamp : null;
+}
+
+function getIndiaTradingDate(timestamp) {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Kolkata",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).format(new Date(timestamp));
+}
 
 // --------------------------------------------------
 // Convert and validate candle data
@@ -35,9 +70,7 @@ function normalizeCandles(input) {
   }
 
   if (source.length > MAX_CANDLES) {
-    throw new Error(
-      `Maximum ${MAX_CANDLES} candles are allowed.`
-    );
+    throw new Error(`Maximum ${MAX_CANDLES} candles are allowed.`);
   }
 
   const candles = source.map((item, index) => {
@@ -73,12 +106,18 @@ function normalizeCandles(input) {
       throw new Error(`Invalid OHLC values at candle ${index + 1}.`);
     }
 
-    const timestamp =
+    const rawTimestamp =
       item.timestamp ??
       item.time ??
       item.date ??
       item.datetime ??
       null;
+
+    const timestamp = parseTimestamp(rawTimestamp);
+
+    if (rawTimestamp !== null && timestamp === null) {
+      throw new Error(`Invalid timestamp at candle ${index + 1}.`);
+    }
 
     return {
       open,
@@ -90,6 +129,26 @@ function normalizeCandles(input) {
     };
   });
 
+  const timestampCount = candles.filter(
+    candle => candle.timestamp !== null
+  ).length;
+
+  if (timestampCount > 0 && timestampCount !== candles.length) {
+    throw new Error(
+      "Some candles have timestamps and others do not. Please provide timestamps for every candle."
+    );
+  }
+
+  if (timestampCount === candles.length) {
+    for (let i = 1; i < candles.length; i++) {
+      if (candles[i].timestamp <= candles[i - 1].timestamp) {
+        throw new Error(
+          `Candles are not in chronological order at candle ${i + 1}.`
+        );
+      }
+    }
+  }
+
   return candles;
 }
 
@@ -98,9 +157,7 @@ function normalizeCandles(input) {
 // --------------------------------------------------
 
 function calculateEMA(values, period) {
-  if (values.length < period) {
-    return null;
-  }
+  if (values.length < period) return null;
 
   const multiplier = 2 / (period + 1);
 
@@ -126,9 +183,7 @@ function calculateEMA(values, period) {
 // --------------------------------------------------
 
 function calculateRSI(values, period = 14) {
-  if (values.length <= period) {
-    return null;
-  }
+  if (values.length <= period) return null;
 
   let averageGain = 0;
   let averageLoss = 0;
@@ -169,14 +224,33 @@ function calculateRSI(values, period = 14) {
 }
 
 // --------------------------------------------------
-// Cumulative Volume Weighted Average Price
+// Latest trading-session VWAP
 // --------------------------------------------------
 
 function calculateVWAP(candles) {
+  if (!candles.length) return null;
+
+  // VWAP requires timestamps for session separation.
+  if (candles.some(candle => candle.timestamp === null)) {
+    return null;
+  }
+
+  const latest = candles[candles.length - 1];
+
+  const latestSession = getIndiaTradingDate(
+    latest.timestamp
+  );
+
   let cumulativePriceVolume = 0;
   let cumulativeVolume = 0;
 
   for (const candle of candles) {
+    const session = getIndiaTradingDate(
+      candle.timestamp
+    );
+
+    if (session !== latestSession) continue;
+
     const typicalPrice =
       (candle.high + candle.low + candle.close) / 3;
 
@@ -186,9 +260,7 @@ function calculateVWAP(candles) {
     cumulativeVolume += candle.volume;
   }
 
-  if (cumulativeVolume === 0) {
-    return null;
-  }
+  if (cumulativeVolume === 0) return null;
 
   return cumulativePriceVolume / cumulativeVolume;
 }
@@ -198,18 +270,32 @@ function calculateVWAP(candles) {
 // --------------------------------------------------
 
 function getDataInfo(candles) {
-  const timestamps = candles
-    .map(candle => candle.timestamp)
-    .filter(value => value !== null && value !== undefined);
+  const timestampAvailable = candles.every(
+    candle => candle.timestamp !== null
+  );
 
-  const timestampAvailable =
-    timestamps.length === candles.length;
+  const latestSession = timestampAvailable
+    ? getIndiaTradingDate(
+        candles[candles.length - 1].timestamp
+      )
+    : null;
+
+  const vwapAvailable =
+    timestampAvailable &&
+    candles.some(candle => candle.volume > 0);
 
   return {
     candleCount: candles.length,
     timestampAvailable,
-    vwapMethod: "Cumulative supplied data VWAP",
-    volumeAvailable: candles.some(candle => candle.volume > 0),
+    chronologicalOrderChecked: timestampAvailable,
+    latestTradingSession: latestSession,
+    vwapAvailable,
+    vwapMethod: vwapAvailable
+      ? "Latest session VWAP (Asia/Kolkata)"
+      : "Unavailable: valid timestamps and volume required",
+    volumeAvailable: candles.some(
+      candle => candle.volume > 0
+    ),
     dataType: "Supplied historical OHLCV data"
   };
 }
@@ -222,7 +308,9 @@ export function analyzeMarket(input) {
   try {
     const candles = normalizeCandles(input);
 
-    const closes = candles.map(candle => candle.close);
+    const closes = candles.map(
+      candle => candle.close
+    );
 
     const ema20 = calculateEMA(closes, 20);
     const ema50 = calculateEMA(closes, 50);
@@ -240,13 +328,12 @@ export function analyzeMarket(input) {
       ema200 === null ||
       rsi14 === null
     ) {
-      throw new Error("Insufficient data for indicator calculation.");
+      throw new Error(
+        "Insufficient data for indicator calculation."
+      );
     }
 
-    // ----------------------------------------------
-    // Educational historical trend classification
-    // ----------------------------------------------
-
+    // Historical classification only.
     let score = 0;
 
     if (close > ema20) score++;
@@ -271,10 +358,6 @@ export function analyzeMarket(input) {
       bias = "DOWNWARD_BIAS";
     }
 
-    // ----------------------------------------------
-    // Result
-    // ----------------------------------------------
-
     return {
       status: "OK",
       timeframe: input?.timeframe || "15m",
@@ -293,7 +376,6 @@ export function analyzeMarket(input) {
       },
 
       dataInfo: getDataInfo(candles),
-
       note: NOTE
     };
 

@@ -1,18 +1,19 @@
 
 // ==================================================
-// BADAL SEVERIYA V10.7
-// HISTORICAL MARKET INDICATOR ENGINE
-// Educational analysis only
+// BADAL SEVERIYA V11.0
+// UNIFIED HISTORICAL TECHNICAL ANALYSIS ENGINE
+// Educational and historical analysis only
+// No live trading signals or order execution
 // ==================================================
 
 const MIN_CANDLES = 200;
 const MAX_CANDLES = 5000;
 
 const NOTE =
-  "Historical indicator analysis for education only. Not a forecast or trading recommendation.";
+  "Historical educational analysis only. Scores are not probabilities, forecasts, or trading recommendations.";
 
 // --------------------------------------------------
-// Timestamp validation
+// TIMESTAMP
 // --------------------------------------------------
 
 function parseTimestamp(value) {
@@ -24,12 +25,8 @@ function parseTimestamp(value) {
 
   if (typeof value === "number" || /^\d+$/.test(String(value))) {
     const numeric = Number(value);
-
     if (!Number.isFinite(numeric)) return null;
-
-    timestamp = numeric < 1e12
-      ? numeric * 1000
-      : numeric;
+    timestamp = numeric < 1e12 ? numeric * 1000 : numeric;
   } else {
     timestamp = Date.parse(String(value));
   }
@@ -47,7 +44,7 @@ function getIndiaTradingDate(timestamp) {
 }
 
 // --------------------------------------------------
-// Convert and validate candle data
+// NORMALIZE AND VALIDATE CANDLES
 // --------------------------------------------------
 
 function normalizeCandles(input) {
@@ -80,38 +77,26 @@ function normalizeCandles(input) {
     const close = Number(item.close ?? item.Close);
     const volume = Number(item.volume ?? item.Volume ?? 0);
 
-    const values = [open, high, low, close, volume];
-
-    if (!values.every(Number.isFinite)) {
+    if (![open, high, low, close, volume].every(Number.isFinite)) {
       throw new Error(`Invalid numeric data at candle ${index + 1}.`);
     }
 
     if (
-      open <= 0 ||
-      high <= 0 ||
-      low <= 0 ||
-      close <= 0 ||
-      volume < 0
+      open <= 0 || high <= 0 || low <= 0 ||
+      close <= 0 || volume < 0
     ) {
       throw new Error(`Invalid price or volume at candle ${index + 1}.`);
     }
 
     if (
-      high < low ||
-      high < open ||
-      high < close ||
-      low > open ||
-      low > close
+      high < low || high < open || high < close ||
+      low > open || low > close
     ) {
       throw new Error(`Invalid OHLC values at candle ${index + 1}.`);
     }
 
     const rawTimestamp =
-      item.timestamp ??
-      item.time ??
-      item.date ??
-      item.datetime ??
-      null;
+      item.timestamp ?? item.time ?? item.date ?? item.datetime ?? null;
 
     const timestamp = parseTimestamp(rawTimestamp);
 
@@ -119,14 +104,7 @@ function normalizeCandles(input) {
       throw new Error(`Invalid timestamp at candle ${index + 1}.`);
     }
 
-    return {
-      open,
-      high,
-      low,
-      close,
-      volume,
-      timestamp
-    };
+    return { open, high, low, close, volume, timestamp };
   });
 
   const timestampCount = candles.filter(
@@ -134,16 +112,14 @@ function normalizeCandles(input) {
   ).length;
 
   if (timestampCount > 0 && timestampCount !== candles.length) {
-    throw new Error(
-      "Some candles have timestamps and others do not. Please provide timestamps for every candle."
-    );
+    throw new Error("Provide timestamps for every candle, or none.");
   }
 
   if (timestampCount === candles.length) {
     for (let i = 1; i < candles.length; i++) {
       if (candles[i].timestamp <= candles[i - 1].timestamp) {
         throw new Error(
-          `Candles are not in chronological order at candle ${i + 1}.`
+          `Candles are not chronological at candle ${i + 1}.`
         );
       }
     }
@@ -153,11 +129,13 @@ function normalizeCandles(input) {
 }
 
 // --------------------------------------------------
-// Exponential Moving Average
+// EMA SERIES
 // --------------------------------------------------
 
-function calculateEMA(values, period) {
-  if (values.length < period) return null;
+function emaSeries(values, period) {
+  const result = Array(values.length).fill(null);
+
+  if (values.length < period) return result;
 
   const multiplier = 2 / (period + 1);
 
@@ -168,183 +146,522 @@ function calculateEMA(values, period) {
   }
 
   ema /= period;
+  result[period - 1] = ema;
 
   for (let i = period; i < values.length; i++) {
-    ema =
-      (values[i] - ema) * multiplier +
-      ema;
+    ema = (values[i] - ema) * multiplier + ema;
+    result[i] = ema;
   }
 
-  return ema;
+  return result;
 }
 
 // --------------------------------------------------
-// Relative Strength Index - Wilder method
+// RSI - WILDER
 // --------------------------------------------------
 
-function calculateRSI(values, period = 14) {
-  if (values.length <= period) return null;
+function rsiSeries(values, period = 14) {
+  const result = Array(values.length).fill(null);
 
-  let averageGain = 0;
-  let averageLoss = 0;
+  if (values.length <= period) return result;
+
+  let gain = 0;
+  let loss = 0;
 
   for (let i = 1; i <= period; i++) {
     const change = values[i] - values[i - 1];
-
-    if (change > 0) {
-      averageGain += change;
-    } else {
-      averageLoss += Math.abs(change);
-    }
+    gain += Math.max(change, 0);
+    loss += Math.max(-change, 0);
   }
 
-  averageGain /= period;
-  averageLoss /= period;
+  let avgGain = gain / period;
+  let avgLoss = loss / period;
+
+  result[period] = avgLoss === 0
+    ? (avgGain === 0 ? 50 : 100)
+    : 100 - 100 / (1 + avgGain / avgLoss);
 
   for (let i = period + 1; i < values.length; i++) {
     const change = values[i] - values[i - 1];
 
-    const gain = Math.max(change, 0);
-    const loss = Math.max(-change, 0);
+    avgGain =
+      (avgGain * (period - 1) + Math.max(change, 0)) / period;
 
-    averageGain =
-      ((averageGain * (period - 1)) + gain) / period;
+    avgLoss =
+      (avgLoss * (period - 1) + Math.max(-change, 0)) / period;
 
-    averageLoss =
-      ((averageLoss * (period - 1)) + loss) / period;
+    result[i] = avgLoss === 0
+      ? (avgGain === 0 ? 50 : 100)
+      : 100 - 100 / (1 + avgGain / avgLoss);
   }
 
-  if (averageLoss === 0) {
-    return averageGain === 0 ? 50 : 100;
-  }
-
-  const relativeStrength = averageGain / averageLoss;
-
-  return 100 - (100 / (1 + relativeStrength));
+  return result;
 }
 
 // --------------------------------------------------
-// Latest trading-session VWAP
+// TRUE RANGE AND ATR
+// --------------------------------------------------
+
+function trueRangeSeries(candles) {
+  return candles.map((candle, i) => {
+    if (i === 0) return candle.high - candle.low;
+
+    const previousClose = candles[i - 1].close;
+
+    return Math.max(
+      candle.high - candle.low,
+      Math.abs(candle.high - previousClose),
+      Math.abs(candle.low - previousClose)
+    );
+  });
+}
+
+function wilderAverageSeries(values, period) {
+  const result = Array(values.length).fill(null);
+
+  if (values.length < period) return result;
+
+  let average = 0;
+
+  for (let i = 0; i < period; i++) {
+    average += values[i];
+  }
+
+  average /= period;
+  result[period - 1] = average;
+
+  for (let i = period; i < values.length; i++) {
+    average =
+      (average * (period - 1) + values[i]) / period;
+
+    result[i] = average;
+  }
+
+  return result;
+}
+
+// --------------------------------------------------
+// MACD
+// --------------------------------------------------
+
+function calculateMACD(values) {
+  const fast = emaSeries(values, 12);
+  const slow = emaSeries(values, 26);
+
+  const macd = values.map((_, i) =>
+    fast[i] === null || slow[i] === null
+      ? null
+      : fast[i] - slow[i]
+  );
+
+  const validStart = macd.findIndex(value => value !== null);
+  const signal = Array(values.length).fill(null);
+
+  if (validStart >= 0) {
+    const validValues = macd.slice(validStart);
+    const calculated = emaSeries(validValues, 9);
+
+    for (let i = 0; i < calculated.length; i++) {
+      signal[validStart + i] = calculated[i];
+    }
+  }
+
+  const histogram = macd.map((value, i) =>
+    value === null || signal[i] === null
+      ? null
+      : value - signal[i]
+  );
+
+  return { macd, signal, histogram };
+}
+
+// --------------------------------------------------
+// DMI AND ADX
+// --------------------------------------------------
+
+function calculateDMI(candles, period = 14) {
+  const length = candles.length;
+
+  const plusDM = Array(length).fill(0);
+  const minusDM = Array(length).fill(0);
+
+  for (let i = 1; i < length; i++) {
+    const upMove = candles[i].high - candles[i - 1].high;
+    const downMove = candles[i - 1].low - candles[i].low;
+
+    plusDM[i] =
+      upMove > downMove && upMove > 0 ? upMove : 0;
+
+    minusDM[i] =
+      downMove > upMove && downMove > 0 ? downMove : 0;
+  }
+
+  const tr = trueRangeSeries(candles);
+
+  const smoothTR = wilderAverageSeries(tr, period);
+  const smoothPlus = wilderAverageSeries(plusDM, period);
+  const smoothMinus = wilderAverageSeries(minusDM, period);
+
+  const plusDI = Array(length).fill(null);
+  const minusDI = Array(length).fill(null);
+  const dx = Array(length).fill(null);
+
+  for (let i = 0; i < length; i++) {
+    if (
+      smoothTR[i] === null ||
+      smoothPlus[i] === null ||
+      smoothMinus[i] === null ||
+      smoothTR[i] === 0
+    ) continue;
+
+    plusDI[i] = 100 * smoothPlus[i] / smoothTR[i];
+    minusDI[i] = 100 * smoothMinus[i] / smoothTR[i];
+
+    const total = plusDI[i] + minusDI[i];
+
+    dx[i] = total === 0
+      ? 0
+      : 100 * Math.abs(plusDI[i] - minusDI[i]) / total;
+  }
+
+  const firstDX = dx.findIndex(value => value !== null);
+  const adx = Array(length).fill(null);
+
+  if (firstDX >= 0) {
+    const validDX = dx.slice(firstDX).map(value => value ?? 0);
+    const calculated = wilderAverageSeries(validDX, period);
+
+    for (let i = 0; i < calculated.length; i++) {
+      adx[firstDX + i] = calculated[i];
+    }
+  }
+
+  return { plusDI, minusDI, adx };
+}
+
+// --------------------------------------------------
+// BOLLINGER BANDS
+// --------------------------------------------------
+
+function calculateBollinger(values, period = 20, multiplier = 2) {
+  const length = values.length;
+  const result = Array(length).fill(null);
+
+  for (let i = period - 1; i < length; i++) {
+    const window = values.slice(i - period + 1, i + 1);
+
+    const mean = window.reduce((a, b) => a + b, 0) / period;
+
+    const variance =
+      window.reduce((sum, value) => sum + (value - mean) ** 2, 0) /
+      period;
+
+    const deviation = Math.sqrt(variance);
+
+    result[i] = {
+      middle: mean,
+      upper: mean + multiplier * deviation,
+      lower: mean - multiplier * deviation
+    };
+  }
+
+  return result;
+}
+
+// --------------------------------------------------
+// SESSION VWAP
 // --------------------------------------------------
 
 function calculateVWAP(candles) {
-  if (!candles.length) return null;
-
-  // VWAP requires timestamps for session separation.
   if (candles.some(candle => candle.timestamp === null)) {
     return null;
   }
 
   const latest = candles[candles.length - 1];
 
-  const latestSession = getIndiaTradingDate(
-    latest.timestamp
-  );
+  const latestSession = getIndiaTradingDate(latest.timestamp);
 
-  let cumulativePriceVolume = 0;
-  let cumulativeVolume = 0;
+  let priceVolume = 0;
+  let volumeTotal = 0;
 
   for (const candle of candles) {
-    const session = getIndiaTradingDate(
-      candle.timestamp
-    );
-
-    if (session !== latestSession) continue;
+    if (getIndiaTradingDate(candle.timestamp) !== latestSession) {
+      continue;
+    }
 
     const typicalPrice =
       (candle.high + candle.low + candle.close) / 3;
 
-    cumulativePriceVolume +=
-      typicalPrice * candle.volume;
-
-    cumulativeVolume += candle.volume;
+    priceVolume += typicalPrice * candle.volume;
+    volumeTotal += candle.volume;
   }
 
-  if (cumulativeVolume === 0) return null;
+  if (volumeTotal <= 0) return null;
 
-  return cumulativePriceVolume / cumulativeVolume;
+  return priceVolume / volumeTotal;
 }
 
 // --------------------------------------------------
-// Data quality information
+// VOLUME ANALYSIS
 // --------------------------------------------------
 
-function getDataInfo(candles) {
-  const timestampAvailable = candles.every(
-    candle => candle.timestamp !== null
-  );
+function calculateVolumeInfo(candles, period = 20) {
+  const volumes = candles.map(candle => candle.volume);
 
-  const latestSession = timestampAvailable
-    ? getIndiaTradingDate(
-        candles[candles.length - 1].timestamp
-      )
-    : null;
+  if (volumes.length < period) {
+    return {
+      average: null,
+      relativeVolume: null,
+      available: false
+    };
+  }
 
-  const vwapAvailable =
-    timestampAvailable &&
-    candles.some(candle => candle.volume > 0);
+  const recent = volumes.slice(-period);
+
+  const average =
+    recent.reduce((a, b) => a + b, 0) / period;
+
+  const current = volumes[volumes.length - 1];
 
   return {
-    candleCount: candles.length,
-    timestampAvailable,
-    chronologicalOrderChecked: timestampAvailable,
-    latestTradingSession: latestSession,
-    vwapAvailable,
-    vwapMethod: vwapAvailable
-      ? "Latest session VWAP (Asia/Kolkata)"
-      : "Unavailable: valid timestamps and volume required",
-    volumeAvailable: candles.some(
-      candle => candle.volume > 0
-    ),
-    dataType: "Supplied historical OHLCV data"
+    average,
+    relativeVolume: average > 0 ? current / average : null,
+    available: average > 0
   };
 }
 
 // --------------------------------------------------
-// Main analysis function
+// CONFIRMED PIVOT AND STRUCTURE
+// A pivot is only available after right-side candles
+// have closed. This avoids using future candles early.
+// --------------------------------------------------
+
+function calculateStructure(candles, pivotLength = 5) {
+  let lastPivotHigh = null;
+  let lastPivotLow = null;
+
+  let structure = "UNCONFIRMED";
+  let lastEvent = "NONE";
+
+  for (
+    let i = pivotLength;
+    i < candles.length - pivotLength;
+    i++
+  ) {
+    const candidate = candles[i];
+
+    let isHigh = true;
+    let isLow = true;
+
+    for (let j = i - pivotLength; j <= i + pivotLength; j++) {
+      if (j === i) continue;
+
+      if (candles[j].high >= candidate.high) isHigh = false;
+      if (candles[j].low <= candidate.low) isLow = false;
+    }
+
+    const confirmationIndex = i + pivotLength;
+
+    if (isHigh) {
+      lastPivotHigh = {
+        price: candidate.high,
+        index: i,
+        confirmedAt: confirmationIndex
+      };
+    }
+
+    if (isLow) {
+      lastPivotLow = {
+        price: candidate.low,
+        index: i,
+        confirmedAt: confirmationIndex
+      };
+    }
+  }
+
+  const latestIndex = candles.length - 1;
+  const latest = candles[latestIndex];
+  const previous = candles[latestIndex - 1];
+
+  if (lastPivotHigh && lastPivotHigh.confirmedAt < latestIndex) {
+    if (
+      previous.close <= lastPivotHigh.price &&
+      latest.close > lastPivotHigh.price
+    ) {
+      structure = "BULLISH_STRUCTURE_BREAK";
+      lastEvent = "CONFIRMED_HIGH_BREAK";
+    }
+  }
+
+  if (lastPivotLow && lastPivotLow.confirmedAt < latestIndex) {
+    if (
+      previous.close >= lastPivotLow.price &&
+      latest.close < lastPivotLow.price
+    ) {
+      structure = "BEARISH_STRUCTURE_BREAK";
+      lastEvent = "CONFIRMED_LOW_BREAK";
+    }
+  }
+
+  if (structure === "UNCONFIRMED") {
+    if (lastPivotHigh && lastPivotLow) {
+      structure = "PIVOTS_AVAILABLE";
+    }
+  }
+
+  return {
+    structure,
+    lastEvent,
+    lastPivotHigh: lastPivotHigh?.price ?? null,
+    lastPivotLow: lastPivotLow?.price ?? null,
+    pivotLength
+  };
+}
+
+// --------------------------------------------------
+// LATEST CANDLE QUALITY
+// --------------------------------------------------
+
+function calculateCandleQuality(candle) {
+  const range = candle.high - candle.low;
+
+  if (range <= 0) {
+    return {
+      bodyRatio: 0,
+      upperWickRatio: 0,
+      lowerWickRatio: 0,
+      candleType: "NO_RANGE"
+    };
+  }
+
+  const body = Math.abs(candle.close - candle.open);
+  const upperWick =
+    candle.high - Math.max(candle.open, candle.close);
+
+  const lowerWick =
+    Math.min(candle.open, candle.close) - candle.low;
+
+  const bodyRatio = body / range;
+  const upperWickRatio = upperWick / range;
+  const lowerWickRatio = lowerWick / range;
+
+  let candleType = "SMALL_BODY";
+
+  if (bodyRatio >= 0.65) {
+    candleType = candle.close > candle.open
+      ? "STRONG_BULLISH_BODY"
+      : "STRONG_BEARISH_BODY";
+  } else if (lowerWickRatio >= 0.60) {
+    candleType = "LONG_LOWER_WICK";
+  } else if (upperWickRatio >= 0.60) {
+    candleType = "LONG_UPPER_WICK";
+  } else if (bodyRatio <= 0.15) {
+    candleType = "DOJI_LIKE";
+  }
+
+  return {
+    bodyRatio,
+    upperWickRatio,
+    lowerWickRatio,
+    candleType
+  };
+}
+
+// --------------------------------------------------
+// ROUNDING
+// --------------------------------------------------
+
+function round(value, digits = 2) {
+  if (value === null || value === undefined || !Number.isFinite(value)) {
+    return null;
+  }
+
+  return Number(value.toFixed(digits));
+}
+
+// --------------------------------------------------
+// MAIN ANALYSIS
 // --------------------------------------------------
 
 export function analyzeMarket(input) {
   try {
     const candles = normalizeCandles(input);
 
-    const closes = candles.map(
-      candle => candle.close
-    );
+    const closes = candles.map(c => c.close);
+    const latestIndex = candles.length - 1;
+    const latest = candles[latestIndex];
 
-    const ema20 = calculateEMA(closes, 20);
-    const ema50 = calculateEMA(closes, 50);
-    const ema200 = calculateEMA(closes, 200);
+    const ema9 = emaSeries(closes, 9);
+    const ema20 = emaSeries(closes, 20);
+    const ema21 = emaSeries(closes, 21);
+    const ema50 = emaSeries(closes, 50);
+    const ema200 = emaSeries(closes, 200);
 
-    const rsi14 = calculateRSI(closes, 14);
+    const rsi = rsiSeries(closes, 14);
+    const macd = calculateMACD(closes);
+
+    const tr = trueRangeSeries(candles);
+    const atr = wilderAverageSeries(tr, 14);
+
+    const dmi = calculateDMI(candles, 14);
+    const bollinger = calculateBollinger(closes, 20, 2);
+
     const vwap = calculateVWAP(candles);
+    const volume = calculateVolumeInfo(candles, 20);
+    const structure = calculateStructure(candles, 5);
+    const candleQuality = calculateCandleQuality(latest);
 
-    const latest = candles[candles.length - 1];
-    const close = latest.close;
+    const i = latestIndex;
 
-    if (
-      ema20 === null ||
-      ema50 === null ||
-      ema200 === null ||
-      rsi14 === null
-    ) {
+    const required = [
+      ema9[i], ema20[i], ema21[i], ema50[i],
+      ema200[i], rsi[i], macd.macd[i],
+      macd.signal[i], macd.histogram[i],
+      atr[i], dmi.adx[i], bollinger[i]
+    ];
+
+    if (required.some(value => value === null || value === undefined)) {
       throw new Error(
-        "Insufficient data for indicator calculation."
+        "Some indicators need more historical warm-up candles. Please provide additional history."
       );
     }
 
-    // Historical classification only.
+    const close = latest.close;
+
+    // ------------------------------------------------
+    // HISTORICAL COMPONENT CLASSIFICATION
+    // These points are NOT a probability or forecast.
+    // ------------------------------------------------
+
     let score = 0;
 
-    if (close > ema20) score++;
-    else if (close < ema20) score--;
+    // EMA trend
+    if (ema9[i] > ema21[i]) score++;
+    else if (ema9[i] < ema21[i]) score--;
 
-    if (ema20 > ema50) score++;
-    else if (ema20 < ema50) score--;
+    if (ema21[i] > ema50[i]) score++;
+    else if (ema21[i] < ema50[i]) score--;
 
-    if (ema50 > ema200) score++;
-    else if (ema50 < ema200) score--;
+    if (ema50[i] > ema200[i]) score++;
+    else if (ema50[i] < ema200[i]) score--;
 
+    if (close > ema20[i]) score++;
+    else if (close < ema20[i]) score--;
+
+    // Momentum
+    if (rsi[i] > 55) score++;
+    else if (rsi[i] < 45) score--;
+
+    if (macd.histogram[i] > 0) score++;
+    else if (macd.histogram[i] < 0) score--;
+
+    // Directional movement
+    if (dmi.adx[i] >= 18) {
+      if (dmi.plusDI[i] > dmi.minusDI[i]) score++;
+      else if (dmi.minusDI[i] > dmi.plusDI[i]) score--;
+    }
+
+    // VWAP context
     if (vwap !== null) {
       if (close > vwap) score++;
       else if (close < vwap) score--;
@@ -352,36 +669,139 @@ export function analyzeMarket(input) {
 
     let bias = "NEUTRAL";
 
-    if (score >= 2) {
-      bias = "UPWARD_BIAS";
-    } else if (score <= -2) {
-      bias = "DOWNWARD_BIAS";
+    if (score >= 3) bias = "UPWARD_BIAS";
+    if (score <= -3) bias = "DOWNWARD_BIAS";
+
+    let trendState = "MIXED";
+
+    if (
+      ema9[i] > ema21[i] &&
+      ema21[i] > ema50[i] &&
+      ema50[i] > ema200[i]
+    ) {
+      trendState = "EMA_BULLISH_ALIGNMENT";
+    } else if (
+      ema9[i] < ema21[i] &&
+      ema21[i] < ema50[i] &&
+      ema50[i] < ema200[i]
+    ) {
+      trendState = "EMA_BEARISH_ALIGNMENT";
     }
+
+    let momentumState = "MIXED";
+
+    if (rsi[i] > 50 && macd.histogram[i] > 0) {
+      momentumState = "POSITIVE_MOMENTUM";
+    } else if (rsi[i] < 50 && macd.histogram[i] < 0) {
+      momentumState = "NEGATIVE_MOMENTUM";
+    }
+
+    let strengthState = "WEAK_OR_UNCONFIRMED";
+
+    if (dmi.adx[i] >= 25) {
+      strengthState = "STRONGER_TREND_STRENGTH";
+    } else if (dmi.adx[i] >= 18) {
+      strengthState = "MODERATE_TREND_STRENGTH";
+    }
+
+    const bb = bollinger[i];
+
+    const bbWidth =
+      bb.middle !== 0
+        ? ((bb.upper - bb.lower) / bb.middle) * 100
+        : null;
+
+    const sideways =
+      dmi.adx[i] < 18 &&
+      bbWidth !== null &&
+      bbWidth < 1.5;
+
+    const dataInfo = {
+      candleCount: candles.length,
+      timestampAvailable: candles.every(c => c.timestamp !== null),
+      chronologicalOrderChecked: candles.every(c => c.timestamp !== null),
+      latestTradingSession: latest.timestamp !== null
+        ? getIndiaTradingDate(latest.timestamp)
+        : null,
+      volumeAvailable: volume.available,
+      vwapAvailable: vwap !== null,
+      ema200Available: ema200[i] !== null,
+      dataType: "Supplied historical OHLCV data",
+      warmupWarning: candles.length < 300
+        ? "Only 200–299 candles supplied. Longer history can improve EMA200 stability."
+        : null
+    };
 
     return {
       status: "OK",
+      version: "11.0",
       timeframe: input?.timeframe || "15m",
-      bias,
-      score,
 
-      indicators: {
-        close: Number(close.toFixed(2)),
-        ema20: Number(ema20.toFixed(2)),
-        ema50: Number(ema50.toFixed(2)),
-        ema200: Number(ema200.toFixed(2)),
-        rsi14: Number(rsi14.toFixed(2)),
-        vwap: vwap === null
-          ? null
-          : Number(vwap.toFixed(2))
+      historicalClassification: {
+        bias,
+        score,
+        scoreMeaning: "Descriptive component score only; not a probability.",
+        trendState,
+        momentumState,
+        strengthState,
+        sidewaysClassification: sideways
+          ? "POSSIBLE_LOW_STRENGTH_RANGE"
+          : "NOT_CLASSIFIED_AS_SIDEWAYS"
       },
 
-      dataInfo: getDataInfo(candles),
+      indicators: {
+        close: round(close),
+
+        ema9: round(ema9[i]),
+        ema20: round(ema20[i]),
+        ema21: round(ema21[i]),
+        ema50: round(ema50[i]),
+        ema200: round(ema200[i]),
+
+        rsi14: round(rsi[i]),
+
+        macd: {
+          line: round(macd.macd[i], 4),
+          signal: round(macd.signal[i], 4),
+          histogram: round(macd.histogram[i], 4)
+        },
+
+        dmi: {
+          plusDI: round(dmi.plusDI[i]),
+          minusDI: round(dmi.minusDI[i]),
+          adx: round(dmi.adx[i])
+        },
+
+        atr14: round(atr[i]),
+
+        bollingerBands: {
+          upper: round(bb.upper),
+          middle: round(bb.middle),
+          lower: round(bb.lower),
+          widthPercent: round(bbWidth)
+        },
+
+        vwap: round(vwap),
+
+        volume: {
+          current: round(latest.volume),
+          average20: round(volume.average),
+          relativeVolume: round(volume.relativeVolume, 3),
+          available: volume.available
+        }
+      },
+
+      marketStructure: structure,
+      latestCandleQuality: candleQuality,
+      dataInfo,
+
       note: NOTE
     };
 
   } catch (error) {
     return {
       status: "ERROR",
+      version: "11.0",
       error: error.message,
       note: NOTE
     };

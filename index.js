@@ -1,4 +1,6 @@
 
+import { analyzeMarket } from "./market-data.js";
+
 const FEEDS = [
   {
     name: "NIFTY / Indian Markets",
@@ -402,15 +404,25 @@ export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
 
+    // HEALTH CHECK
     if (url.pathname === "/api/health") {
       return Response.json({
         ok: true,
         app: "BADAL SEVERIYA V10",
-        mode: "prototype"
+        mode: "prototype",
+        marketEngine: "connected"
       });
     }
 
+    // NEWS API
     if (url.pathname === "/api/news") {
+      if (request.method !== "GET") {
+        return Response.json(
+          { error: "Method not allowed" },
+          { status: 405 }
+        );
+      }
+
       const items = await getNews();
 
       return Response.json({
@@ -424,6 +436,64 @@ export default {
       });
     }
 
+    // MARKET ANALYSIS API
+    if (url.pathname === "/api/analyze") {
+      if (request.method !== "POST") {
+        return Response.json(
+          {
+            error: "Send candle data using POST"
+          },
+          { status: 405 }
+        );
+      }
+
+      try {
+        const body = await request.json();
+
+        if (!body || !Array.isArray(body.candles)) {
+          return Response.json(
+            {
+              status: "INVALID_REQUEST",
+              error: "Request must contain a candles array"
+            },
+            { status: 400 }
+          );
+        }
+
+        if (body.candles.length > 5000) {
+          return Response.json(
+            {
+              status: "DATA_LIMIT_EXCEEDED",
+              error: "Maximum 5000 candles allowed"
+            },
+            { status: 400 }
+          );
+        }
+
+        const result = analyzeMarket(body.candles);
+
+        return Response.json({
+          app: "BADAL SEVERIYA V10",
+          analysisTime: new Date().toISOString(),
+          result
+        }, {
+          headers: {
+            "Cache-Control": "no-store"
+          }
+        });
+
+      } catch (error) {
+        return Response.json(
+          {
+            status: "ERROR",
+            error: "Invalid JSON or analysis request"
+          },
+          { status: 400 }
+        );
+      }
+    }
+
+    // MAIN DASHBOARD
     if (
       url.pathname === "/" ||
       url.pathname === "/index.html"

@@ -150,12 +150,10 @@ async function getNews() {
     })
   );
 
-  return results
-    .flat()
-    .sort((a, b) =>
-      (Date.parse(b.pubDate) || 0) -
-      (Date.parse(a.pubDate) || 0)
-    );
+  return results.flat().sort((a, b) =>
+    (Date.parse(b.pubDate) || 0) -
+    (Date.parse(a.pubDate) || 0)
+  );
 }
 
 function renderNewsItem(item) {
@@ -257,6 +255,11 @@ h2 { font-size: 19px; margin-top: 0; }
 
 .btn.secondary { background: #344056; }
 
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 textarea {
   width: 100%;
   min-height: 190px;
@@ -267,6 +270,13 @@ textarea {
   border-radius: 9px;
   padding: 12px;
   font: 12px monospace;
+}
+
+input[type="file"] {
+  display: block;
+  width: 100%;
+  margin: 12px 0;
+  color: #dce8ff;
 }
 
 .notice {
@@ -359,14 +369,14 @@ footer {
     <h2>Market Engine Test</h2>
 
     <p class="muted">
-      Generate demo candles or paste your own historical OHLCV data.
-      Minimum 200 candles required.
+      Generate demo candles, upload a JSON file,
+      or paste historical OHLCV data.
     </p>
 
     <div class="notice">
       Demo data is synthetic and is not actual NIFTY market data.
-      Results are educational indicator calculations, not forecasts
-      or trading recommendations.
+      Historical indicator results are educational calculations,
+      not forecasts or trading recommendations.
     </div>
 
     <button class="btn secondary" id="demoButton">
@@ -376,6 +386,29 @@ footer {
     <button class="btn" id="analyzeButton">
       Analyze Market
     </button>
+
+    <hr>
+
+    <h2>Historical JSON Data Import</h2>
+
+    <p class="muted">
+      Select a JSON file containing a candles array or a direct
+      array of OHLCV candles. Maximum file size: 2 MB.
+    </p>
+
+    <input
+      type="file"
+      id="jsonFile"
+      accept=".json,application/json"
+    >
+
+    <button class="btn secondary" id="clearButton">
+      Clear Data
+    </button>
+
+    <p class="muted" id="fileStatus">
+      No file selected.
+    </p>
 
     <textarea id="candleInput"
       placeholder='Paste JSON candle data here. Example:
@@ -419,9 +452,56 @@ footer {
   const result = document.getElementById("result");
   const demoButton = document.getElementById("demoButton");
   const analyzeButton = document.getElementById("analyzeButton");
+  const jsonFile = document.getElementById("jsonFile");
+  const fileStatus = document.getElementById("fileStatus");
+  const clearButton = document.getElementById("clearButton");
 
   function showMessage(message) {
     result.textContent = message;
+  }
+
+  function extractCandles(data) {
+    if (Array.isArray(data)) return data;
+
+    if (
+      data &&
+      typeof data === "object" &&
+      Array.isArray(data.candles)
+    ) {
+      return data.candles;
+    }
+
+    if (
+      data &&
+      typeof data === "object" &&
+      data.data &&
+      Array.isArray(data.data)
+    ) {
+      return data.data;
+    }
+
+    throw new Error(
+      "JSON must contain a candle array or a candles property."
+    );
+  }
+
+  function checkCandles(candles) {
+    if (!Array.isArray(candles)) {
+      throw new Error("Candle data must be an array.");
+    }
+
+    if (candles.length < 200) {
+      throw new Error(
+        "At least 200 candles are required. Found: " +
+        candles.length
+      );
+    }
+
+    if (candles.length > 5000) {
+      throw new Error("Maximum 5000 candles are allowed.");
+    }
+
+    return candles;
   }
 
   demoButton.addEventListener("click", function() {
@@ -452,27 +532,62 @@ footer {
     }
 
     input.value = JSON.stringify(candles, null, 2);
-    showMessage("220 synthetic demo candles created. Now press Analyze Market.");
+    fileStatus.textContent = "220 synthetic demo candles created.";
+    showMessage(
+      "Demo candles created. Press Analyze Market to test."
+    );
+  });
+
+  jsonFile.addEventListener("change", async function() {
+    const file = jsonFile.files[0];
+
+    if (!file) return;
+
+    if (file.size > 2 * 1024 * 1024) {
+      showMessage("File is too large. Maximum allowed size is 2 MB.");
+      jsonFile.value = "";
+      return;
+    }
+
+    if (!file.name.toLowerCase().endsWith(".json")) {
+      showMessage("Please select a .json file.");
+      jsonFile.value = "";
+      return;
+    }
+
+    try {
+      const text = await file.text();
+      const parsed = JSON.parse(text);
+      const candles = checkCandles(extractCandles(parsed));
+
+      input.value = JSON.stringify(candles, null, 2);
+      fileStatus.textContent =
+        "Loaded " + candles.length + " candles from " + file.name;
+
+      showMessage(
+        "JSON file loaded successfully. Press Analyze Market."
+      );
+
+    } catch (error) {
+      showMessage("IMPORT ERROR: " + error.message);
+      fileStatus.textContent = "File import failed.";
+    }
+  });
+
+  clearButton.addEventListener("click", function() {
+    input.value = "";
+    jsonFile.value = "";
+    fileStatus.textContent = "Data cleared.";
+    showMessage("Data cleared. Upload a JSON file or generate demo candles.");
   });
 
   analyzeButton.addEventListener("click", async function() {
     analyzeButton.disabled = true;
-    showMessage("Analyzing candle data...");
+    showMessage("Checking and analyzing candle data...");
 
     try {
-      const candles = JSON.parse(input.value);
-
-      if (!Array.isArray(candles)) {
-        throw new Error("Candle data must be a JSON array.");
-      }
-
-      if (candles.length < 200) {
-        throw new Error("At least 200 candles are required.");
-      }
-
-      if (candles.length > 5000) {
-        throw new Error("Maximum 5000 candles are allowed.");
-      }
+      const parsed = JSON.parse(input.value);
+      const candles = checkCandles(extractCandles(parsed));
 
       const response = await fetch("/api/analyze", {
         method: "POST",
@@ -483,6 +598,12 @@ footer {
       });
 
       const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(
+          data.error || "Server returned HTTP " + response.status
+        );
+      }
 
       result.textContent = JSON.stringify(data, null, 2);
 
@@ -508,7 +629,8 @@ export default {
         ok: true,
         app: "BADAL SEVERIYA V10",
         mode: "prototype",
-        marketEngine: "connected"
+        marketEngine: "connected",
+        jsonImport: "client-side-enabled"
       });
     }
 

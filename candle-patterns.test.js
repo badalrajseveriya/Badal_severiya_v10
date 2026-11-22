@@ -56,7 +56,10 @@ console.log("PASS: Doji detection");
 // 3. Hammer
 {
   const c = baseCandles();
-  c[2] = candle(2, 100, 101, 93, 102);
+
+  // Corrected: High must be >= Open and Close.
+  c[2] = candle(2, 100, 103, 93, 102);
+
   assert.ok(hasPattern(c, "HAMMER"));
 }
 
@@ -148,6 +151,7 @@ console.log("PASS: Three Black Crows");
 {
   const c = baseCandles();
   c[2] = candle(2, 100, 105, 95, 100);
+
   const limited = analyzeCandlePatterns(c, {
     maxPatterns: 1
   });

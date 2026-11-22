@@ -1,8 +1,8 @@
 
- // ======================================================
+// ======================================================
 // BADAL SEVERIYA V12
 // HISTORICAL CANDLE PATTERN ENGINE
-// Educational analysis only
+// Educational historical classification only
 // ======================================================
 
 const DEFAULTS = {
@@ -30,8 +30,10 @@ function validateCandles(candles) {
 
     if (
       !values.every(Number.isFinite) ||
-      c.open <= 0 || c.high <= 0 ||
-      c.low <= 0 || c.close <= 0 ||
+      c.open <= 0 ||
+      c.high <= 0 ||
+      c.low <= 0 ||
+      c.close <= 0 ||
       c.volume < 0 ||
       c.high < Math.max(c.open, c.close, c.low) ||
       c.low > Math.min(c.open, c.close, c.high)
@@ -57,6 +59,15 @@ function candleInfo(c) {
   };
 }
 
+function makePattern(name, direction, index, candle) {
+  return {
+    name,
+    direction,
+    index,
+    timestamp: candle.timestamp
+  };
+}
+
 function detectSingle(c, i, config) {
   const info = candleInfo(c);
   const patterns = [];
@@ -66,38 +77,33 @@ function detectSingle(c, i, config) {
   const bodyRatio = info.body / info.range;
 
   if (bodyRatio <= config.dojiBodyRatio) {
-    patterns.push({
-      name: "DOJI",
-      direction: "NEUTRAL",
-      index: i,
-      timestamp: c.timestamp
-    });
+    patterns.push(
+      makePattern("DOJI", "NEUTRAL", i, c)
+    );
   }
 
+  // Hammer: non-zero body and long lower wick.
   if (
+    info.body > 0 &&
     info.lowerWick >= info.body * config.wickBodyRatio &&
     info.upperWick <= info.range * 0.15 &&
     bodyRatio <= 0.40
   ) {
-    patterns.push({
-      name: "HAMMER",
-      direction: "BULLISH_CONTEXT",
-      index: i,
-      timestamp: c.timestamp
-    });
+    patterns.push(
+      makePattern("HAMMER", "BULLISH_CONTEXT", i, c)
+    );
   }
 
+  // Shooting Star: non-zero body and long upper wick.
   if (
+    info.body > 0 &&
     info.upperWick >= info.body * config.wickBodyRatio &&
     info.lowerWick <= info.range * 0.15 &&
     bodyRatio <= 0.40
   ) {
-    patterns.push({
-      name: "SHOOTING_STAR",
-      direction: "BEARISH_CONTEXT",
-      index: i,
-      timestamp: c.timestamp
-    });
+    patterns.push(
+      makePattern("SHOOTING_STAR", "BEARISH_CONTEXT", i, c)
+    );
   }
 
   return patterns;
@@ -111,28 +117,30 @@ function detectEngulfing(previous, current, index) {
     a.bearish &&
     b.bullish &&
     current.open <= previous.close &&
-    current.close >= previous.open
+    current.close >= previous.open &&
+    b.body > 0
   ) {
-    return {
-      name: "BULLISH_ENGULFING",
-      direction: "BULLISH_CONTEXT",
+    return makePattern(
+      "BULLISH_ENGULFING",
+      "BULLISH_CONTEXT",
       index,
-      timestamp: current.timestamp
-    };
+      current
+    );
   }
 
   if (
     a.bullish &&
     b.bearish &&
     current.open >= previous.close &&
-    current.close <= previous.open
+    current.close <= previous.open &&
+    b.body > 0
   ) {
-    return {
-      name: "BEARISH_ENGULFING",
-      direction: "BEARISH_CONTEXT",
+    return makePattern(
+      "BEARISH_ENGULFING",
+      "BEARISH_CONTEXT",
       index,
-      timestamp: current.timestamp
-    };
+      current
+    );
   }
 
   return null;
@@ -145,35 +153,34 @@ function detectStars(a, b, c, index) {
 
   const patterns = [];
 
-  const middleSmall = y.body < x.body * 0.5 &&
+  const middleSmall =
+    y.body < x.body * 0.5 &&
     y.body < z.body * 0.5;
 
   if (
     x.bearish &&
+    x.body > 0 &&
     middleSmall &&
     z.bullish &&
+    z.body > 0 &&
     c.close > (a.open + a.close) / 2
   ) {
-    patterns.push({
-      name: "MORNING_STAR",
-      direction: "BULLISH_CONTEXT",
-      index,
-      timestamp: c.timestamp
-    });
+    patterns.push(
+      makePattern("MORNING_STAR", "BULLISH_CONTEXT", index, c)
+    );
   }
 
   if (
     x.bullish &&
+    x.body > 0 &&
     middleSmall &&
     z.bearish &&
+    z.body > 0 &&
     c.close < (a.open + a.close) / 2
   ) {
-    patterns.push({
-      name: "EVENING_STAR",
-      direction: "BEARISH_CONTEXT",
-      index,
-      timestamp: c.timestamp
-    });
+    patterns.push(
+      makePattern("EVENING_STAR", "BEARISH_CONTEXT", index, c)
+    );
   }
 
   return patterns;
@@ -181,31 +188,55 @@ function detectStars(a, b, c, index) {
 
 function detectThreeCandleRuns(a, b, c, index) {
   const patterns = [];
+  const candles = [a, b, c];
+  const info = candles.map(candleInfo);
 
-  const bullish = [a, b, c].every(
-    candle => candle.close > candle.open
+  const bullish = info.every(
+    x => x.bullish && x.body > 0 &&
+      x.body / x.range >= 0.50
   );
 
-  const bearish = [a, b, c].every(
-    candle => candle.close < candle.open
+  const bearish = info.every(
+    x => x.bearish && x.body > 0 &&
+      x.body / x.range >= 0.50
   );
 
-  if (bullish && a.close < b.close && b.close < c.close) {
-    patterns.push({
-      name: "THREE_WHITE_SOLDIERS",
-      direction: "BULLISH_CONTEXT",
-      index,
-      timestamp: c.timestamp
-    });
+  if (
+    bullish &&
+    a.close < b.close &&
+    b.close < c.close &&
+    b.open >= a.open &&
+    b.open <= a.close &&
+    c.open >= b.open &&
+    c.open <= b.close
+  ) {
+    patterns.push(
+      makePattern(
+        "THREE_WHITE_SOLDIERS",
+        "BULLISH_CONTEXT",
+        index,
+        c
+      )
+    );
   }
 
-  if (bearish && a.close > b.close && b.close > c.close) {
-    patterns.push({
-      name: "THREE_BLACK_CROWS",
-      direction: "BEARISH_CONTEXT",
-      index,
-      timestamp: c.timestamp
-    });
+  if (
+    bearish &&
+    a.close > b.close &&
+    b.close > c.close &&
+    b.open <= a.open &&
+    b.open >= a.close &&
+    c.open <= b.open &&
+    c.open >= b.close
+  ) {
+    patterns.push(
+      makePattern(
+        "THREE_BLACK_CROWS",
+        "BEARISH_CONTEXT",
+        index,
+        c
+      )
+    );
   }
 
   return patterns;
@@ -213,6 +244,14 @@ function detectThreeCandleRuns(a, b, c, index) {
 
 export function analyzeCandlePatterns(candles, options = {}) {
   validateCandles(candles);
+
+  if (
+    !options ||
+    typeof options !== "object" ||
+    Array.isArray(options)
+  ) {
+    throw new Error("Invalid candle pattern configuration");
+  }
 
   const config = {
     ...DEFAULTS,

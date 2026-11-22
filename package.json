@@ -5,6 +5,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test:decoder": "node websocket-decoder.test.js"
+    "test:decoder": "node websocket-decoder.test.js",
+    "test:market": "node market-data.test.js",
+    "test": "npm run test:decoder && npm run test:market"
   }
 }

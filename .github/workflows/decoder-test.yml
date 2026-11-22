@@ -1,5 +1,5 @@
 
-name: BADAL SEVERIYA Decoder Tests
+name: BADAL SEVERIYA V11 - Code Checks
 
 on:
   push:
@@ -11,10 +11,6 @@ jobs:
   test:
     runs-on: ubuntu-latest
 
-    defaults:
-      run:
-        working-directory: .
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -24,11 +20,12 @@ jobs:
         with:
           node-version: 20
 
-      - name: Check files
+      - name: Check JavaScript Syntax
         run: |
-          pwd
-          ls -la
-          ls -la websocket-decoder.test.js
+          node --check data-worker.js
+          node --check angelone-converter.js
+          node --check market-data.js
+          node --check websocket-decoder.js
 
       - name: Run Decoder Tests
         run: npm run test:decoder

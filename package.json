@@ -1,0 +1,10 @@
+
+{
+  "name": "badal-severiya-v11",
+  "version": "11.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test:decoder": "node websocket-decoder.test.js"
+  }
+}

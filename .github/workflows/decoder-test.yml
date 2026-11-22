@@ -11,6 +11,10 @@ jobs:
   test:
     runs-on: ubuntu-latest
 
+    defaults:
+      run:
+        working-directory: .
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -19,6 +23,12 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
+
+      - name: Check files
+        run: |
+          pwd
+          ls -la
+          ls -la websocket-decoder.test.js
 
       - name: Run Decoder Tests
         run: npm run test:decoder

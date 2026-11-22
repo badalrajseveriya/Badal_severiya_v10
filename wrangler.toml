@@ -1,3 +1,10 @@
-name = "badal-severiya-v10"
-main = "index.js"
-compatibility_date = "2026-11-20"
+
+name = "badal-severiya-data"
+main = "data-worker.js"
+compatibility_date = "2026-11-22"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "badal-severiya-data"
+database_id = "YOUR_DATABASE_ID"
+

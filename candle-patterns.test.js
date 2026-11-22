@@ -56,10 +56,7 @@ console.log("PASS: Doji detection");
 // 3. Hammer
 {
   const c = baseCandles();
-
-  // Corrected: High must be >= Open and Close.
   c[2] = candle(2, 100, 103, 93, 102);
-
   assert.ok(hasPattern(c, "HAMMER"));
 }
 
@@ -68,7 +65,7 @@ console.log("PASS: Hammer detection");
 // 4. Shooting Star
 {
   const c = baseCandles();
-  c[2] = candle(2, 102, 109, 101, 100);
+  c[2] = candle(2, 102, 109, 99, 100);
   assert.ok(hasPattern(c, "SHOOTING_STAR"));
 }
 

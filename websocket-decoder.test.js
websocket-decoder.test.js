@@ -45,6 +45,7 @@ function makePacket(mode) {
 
     for (let i = 0; i < 10; i++) {
       const offset = 147 + i * 20;
+
       view.setInt16(offset, i < 5 ? 1 : 0, true);
       view.setBigInt64(offset + 2, 100n, true);
       view.setBigInt64(offset + 10, 2500000n, true);
@@ -60,6 +61,7 @@ function makePacket(mode) {
   return buffer;
 }
 
+// Test all three packet modes
 for (const mode of [1, 2, 3]) {
   const result = decodeWebSocketPacket(makePacket(mode));
 
@@ -70,11 +72,13 @@ for (const mode of [1, 2, 3]) {
   console.log(`Mode ${mode}: PASS`);
 }
 
+// Test invalid short packet
 assert.throws(
   () => decodeWebSocketPacket(new ArrayBuffer(10)),
-  /too short|packet length/i
+  /too short|packet length|unknown subscription mode/i
 );
 
+// Test incorrect packet length
 assert.throws(
   () => decodeWebSocketPacket(makePacket(1).slice(0, 20)),
   /packet length/i

@@ -13,6 +13,10 @@ const DEFAULTS = {
   maxZones: 100
 };
 
+// ------------------------------------------------------
+// VALIDATION
+// ------------------------------------------------------
+
 function validateCandles(candles) {
   if (!Array.isArray(candles) || candles.length < 30) {
     throw new Error("At least 30 historical candles are required");
@@ -51,18 +55,28 @@ function validateCandles(candles) {
   }
 }
 
-function averageRange(candles, end, length = 14) {
-  const start = Math.max(0, end - length + 1);
-  let total = 0;
-  let count = 0;
-
-  for (let i = start; i <= end; i++) {
-    total += candles[i].high - candles[i].low;
-    count++;
+function validateConfig(config) {
+  if (
+    !Number.isInteger(config.pivotLength) ||
+    config.pivotLength < 2 ||
+    config.pivotLength > 50 ||
+    !Number.isFinite(config.equalLevelTolerance) ||
+    config.equalLevelTolerance < 0 ||
+    config.equalLevelTolerance > 0.05 ||
+    !Number.isInteger(config.orderBlockLookback) ||
+    config.orderBlockLookback < 1 ||
+    config.orderBlockLookback > 500 ||
+    !Number.isInteger(config.maxZones) ||
+    config.maxZones < 1 ||
+    config.maxZones > 1000
+  ) {
+    throw new Error("Invalid market structure configuration");
   }
-
-  return count ? total / count : 0;
 }
+
+// ------------------------------------------------------
+// CONFIRMED PIVOTS
+// ------------------------------------------------------
 
 function findConfirmedPivots(candles, length) {
   const highs = [];
@@ -77,8 +91,15 @@ function findConfirmedPivots(candles, length) {
     for (let j = i - length; j <= i + length; j++) {
       if (j === i) continue;
 
-      if (candles[j].high >= current.high) isHigh = false;
-      if (candles[j].low <= current.low) isLow = false;
+      if (candles[j].high >= current.high) {
+        isHigh = false;
+      }
+
+      if (candles[j].low <= current.low) {
+        isLow = false;
+      }
+
+      if (!isHigh && !isLow) break;
     }
 
     const confirmedAt = i + length;
@@ -107,52 +128,89 @@ function findConfirmedPivots(candles, length) {
   return { highs, lows };
 }
 
-function detectLiquidity(pivots, tolerance, maxZones) {
-  const pools = [];
+// ------------------------------------------------------
+// EQUAL HIGH / LOW LIQUIDITY CLUSTERS
+// ------------------------------------------------------
 
-  for (const pivot of pivots) {
+function clusterPivots(pivots, type, tolerance, maxZones) {
+  const sorted = [...pivots].sort(
+    (a, b) => a.confirmedAt - b.confirmedAt
+  );
+
+  const clusters = [];
+
+  for (const pivot of sorted) {
     let matched = null;
 
-    for (const pool of pools) {
+    for (const cluster of clusters) {
       const difference =
-        Math.abs(pool.price - pivot.price) / pool.price;
+        Math.abs(cluster.price - pivot.price) /
+        cluster.price;
 
       if (difference <= tolerance) {
-        matched = pool;
+        matched = cluster;
         break;
       }
     }
 
     if (matched) {
-      matched.touches++;
-      matched.lastConfirmedAt = pivot.confirmedAt;
       matched.members.push(pivot);
+
       matched.price =
-        matched.members.reduce((sum, p) => sum + p.price, 0) /
-        matched.members.length;
+        matched.members.reduce(
+          (sum, item) => sum + item.price,
+          0
+        ) / matched.members.length;
+
+      matched.lastConfirmedAt = pivot.confirmedAt;
     } else {
-      pools.push({
-        type: pivot.type === "HIGH" ? "EQUAL_HIGHS" : "EQUAL_LOWS",
+      clusters.push({
+        type,
         price: pivot.price,
-        touches: 1,
+        members: [pivot],
         firstConfirmedAt: pivot.confirmedAt,
-        lastConfirmedAt: pivot.confirmedAt,
-        members: [pivot]
+        lastConfirmedAt: pivot.confirmedAt
       });
     }
   }
 
-  return pools
-    .filter(pool => pool.touches >= 2)
+  return clusters
+    .filter(cluster => cluster.members.length >= 2)
     .slice(-maxZones)
-    .map(pool => ({
-      type: pool.type,
-      price: pool.price,
-      touches: pool.touches,
-      firstConfirmedAt: pool.firstConfirmedAt,
-      lastConfirmedAt: pool.lastConfirmedAt
+    .map(cluster => ({
+      type: cluster.type,
+      price: cluster.price,
+      touches: cluster.members.length,
+      firstConfirmedAt: cluster.firstConfirmedAt,
+      lastConfirmedAt: cluster.lastConfirmedAt
     }));
 }
+
+function detectLiquidity(pivots, tolerance, maxZones) {
+  const highs = clusterPivots(
+    pivots.highs,
+    "EQUAL_HIGHS",
+    tolerance,
+    maxZones
+  );
+
+  const lows = clusterPivots(
+    pivots.lows,
+    "EQUAL_LOWS",
+    tolerance,
+    maxZones
+  );
+
+  return [...highs, ...lows]
+    .sort(
+      (a, b) => a.lastConfirmedAt - b.lastConfirmedAt
+    )
+    .slice(-maxZones);
+}
+
+// ------------------------------------------------------
+// FAIR VALUE GAPS AND HISTORICAL MITIGATION
+// ------------------------------------------------------
 
 function detectFVG(candles, maxZones) {
   const zones = [];
@@ -161,27 +219,55 @@ function detectFVG(candles, maxZones) {
     const first = candles[i - 2];
     const current = candles[i];
 
-    // Three-candle bullish gap
     if (current.low > first.high) {
+      const lower = first.high;
+      const upper = current.low;
+
+      let mitigatedAt = null;
+
+      for (let j = i + 1; j < candles.length; j++) {
+        if (candles[j].low <= lower) {
+          mitigatedAt = j;
+          break;
+        }
+      }
+
       zones.push({
         type: "BULLISH_FVG",
-        lower: first.high,
-        upper: current.low,
+        lower,
+        upper,
         createdAt: i,
         timestamp: current.timestamp,
-        status: "HISTORICAL_ZONE"
+        status: mitigatedAt === null
+          ? "UNMITIGATED_IN_AVAILABLE_HISTORY"
+          : "MITIGATED",
+        mitigatedAt
       });
     }
 
-    // Three-candle bearish gap
     if (current.high < first.low) {
+      const lower = current.high;
+      const upper = first.low;
+
+      let mitigatedAt = null;
+
+      for (let j = i + 1; j < candles.length; j++) {
+        if (candles[j].high >= upper) {
+          mitigatedAt = j;
+          break;
+        }
+      }
+
       zones.push({
         type: "BEARISH_FVG",
-        lower: current.high,
-        upper: first.low,
+        lower,
+        upper,
         createdAt: i,
         timestamp: current.timestamp,
-        status: "HISTORICAL_ZONE"
+        status: mitigatedAt === null
+          ? "UNMITIGATED_IN_AVAILABLE_HISTORY"
+          : "MITIGATED",
+        mitigatedAt
       });
     }
   }
@@ -189,46 +275,9 @@ function detectFVG(candles, maxZones) {
   return zones.slice(-maxZones);
 }
 
-function detectOrderBlocks(candles, breaks, lookback, maxZones) {
-  const zones = [];
-
-  for (const event of breaks) {
-    const start = Math.max(0, event.index - lookback);
-    let found = null;
-
-    for (let i = event.index - 1; i >= start; i--) {
-      const c = candles[i];
-
-      if (event.direction === "BULLISH" && c.close < c.open) {
-        found = {
-          type: "BULLISH_ORDER_BLOCK",
-          lower: c.low,
-          upper: c.high,
-          sourceIndex: i,
-          createdAt: event.index,
-          timestamp: c.timestamp
-        };
-        break;
-      }
-
-      if (event.direction === "BEARISH" && c.close > c.open) {
-        found = {
-          type: "BEARISH_ORDER_BLOCK",
-          lower: c.low,
-          upper: c.high,
-          sourceIndex: i,
-          createdAt: event.index,
-          timestamp: c.timestamp
-        };
-        break;
-      }
-    }
-
-    if (found) zones.push(found);
-  }
-
-  return zones.slice(-maxZones);
-}
+// ------------------------------------------------------
+// STRUCTURE BREAKS: BOS / CHOCH
+// ------------------------------------------------------
 
 function detectStructure(candles, pivots) {
   const events = [];
@@ -249,18 +298,23 @@ function detectStructure(candles, pivots) {
   }
 
   for (let i = 0; i < candles.length; i++) {
-    // Pivots become usable only after confirmation.
-    if (highMap.has(i)) latestHigh = highMap.get(i);
-    if (lowMap.has(i)) latestLow = lowMap.get(i);
+    if (highMap.has(i)) {
+      latestHigh = highMap.get(i);
+    }
+
+    if (lowMap.has(i)) {
+      latestLow = lowMap.get(i);
+    }
 
     const c = candles[i];
 
-    if (latestHigh && i > latestHigh.confirmedAt &&
-        c.close > latestHigh.price) {
-      const type = trend === "BEARISH" ? "CHOCH" : "BOS";
-
+    if (
+      latestHigh &&
+      i > latestHigh.confirmedAt &&
+      c.close > latestHigh.price
+    ) {
       events.push({
-        type,
+        type: trend === "BEARISH" ? "CHOCH" : "BOS",
         direction: "BULLISH",
         index: i,
         brokenLevel: latestHigh.price,
@@ -271,12 +325,13 @@ function detectStructure(candles, pivots) {
       trend = "BULLISH";
     }
 
-    if (latestLow && i > latestLow.confirmedAt &&
-        c.close < latestLow.price) {
-      const type = trend === "BULLISH" ? "CHOCH" : "BOS";
-
+    if (
+      latestLow &&
+      i > latestLow.confirmedAt &&
+      c.close < latestLow.price
+    ) {
       events.push({
-        type,
+        type: trend === "BULLISH" ? "CHOCH" : "BOS",
         direction: "BEARISH",
         index: i,
         brokenLevel: latestLow.price,
@@ -291,29 +346,82 @@ function detectStructure(candles, pivots) {
   return { events, trend };
 }
 
+// ------------------------------------------------------
+// HISTORICAL ORDER BLOCK ZONES
+// Definition: nearest prior opposite-color candle
+// before a confirmed structure break.
+// ------------------------------------------------------
+
+function detectOrderBlocks(
+  candles,
+  breaks,
+  lookback,
+  maxZones
+) {
+  const zones = [];
+  const usedSourceIndices = new Set();
+
+  for (const event of breaks) {
+    const start = Math.max(0, event.index - lookback);
+    let found = null;
+
+    for (let i = event.index - 1; i >= start; i--) {
+      if (usedSourceIndices.has(i)) continue;
+
+      const c = candles[i];
+
+      const isOpposite =
+        event.direction === "BULLISH"
+          ? c.close < c.open
+          : c.close > c.open;
+
+      if (!isOpposite) continue;
+
+      found = {
+        type: event.direction === "BULLISH"
+          ? "BULLISH_ORDER_BLOCK"
+          : "BEARISH_ORDER_BLOCK",
+        lower: c.low,
+        upper: c.high,
+        sourceIndex: i,
+        createdAt: event.index,
+        timestamp: c.timestamp
+      };
+
+      usedSourceIndices.add(i);
+      break;
+    }
+
+    if (found) zones.push(found);
+  }
+
+  return zones.slice(-maxZones);
+}
+
+// ------------------------------------------------------
+// MAIN ANALYSIS
+// ------------------------------------------------------
+
 export function analyzeMarketStructure(
   candles,
   options = {}
 ) {
   validateCandles(candles);
 
+  if (
+    options === null ||
+    typeof options !== "object" ||
+    Array.isArray(options)
+  ) {
+    throw new Error("Invalid market structure configuration");
+  }
+
   const config = {
     ...DEFAULTS,
     ...options
   };
 
-  if (
-    !Number.isInteger(config.pivotLength) ||
-    config.pivotLength < 2 ||
-    !Number.isInteger(config.orderBlockLookback) ||
-    config.orderBlockLookback < 1 ||
-    !Number.isFinite(config.equalLevelTolerance) ||
-    config.equalLevelTolerance < 0 ||
-    !Number.isInteger(config.maxZones) ||
-    config.maxZones < 1
-  ) {
-    throw new Error("Invalid market structure configuration");
-  }
+  validateConfig(config);
 
   const pivots = findConfirmedPivots(
     candles,
@@ -323,14 +431,15 @@ export function analyzeMarketStructure(
   const structure = detectStructure(candles, pivots);
 
   const liquidity = detectLiquidity(
-    [...pivots.highs, ...pivots.lows].sort(
-      (a, b) => a.confirmedAt - b.confirmedAt
-    ),
+    pivots,
     config.equalLevelTolerance,
     config.maxZones
   );
 
-  const fvg = detectFVG(candles, config.maxZones);
+  const fvg = detectFVG(
+    candles,
+    config.maxZones
+  );
 
   const orderBlocks = detectOrderBlocks(
     candles,
@@ -353,10 +462,13 @@ export function analyzeMarketStructure(
       confirmedSwingLows: pivots.lows.length,
       structureEvents: structure.events.length,
       bullishFVGs: fvg.filter(
-        z => z.type === "BULLISH_FVG"
+        zone => zone.type === "BULLISH_FVG"
       ).length,
       bearishFVGs: fvg.filter(
-        z => z.type === "BEARISH_FVG"
+        zone => zone.type === "BEARISH_FVG"
+      ).length,
+      mitigatedFVGs: fvg.filter(
+        zone => zone.status === "MITIGATED"
       ).length,
       orderBlocks: orderBlocks.length,
       liquidityPools: liquidity.length,

@@ -1,8 +1,8 @@
 
- // ======================================================
+// ======================================================
 // BADAL SEVERIYA V12
 // HISTORICAL FIBONACCI ENGINE
-// Educational analysis only
+// Educational historical analysis only
 // ======================================================
 
 const DEFAULTS = {
@@ -43,7 +43,13 @@ function validateCandles(candles) {
       throw new Error(`Invalid candle timestamp at index ${i}`);
     }
 
-    const values = [c.open, c.high, c.low, c.close, c.volume];
+    const values = [
+      c.open,
+      c.high,
+      c.low,
+      c.close,
+      c.volume
+    ];
 
     if (
       !values.every(Number.isFinite) ||
@@ -62,15 +68,49 @@ function validateCandles(candles) {
   }
 }
 
+function validateOptions(options) {
+  if (
+    !options ||
+    typeof options !== "object" ||
+    Array.isArray(options)
+  ) {
+    throw new Error("Invalid Fibonacci configuration");
+  }
+
+  const config = {
+    ...DEFAULTS,
+    ...options
+  };
+
+  if (
+    !Number.isInteger(config.pivotLength) ||
+    config.pivotLength < 2 ||
+    !Number.isInteger(config.maxLevels) ||
+    config.maxLevels < 1
+  ) {
+    throw new Error("Invalid Fibonacci configuration");
+  }
+
+  return config;
+}
+
 function findPivots(candles, length) {
   const highs = [];
   const lows = [];
 
-  for (let i = length; i < candles.length - length; i++) {
+  for (
+    let i = length;
+    i < candles.length - length;
+    i++
+  ) {
     let isHigh = true;
     let isLow = true;
 
-    for (let j = i - length; j <= i + length; j++) {
+    for (
+      let j = i - length;
+      j <= i + length;
+      j++
+    ) {
       if (j === i) continue;
 
       if (candles[j].high >= candles[i].high) {
@@ -108,9 +148,10 @@ function buildRetracement(start, end, direction) {
   if (range <= 0) return [];
 
   return RETRACEMENT_RATIOS.map(ratio => {
-    const price = direction === "BULLISH"
-      ? end.price - range * ratio
-      : end.price + range * ratio;
+    const price =
+      direction === "BULLISH"
+        ? end.price - range * ratio
+        : end.price + range * ratio;
 
     return {
       ratio,
@@ -121,26 +162,41 @@ function buildRetracement(start, end, direction) {
   });
 }
 
+// Measured-move extension:
+// 1.272 = 27.2% beyond the swing endpoint.
+// This is not an A-B-C pullback projection.
+
 function buildExtensions(start, end, direction) {
   const range = Math.abs(end.price - start.price);
 
   if (range <= 0) return [];
 
-  return EXTENSION_RATIOS.map(ratio => ({
-    ratio,
-    percentage: ratio * 100,
-    price: direction === "BULLISH"
-      ? start.price + range * ratio
-      : start.price - range * ratio,
-    type: "EXTENSION"
-  }));
+  return EXTENSION_RATIOS.map(ratio => {
+    const extraDistance = range * (ratio - 1);
+
+    const price =
+      direction === "BULLISH"
+        ? end.price + extraDistance
+        : end.price - extraDistance;
+
+    return {
+      ratio,
+      percentage: ratio * 100,
+      price,
+      type: "EXTENSION"
+    };
+  });
 }
 
 function findLatestSwing(highs, lows) {
   const all = [
     ...highs.map(p => ({ ...p, type: "HIGH" })),
     ...lows.map(p => ({ ...p, type: "LOW" }))
-  ].sort((a, b) => a.confirmedAt - b.confirmedAt);
+  ].sort(
+    (a, b) =>
+      a.confirmedAt - b.confirmedAt ||
+      a.index - b.index
+  );
 
   if (all.length < 2) {
     throw new Error("Not enough confirmed swing points");
@@ -152,7 +208,10 @@ function findLatestSwing(highs, lows) {
 
     if (start.type === end.type) continue;
 
-    if (start.type === "LOW" && end.type === "HIGH") {
+    if (
+      start.type === "LOW" &&
+      end.type === "HIGH"
+    ) {
       return {
         start,
         end,
@@ -160,7 +219,10 @@ function findLatestSwing(highs, lows) {
       };
     }
 
-    if (start.type === "HIGH" && end.type === "LOW") {
+    if (
+      start.type === "HIGH" &&
+      end.type === "LOW"
+    ) {
       return {
         start,
         end,
@@ -175,21 +237,12 @@ function findLatestSwing(highs, lows) {
 export function analyzeFibonacci(candles, options = {}) {
   validateCandles(candles);
 
-  const config = {
-    ...DEFAULTS,
-    ...options
-  };
+  const config = validateOptions(options);
 
-  if (
-    !Number.isInteger(config.pivotLength) ||
-    config.pivotLength < 2 ||
-    !Number.isInteger(config.maxLevels) ||
-    config.maxLevels < 1
-  ) {
-    throw new Error("Invalid Fibonacci configuration");
-  }
-
-  const pivots = findPivots(candles, config.pivotLength);
+  const pivots = findPivots(
+    candles,
+    config.pivotLength
+  );
 
   const swing = findLatestSwing(
     pivots.highs,
@@ -234,10 +287,17 @@ export function analyzeFibonacci(candles, options = {}) {
       extensionLevels: extensions.length
     },
 
-    retracement: retracement.slice(0, config.maxLevels),
-    extensions: extensions.slice(0, config.maxLevels),
+    retracement: retracement.slice(
+      0,
+      config.maxLevels
+    ),
+
+    extensions: extensions.slice(
+      0,
+      config.maxLevels
+    ),
 
     note:
-      "Historical Fibonacci levels are mathematical reference levels, not forecasts or trading recommendations."
+      "Historical Fibonacci levels use a measured-move extension method. They are mathematical reference levels, not forecasts or trading recommendations."
   };
 }

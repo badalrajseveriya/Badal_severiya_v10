@@ -26,6 +26,7 @@ jobs:
           node --check angelone-converter.js
           node --check market-data.js
           node --check websocket-decoder.js
+          node --check market-data.test.js
 
-      - name: Run Decoder Tests
-        run: npm run test:decoder
+      - name: Run All Tests
+        run: npm test

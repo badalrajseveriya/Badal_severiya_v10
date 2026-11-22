@@ -1,9 +1,9 @@
 
- // ======================================================
- // BADAL SEVERIYA V12
- // HISTORICAL SUPPORT & RESISTANCE ENGINE
- // Educational analysis only
- // ======================================================
+// ======================================================
+// BADAL SEVERIYA V12
+// HISTORICAL SUPPORT & RESISTANCE ENGINE
+// Educational historical analysis only
+// ======================================================
 
 const DEFAULTS = {
   pivotLength: 5,
@@ -31,8 +31,10 @@ function validateCandles(candles) {
 
     if (
       !values.every(Number.isFinite) ||
-      c.open <= 0 || c.high <= 0 ||
-      c.low <= 0 || c.close <= 0 ||
+      c.open <= 0 ||
+      c.high <= 0 ||
+      c.low <= 0 ||
+      c.close <= 0 ||
       c.volume < 0 ||
       c.high < Math.max(c.open, c.close, c.low) ||
       c.low > Math.min(c.open, c.close, c.high)
@@ -44,18 +46,62 @@ function validateCandles(candles) {
   }
 }
 
+function validateOptions(options) {
+  if (
+    !options ||
+    typeof options !== "object" ||
+    Array.isArray(options)
+  ) {
+    throw new Error("Invalid support/resistance configuration");
+  }
+
+  const config = {
+    ...DEFAULTS,
+    ...options
+  };
+
+  if (
+    !Number.isInteger(config.pivotLength) ||
+    config.pivotLength < 2 ||
+    !Number.isFinite(config.tolerancePercent) ||
+    config.tolerancePercent <= 0 ||
+    config.tolerancePercent > 5 ||
+    !Number.isInteger(config.maxZones) ||
+    config.maxZones < 1 ||
+    !Number.isInteger(config.minimumTouches) ||
+    config.minimumTouches < 1
+  ) {
+    throw new Error("Invalid support/resistance configuration");
+  }
+
+  return config;
+}
+
 function findPivots(candles, length) {
   const pivots = [];
 
-  for (let i = length; i < candles.length - length; i++) {
+  for (
+    let i = length;
+    i < candles.length - length;
+    i++
+  ) {
     let highPivot = true;
     let lowPivot = true;
 
-    for (let j = i - length; j <= i + length; j++) {
+    for (
+      let j = i - length;
+      j <= i + length;
+      j++
+    ) {
       if (j === i) continue;
 
-      if (candles[j].high >= candles[i].high) highPivot = false;
-      if (candles[j].low <= candles[i].low) lowPivot = false;
+      if (candles[j].high >= candles[i].high) {
+        highPivot = false;
+      }
+
+      if (candles[j].low <= candles[i].low) {
+        lowPivot = false;
+      }
     }
 
     const confirmedAt = i + length;
@@ -79,98 +125,143 @@ function findPivots(candles, length) {
     }
   }
 
-  return pivots.sort((a, b) => a.confirmedAt - b.confirmedAt);
+  return pivots.sort(
+    (a, b) =>
+      a.confirmedAt - b.confirmedAt ||
+      a.pivotIndex - b.pivotIndex ||
+      a.type.localeCompare(b.type)
+  );
 }
 
-function buildZones(pivots, candles, config) {
-  const zones = [];
+function buildZones(pivots, config) {
+  const groups = {
+    SUPPORT: [],
+    RESISTANCE: []
+  };
 
-  for (const pivot of pivots) {
-    let zone = null;
+  for (const type of ["SUPPORT", "RESISTANCE"]) {
+    const sorted = pivots
+      .filter(p => p.type === type)
+      .slice()
+      .sort(
+        (a, b) =>
+          a.price - b.price ||
+          a.pivotIndex - b.pivotIndex
+      );
 
-    for (const candidate of zones) {
-      if (candidate.type !== pivot.type) continue;
+    const clusters = [];
 
-      const difference =
-        Math.abs(candidate.price - pivot.price) /
-        candidate.price * 100;
+    for (const pivot of sorted) {
+      let bestCluster = null;
+      let bestDifference = Infinity;
 
-      if (difference <= config.tolerancePercent) {
-        zone = candidate;
-        break;
+      for (const cluster of clusters) {
+        const difference =
+          Math.abs(cluster.price - pivot.price) /
+          cluster.price * 100;
+
+        if (
+          difference <= config.tolerancePercent &&
+          difference < bestDifference
+        ) {
+          bestCluster = cluster;
+          bestDifference = difference;
+        }
       }
-    }
 
-    if (!zone) {
-      zones.push({
-        type: pivot.type,
-        price: pivot.price,
-        touches: 1,
-        firstConfirmedAt: pivot.confirmedAt,
-        lastConfirmedAt: pivot.confirmedAt,
-        pivotIndices: [pivot.pivotIndex]
-      });
-    } else {
-      zone.touches++;
-      zone.lastConfirmedAt = pivot.confirmedAt;
-      zone.pivotIndices.push(pivot.pivotIndex);
+      if (!bestCluster) {
+        clusters.push({
+          type,
+          price: pivot.price,
+          touches: 1,
+          firstConfirmedAt: pivot.confirmedAt,
+          lastConfirmedAt: pivot.confirmedAt,
+          pivotIndices: [pivot.pivotIndex]
+        });
 
-      zone.price =
-        zone.pivotIndices.reduce(
-          (sum, index) => sum +
-            (pivot.type === "SUPPORT"
-              ? candles[index].low
-              : candles[index].high),
+        continue;
+      }
+
+      bestCluster.touches++;
+      bestCluster.lastConfirmedAt = Math.max(
+        bestCluster.lastConfirmedAt,
+        pivot.confirmedAt
+      );
+
+      bestCluster.firstConfirmedAt = Math.min(
+        bestCluster.firstConfirmedAt,
+        pivot.confirmedAt
+      );
+
+      bestCluster.pivotIndices.push(pivot.pivotIndex);
+
+      bestCluster.price =
+        bestCluster.pivotIndices.reduce(
+          (sum, index) => {
+            const sourcePivot = sorted.find(
+              p => p.pivotIndex === index
+            );
+
+            return sum + sourcePivot.price;
+          },
           0
-        ) / zone.pivotIndices.length;
+        ) / bestCluster.pivotIndices.length;
     }
+
+    groups[type] = clusters;
   }
 
-  return zones
+  return [
+    ...groups.SUPPORT,
+    ...groups.RESISTANCE
+  ]
     .filter(z => z.touches >= config.minimumTouches)
     .map(z => ({
       type: z.type,
-      lower: z.price * (1 - config.tolerancePercent / 200),
-      upper: z.price * (1 + config.tolerancePercent / 200),
+      lower:
+        z.price * (1 - config.tolerancePercent / 200),
+      upper:
+        z.price * (1 + config.tolerancePercent / 200),
       price: z.price,
       touches: z.touches,
       firstConfirmedAt: z.firstConfirmedAt,
       lastConfirmedAt: z.lastConfirmedAt,
-      strengthScore: Math.min(100, z.touches * 20),
+      pivotIndices: z.pivotIndices.slice().sort(
+        (a, b) => a - b
+      ),
       classification:
-        z.touches >= 4 ? "REPEATEDLY_TESTED" : "TESTED"
+        z.touches >= 4
+          ? "REPEATEDLY_TESTED"
+          : "TESTED"
     }))
-    .sort((a, b) => b.touches - a.touches)
+    .sort(
+      (a, b) =>
+        b.touches - a.touches ||
+        a.type.localeCompare(b.type) ||
+        a.price - b.price
+    )
     .slice(0, config.maxZones);
 }
 
 export function analyzeSupportResistance(candles, options = {}) {
   validateCandles(candles);
 
-  const config = {
-    ...DEFAULTS,
-    ...options
-  };
+  const config = validateOptions(options);
 
-  if (
-    !Number.isInteger(config.pivotLength) ||
-    config.pivotLength < 2 ||
-    !Number.isFinite(config.tolerancePercent) ||
-    config.tolerancePercent <= 0 ||
-    config.tolerancePercent > 5 ||
-    !Number.isInteger(config.maxZones) ||
-    config.maxZones < 1 ||
-    !Number.isInteger(config.minimumTouches) ||
-    config.minimumTouches < 1
-  ) {
-    throw new Error("Invalid support/resistance configuration");
-  }
+  const pivots = findPivots(
+    candles,
+    config.pivotLength
+  );
 
-  const pivots = findPivots(candles, config.pivotLength);
-  const zones = buildZones(pivots, candles, config);
+  const zones = buildZones(pivots, config);
 
-  const supports = zones.filter(z => z.type === "SUPPORT");
-  const resistances = zones.filter(z => z.type === "RESISTANCE");
+  const supports = zones.filter(
+    z => z.type === "SUPPORT"
+  );
+
+  const resistances = zones.filter(
+    z => z.type === "RESISTANCE"
+  );
 
   return {
     version: "12.0",
@@ -191,6 +282,6 @@ export function analyzeSupportResistance(candles, options = {}) {
     resistances,
 
     note:
-      "Historical zones and strength scores are descriptive measurements, not forecasts or trading recommendations."
+      "Zones are grouped from confirmed historical pivots. Touch counts are descriptive measurements, not forecasts or trading recommendations."
   };
 }

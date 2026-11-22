@@ -1,16 +1,38 @@
 
-{
-  "name": "badal-severiya-v12",
-  "version": "12.0.0",
-  "private": true,
-  "type": "module",
-  "scripts": {
-    "test:decoder": "node websocket-decoder.test.js",
-    "test:market": "node market-data.test.js",
-    "test:structure": "node market-structure.test.js",
-    "test:support": "node support-resistance.test.js",
-    "test:fibonacci": "node fibonacci-engine.test.js",
-    "test:candles": "node candle-patterns.test.js",
-    "test": "npm run test:decoder && npm run test:market && npm run test:structure && npm run test:support && npm run test:fibonacci && npm run test:candles"
-  }
-}
+name: BADAL SEVERIYA V12 - Code Checks
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Check JavaScript Syntax
+        run: |
+          node --check data-worker.js
+          node --check angelone-converter.js
+          node --check market-data.js
+          node --check market-structure.js
+          node --check support-resistance.js
+          node --check fibonacci-engine.js
+          node --check candle-patterns.js
+          node --check websocket-decoder.js
+
+      - name: Run All Tests
+        run: npm test

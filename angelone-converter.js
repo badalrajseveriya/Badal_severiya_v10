@@ -1,5 +1,5 @@
 
-function convertAngelOneCandles(
+export function convertAngelOneCandles(
   response,
   index = "NIFTY",
   timeframe = "15m"
@@ -17,12 +17,16 @@ function convertAngelOneCandles(
       throw new Error(`Invalid candle row: ${i}`);
     }
 
-    const [timestamp, open, high, low, close, volume] = row;
+    const [rawTimestamp, open, high, low, close, volume] = row;
 
-    const parsedTime = Date.parse(timestamp);
+    const parsedTime = Date.parse(rawTimestamp);
+
+    if (!Number.isFinite(parsedTime)) {
+      throw new Error(`Invalid timestamp at row ${i}`);
+    }
 
     const candle = {
-      time: new Date(parsedTime).toISOString(),
+      timestamp: new Date(parsedTime).toISOString(),
       open: Number(open),
       high: Number(high),
       low: Number(low),
@@ -39,7 +43,6 @@ function convertAngelOneCandles(
     ];
 
     if (
-      !Number.isFinite(parsedTime) ||
       !values.every(Number.isFinite) ||
       candle.open <= 0 ||
       candle.high <= 0 ||
@@ -56,12 +59,14 @@ function convertAngelOneCandles(
   });
 
   candles.sort(
-    (a, b) => Date.parse(a.time) - Date.parse(b.time)
+    (a, b) => Date.parse(a.timestamp) - Date.parse(b.timestamp)
   );
 
   for (let i = 1; i < candles.length; i++) {
-    if (candles[i].time === candles[i - 1].time) {
-      throw new Error(`Duplicate candle timestamp: ${candles[i].time}`);
+    if (candles[i].timestamp === candles[i - 1].timestamp) {
+      throw new Error(
+        `Duplicate candle timestamp: ${candles[i].timestamp}`
+      );
     }
   }
 

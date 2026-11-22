@@ -6,5 +6,4 @@ compatibility_date = "2026-11-22"
 [[d1_databases]]
 binding = "DB"
 database_name = "badal-severiya-data"
-database_id = "YOUR_DATABASE_ID"
-
+database_id = "9c796177-f3f8-4a25-859a-3946ba7f80c9"

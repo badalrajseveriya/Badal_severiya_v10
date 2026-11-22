@@ -1,5 +1,5 @@
 
-name: BADAL SEVERIYA V11 - Code Checks
+name: BADAL SEVERIYA V12 - Code Checks
 
 on:
   push:
@@ -25,8 +25,10 @@ jobs:
           node --check data-worker.js
           node --check angelone-converter.js
           node --check market-data.js
+          node --check market-structure.js
           node --check websocket-decoder.js
           node --check market-data.test.js
+          node --check market-structure.test.js
 
       - name: Run All Tests
         run: npm test

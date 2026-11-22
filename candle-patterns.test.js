@@ -2,78 +2,210 @@
 import assert from "node:assert/strict";
 import { analyzeCandlePatterns } from "./candle-patterns.js";
 
-function makeCandles(count = 100) {
-  const candles = [];
-  const start = Date.UTC(2026, 0, 1, 3, 45);
+const START = Date.UTC(2026, 0, 1, 3, 45);
 
-  for (let i = 0; i < count; i++) {
-    const close = 25000 + i * 2;
-
-    candles.push({
-      timestamp: new Date(
-        start + i * 15 * 60 * 1000
-      ).toISOString(),
-      open: close - 5,
-      high: close + 15,
-      low: close - 15,
-      close,
-      volume: 1000 + i * 2
-    });
-  }
-
-  return candles;
+function candle(i, open, high, low, close, volume = 1000) {
+  return {
+    timestamp: new Date(
+      START + i * 15 * 60 * 1000
+    ).toISOString(),
+    open,
+    high,
+    low,
+    close,
+    volume
+  };
 }
 
-// Test 1: Valid analysis
-const result = analyzeCandlePatterns(makeCandles());
+function baseCandles() {
+  return Array.from({ length: 5 }, (_, i) =>
+    candle(i, 100, 102, 98, 101)
+  );
+}
+
+function hasPattern(candles, name) {
+  return analyzeCandlePatterns(candles)
+    .patterns.some(p => p.name === name);
+}
+
+// 1. General analysis
+const general = Array.from({ length: 100 }, (_, i) => {
+  const close = 25000 + i * 2;
+  return candle(i, close - 5, close + 15, close - 15, close);
+});
+
+const result = analyzeCandlePatterns(general);
 
 assert.equal(result.status, "OK");
 assert.equal(result.version, "12.0");
 assert.equal(result.dataType, "HISTORICAL_ONLY");
+assert.equal(result.summary.candleCount, 100);
 assert.ok(Array.isArray(result.patterns));
-assert.ok(result.summary.candleCount === 100);
 
-console.log("PASS: Candle pattern analysis");
+console.log("PASS: General analysis");
 
-// Test 2: Insufficient history
+// 2. Doji
+{
+  const c = baseCandles();
+  c[2] = candle(2, 100, 105, 95, 100.2);
+  assert.ok(hasPattern(c, "DOJI"));
+}
+
+console.log("PASS: Doji detection");
+
+// 3. Hammer
+{
+  const c = baseCandles();
+  c[2] = candle(2, 100, 101, 93, 102);
+  assert.ok(hasPattern(c, "HAMMER"));
+}
+
+console.log("PASS: Hammer detection");
+
+// 4. Shooting Star
+{
+  const c = baseCandles();
+  c[2] = candle(2, 102, 109, 101, 100);
+  assert.ok(hasPattern(c, "SHOOTING_STAR"));
+}
+
+console.log("PASS: Shooting Star detection");
+
+// 5. Zero-body candle must not be Hammer
+{
+  const c = baseCandles();
+  c[2] = candle(2, 100, 100, 90, 100);
+  assert.ok(!hasPattern(c, "HAMMER"));
+}
+
+console.log("PASS: Zero-body Hammer rejection");
+
+// 6. Bullish Engulfing
+{
+  const c = baseCandles();
+  c[1] = candle(1, 105, 106, 99, 100);
+  c[2] = candle(2, 99, 108, 98, 107);
+  assert.ok(hasPattern(c, "BULLISH_ENGULFING"));
+}
+
+console.log("PASS: Bullish Engulfing");
+
+// 7. Bearish Engulfing
+{
+  const c = baseCandles();
+  c[1] = candle(1, 100, 106, 99, 105);
+  c[2] = candle(2, 106, 107, 97, 98);
+  assert.ok(hasPattern(c, "BEARISH_ENGULFING"));
+}
+
+console.log("PASS: Bearish Engulfing");
+
+// 8. Morning Star
+{
+  const c = baseCandles();
+  c[1] = candle(1, 110, 111, 99, 100);
+  c[2] = candle(2, 101, 103, 99, 102);
+  c[3] = candle(3, 101, 109, 100, 108);
+  assert.ok(hasPattern(c, "MORNING_STAR"));
+}
+
+console.log("PASS: Morning Star");
+
+// 9. Evening Star
+{
+  const c = baseCandles();
+  c[1] = candle(1, 100, 111, 99, 110);
+  c[2] = candle(2, 109, 111, 107, 108);
+  c[3] = candle(3, 109, 110, 99, 102);
+  assert.ok(hasPattern(c, "EVENING_STAR"));
+}
+
+console.log("PASS: Evening Star");
+
+// 10. Three White Soldiers
+{
+  const c = baseCandles();
+  c[1] = candle(1, 100, 106, 99, 105);
+  c[2] = candle(2, 103, 110, 102, 109);
+  c[3] = candle(3, 107, 115, 106, 114);
+  assert.ok(hasPattern(c, "THREE_WHITE_SOLDIERS"));
+}
+
+console.log("PASS: Three White Soldiers");
+
+// 11. Three Black Crows
+{
+  const c = baseCandles();
+  c[1] = candle(1, 110, 111, 104, 105);
+  c[2] = candle(2, 107, 108, 100, 101);
+  c[3] = candle(3, 103, 104, 95, 96);
+  assert.ok(hasPattern(c, "THREE_BLACK_CROWS"));
+}
+
+console.log("PASS: Three Black Crows");
+
+// 12. Maximum pattern output
+{
+  const c = baseCandles();
+  c[2] = candle(2, 100, 105, 95, 100);
+  const limited = analyzeCandlePatterns(c, {
+    maxPatterns: 1
+  });
+
+  assert.ok(limited.patterns.length <= 1);
+}
+
+console.log("PASS: Pattern output limit");
+
+// 13. Insufficient history
 assert.throws(
-  () => analyzeCandlePatterns(makeCandles(4)),
+  () => analyzeCandlePatterns(baseCandles().slice(0, 4)),
   /At least 5 historical candles/
 );
 
-console.log("PASS: Minimum history validation");
+console.log("PASS: Minimum history");
 
-// Test 3: Invalid OHLC
-const invalid = makeCandles();
-invalid[10].high = invalid[10].low - 1;
+// 14. Invalid OHLC
+{
+  const c = baseCandles();
+  c[2].high = c[2].low - 1;
 
-assert.throws(
-  () => analyzeCandlePatterns(invalid),
-  /Invalid OHLCV/
-);
+  assert.throws(
+    () => analyzeCandlePatterns(c),
+    /Invalid OHLCV/
+  );
+}
 
 console.log("PASS: OHLC validation");
 
-// Test 4: Unordered timestamps
-const unordered = makeCandles();
-[unordered[10], unordered[11]] =
-  [unordered[11], unordered[10]];
+// 15. Unordered timestamps
+{
+  const c = baseCandles();
+  [c[2], c[3]] = [c[3], c[2]];
 
-assert.throws(
-  () => analyzeCandlePatterns(unordered),
-  /Invalid candle timestamp/
-);
+  assert.throws(
+    () => analyzeCandlePatterns(c),
+    /Invalid candle timestamp/
+  );
+}
 
 console.log("PASS: Chronological validation");
 
-// Test 5: Invalid configuration
+// 16. Invalid configuration
 assert.throws(
-  () => analyzeCandlePatterns(makeCandles(), {
+  () => analyzeCandlePatterns(baseCandles(), {
     dojiBodyRatio: 2
+  }),
+  /Invalid candle pattern configuration/
+);
+
+assert.throws(
+  () => analyzeCandlePatterns(baseCandles(), {
+    maxPatterns: 0
   }),
   /Invalid candle pattern configuration/
 );
 
 console.log("PASS: Configuration validation");
 
-console.log("ALL CANDLE PATTERN TESTS PASSED");
+console.log("ALL CANDLE PATTERN QUALITY TESTS PASSED");

@@ -1,83 +1,487 @@
 
-import assert from "node:assert/strict";
-import { analyzeMarketStructure } from "./market-structure.js";
+// ======================================================
+// BADAL SEVERIYA V12
+// HISTORICAL MARKET STRUCTURE ENGINE
+// Educational analysis only
+// No forecasts, probabilities or trading signals
+// ======================================================
 
-function makeCandles(count = 250) {
-  const candles = [];
-  const start = Date.UTC(2026, 0, 1, 3, 45);
+const DEFAULTS = {
+  pivotLength: 5,
+  equalLevelTolerance: 0.001,
+  orderBlockLookback: 20,
+  maxZones: 100
+};
 
-  for (let i = 0; i < count; i++) {
-    const close = 25000 + Math.sin(i / 4) * 100 + i * 0.5;
+// ------------------------------------------------------
+// VALIDATION
+// ------------------------------------------------------
 
-    candles.push({
-      timestamp: new Date(
-        start + i * 15 * 60 * 1000
-      ).toISOString(),
-      open: close - 5,
-      high: close + 15,
-      low: close - 15,
-      close,
-      volume: 1000 + i * 2
-    });
+function validateCandles(candles) {
+  if (!Array.isArray(candles) || candles.length < 30) {
+    throw new Error("At least 30 historical candles are required");
   }
 
-  return candles;
+  let previousTime = -Infinity;
+
+  for (let i = 0; i < candles.length; i++) {
+    const c = candles[i];
+
+    if (!c || typeof c !== "object") {
+      throw new Error(`Invalid candle at index ${i}`);
+    }
+
+    const time = Date.parse(c.timestamp);
+    const values = [c.open, c.high, c.low, c.close, c.volume];
+
+    if (!Number.isFinite(time) || time <= previousTime) {
+      throw new Error(`Invalid candle timestamp at index ${i}`);
+    }
+
+    if (
+      !values.every(Number.isFinite) ||
+      c.open <= 0 ||
+      c.high <= 0 ||
+      c.low <= 0 ||
+      c.close <= 0 ||
+      c.volume < 0 ||
+      c.high < Math.max(c.open, c.close, c.low) ||
+      c.low > Math.min(c.open, c.close, c.high)
+    ) {
+      throw new Error(`Invalid OHLCV at index ${i}`);
+    }
+
+    previousTime = time;
+  }
 }
 
-// Test 1: Valid historical analysis
-const candles = makeCandles();
-const result = analyzeMarketStructure(candles);
+function validateConfig(config) {
+  if (
+    !Number.isInteger(config.pivotLength) ||
+    config.pivotLength < 2 ||
+    config.pivotLength > 50 ||
+    !Number.isFinite(config.equalLevelTolerance) ||
+    config.equalLevelTolerance < 0 ||
+    config.equalLevelTolerance > 0.05 ||
+    !Number.isInteger(config.orderBlockLookback) ||
+    config.orderBlockLookback < 1 ||
+    config.orderBlockLookback > 500 ||
+    !Number.isInteger(config.maxZones) ||
+    config.maxZones < 1 ||
+    config.maxZones > 1000
+  ) {
+    throw new Error("Invalid market structure configuration");
+  }
+}
 
-assert.equal(result.status, "OK");
-assert.equal(result.version, "12.0");
-assert.equal(result.summary.candleCount, 250);
-assert.ok(Array.isArray(result.pivots.highs));
-assert.ok(Array.isArray(result.pivots.lows));
-assert.ok(Array.isArray(result.fairValueGaps));
-assert.ok(Array.isArray(result.orderBlocks));
-assert.ok(Array.isArray(result.liquidity));
+// ------------------------------------------------------
+// CONFIRMED PIVOTS
+// ------------------------------------------------------
 
-console.log("PASS: Historical structure analysis");
+function findConfirmedPivots(candles, length) {
+  const highs = [];
+  const lows = [];
 
-// Test 2: Insufficient data
-assert.throws(
-  () => analyzeMarketStructure(makeCandles(20)),
-  /At least 30 historical candles/
-);
+  for (let i = length; i < candles.length - length; i++) {
+    const current = candles[i];
 
-console.log("PASS: Minimum candle validation");
+    let isHigh = true;
+    let isLow = true;
 
-// Test 3: Invalid OHLC
-const invalid = makeCandles();
-invalid[10].high = invalid[10].low - 1;
+    for (let j = i - length; j <= i + length; j++) {
+      if (j === i) continue;
 
-assert.throws(
-  () => analyzeMarketStructure(invalid),
-  /Invalid OHLCV/
-);
+      if (candles[j].high >= current.high) {
+        isHigh = false;
+      }
 
-console.log("PASS: OHLC validation");
+      if (candles[j].low <= current.low) {
+        isLow = false;
+      }
 
-// Test 4: Out-of-order timestamps
-const unordered = makeCandles();
-[unordered[10], unordered[11]] =
-  [unordered[11], unordered[10]];
+      if (!isHigh && !isLow) break;
+    }
 
-assert.throws(
-  () => analyzeMarketStructure(unordered),
-  /Invalid candle timestamp/
-);
+    const confirmedAt = i + length;
 
-console.log("PASS: Chronological validation");
+    if (isHigh) {
+      highs.push({
+        type: "HIGH",
+        price: current.high,
+        pivotIndex: i,
+        confirmedAt,
+        timestamp: current.timestamp
+      });
+    }
 
-// Test 5: Invalid configuration
-assert.throws(
-  () => analyzeMarketStructure(makeCandles(), {
-    pivotLength: 0
-  }),
-  /Invalid market structure configuration/
-);
+    if (isLow) {
+      lows.push({
+        type: "LOW",
+        price: current.low,
+        pivotIndex: i,
+        confirmedAt,
+        timestamp: current.timestamp
+      });
+    }
+  }
 
-console.log("PASS: Configuration validation");
+  return { highs, lows };
+}
 
-console.log("ALL MARKET STRUCTURE TESTS PASSED");
+// ------------------------------------------------------
+// EQUAL HIGH / LOW LIQUIDITY CLUSTERS
+// ------------------------------------------------------
+
+function clusterPivots(pivots, type, tolerance, maxZones) {
+  const sorted = [...pivots].sort(
+    (a, b) => a.confirmedAt - b.confirmedAt
+  );
+
+  const clusters = [];
+
+  for (const pivot of sorted) {
+    let matched = null;
+
+    for (const cluster of clusters) {
+      const difference =
+        Math.abs(cluster.price - pivot.price) /
+        cluster.price;
+
+      if (difference <= tolerance) {
+        matched = cluster;
+        break;
+      }
+    }
+
+    if (matched) {
+      matched.members.push(pivot);
+
+      matched.price =
+        matched.members.reduce(
+          (sum, item) => sum + item.price,
+          0
+        ) / matched.members.length;
+
+      matched.lastConfirmedAt = pivot.confirmedAt;
+    } else {
+      clusters.push({
+        type,
+        price: pivot.price,
+        members: [pivot],
+        firstConfirmedAt: pivot.confirmedAt,
+        lastConfirmedAt: pivot.confirmedAt
+      });
+    }
+  }
+
+  return clusters
+    .filter(cluster => cluster.members.length >= 2)
+    .slice(-maxZones)
+    .map(cluster => ({
+      type: cluster.type,
+      price: cluster.price,
+      touches: cluster.members.length,
+      firstConfirmedAt: cluster.firstConfirmedAt,
+      lastConfirmedAt: cluster.lastConfirmedAt
+    }));
+}
+
+function detectLiquidity(pivots, tolerance, maxZones) {
+  const highs = clusterPivots(
+    pivots.highs,
+    "EQUAL_HIGHS",
+    tolerance,
+    maxZones
+  );
+
+  const lows = clusterPivots(
+    pivots.lows,
+    "EQUAL_LOWS",
+    tolerance,
+    maxZones
+  );
+
+  return [...highs, ...lows]
+    .sort(
+      (a, b) => a.lastConfirmedAt - b.lastConfirmedAt
+    )
+    .slice(-maxZones);
+}
+
+// ------------------------------------------------------
+// FAIR VALUE GAPS AND HISTORICAL MITIGATION
+// ------------------------------------------------------
+
+function detectFVG(candles, maxZones) {
+  const zones = [];
+
+  for (let i = 2; i < candles.length; i++) {
+    const first = candles[i - 2];
+    const current = candles[i];
+
+    if (current.low > first.high) {
+      const lower = first.high;
+      const upper = current.low;
+
+      let mitigatedAt = null;
+
+      for (let j = i + 1; j < candles.length; j++) {
+        if (candles[j].low <= lower) {
+          mitigatedAt = j;
+          break;
+        }
+      }
+
+      zones.push({
+        type: "BULLISH_FVG",
+        lower,
+        upper,
+        createdAt: i,
+        timestamp: current.timestamp,
+        status: mitigatedAt === null
+          ? "UNMITIGATED_IN_AVAILABLE_HISTORY"
+          : "MITIGATED",
+        mitigatedAt
+      });
+    }
+
+    if (current.high < first.low) {
+      const lower = current.high;
+      const upper = first.low;
+
+      let mitigatedAt = null;
+
+      for (let j = i + 1; j < candles.length; j++) {
+        if (candles[j].high >= upper) {
+          mitigatedAt = j;
+          break;
+        }
+      }
+
+      zones.push({
+        type: "BEARISH_FVG",
+        lower,
+        upper,
+        createdAt: i,
+        timestamp: current.timestamp,
+        status: mitigatedAt === null
+          ? "UNMITIGATED_IN_AVAILABLE_HISTORY"
+          : "MITIGATED",
+        mitigatedAt
+      });
+    }
+  }
+
+  return zones.slice(-maxZones);
+}
+
+// ------------------------------------------------------
+// STRUCTURE BREAKS: BOS / CHOCH
+// ------------------------------------------------------
+
+function detectStructure(candles, pivots) {
+  const events = [];
+
+  let latestHigh = null;
+  let latestLow = null;
+  let trend = "UNKNOWN";
+
+  const highMap = new Map();
+  const lowMap = new Map();
+
+  for (const pivot of pivots.highs) {
+    highMap.set(pivot.confirmedAt, pivot);
+  }
+
+  for (const pivot of pivots.lows) {
+    lowMap.set(pivot.confirmedAt, pivot);
+  }
+
+  for (let i = 0; i < candles.length; i++) {
+    if (highMap.has(i)) {
+      latestHigh = highMap.get(i);
+    }
+
+    if (lowMap.has(i)) {
+      latestLow = lowMap.get(i);
+    }
+
+    const c = candles[i];
+
+    if (
+      latestHigh &&
+      i > latestHigh.confirmedAt &&
+      c.close > latestHigh.price
+    ) {
+      events.push({
+        type: trend === "BEARISH" ? "CHOCH" : "BOS",
+        direction: "BULLISH",
+        index: i,
+        brokenLevel: latestHigh.price,
+        timestamp: c.timestamp
+      });
+
+      latestHigh = null;
+      trend = "BULLISH";
+    }
+
+    if (
+      latestLow &&
+      i > latestLow.confirmedAt &&
+      c.close < latestLow.price
+    ) {
+      events.push({
+        type: trend === "BULLISH" ? "CHOCH" : "BOS",
+        direction: "BEARISH",
+        index: i,
+        brokenLevel: latestLow.price,
+        timestamp: c.timestamp
+      });
+
+      latestLow = null;
+      trend = "BEARISH";
+    }
+  }
+
+  return { events, trend };
+}
+
+// ------------------------------------------------------
+// HISTORICAL ORDER BLOCK ZONES
+// Definition: nearest prior opposite-color candle
+// before a confirmed structure break.
+// ------------------------------------------------------
+
+function detectOrderBlocks(
+  candles,
+  breaks,
+  lookback,
+  maxZones
+) {
+  const zones = [];
+  const usedSourceIndices = new Set();
+
+  for (const event of breaks) {
+    const start = Math.max(0, event.index - lookback);
+    let found = null;
+
+    for (let i = event.index - 1; i >= start; i--) {
+      if (usedSourceIndices.has(i)) continue;
+
+      const c = candles[i];
+
+      const isOpposite =
+        event.direction === "BULLISH"
+          ? c.close < c.open
+          : c.close > c.open;
+
+      if (!isOpposite) continue;
+
+      found = {
+        type: event.direction === "BULLISH"
+          ? "BULLISH_ORDER_BLOCK"
+          : "BEARISH_ORDER_BLOCK",
+        lower: c.low,
+        upper: c.high,
+        sourceIndex: i,
+        createdAt: event.index,
+        timestamp: c.timestamp
+      };
+
+      usedSourceIndices.add(i);
+      break;
+    }
+
+    if (found) zones.push(found);
+  }
+
+  return zones.slice(-maxZones);
+}
+
+// ------------------------------------------------------
+// MAIN ANALYSIS
+// ------------------------------------------------------
+
+export function analyzeMarketStructure(
+  candles,
+  options = {}
+) {
+  validateCandles(candles);
+
+  if (
+    options === null ||
+    typeof options !== "object" ||
+    Array.isArray(options)
+  ) {
+    throw new Error("Invalid market structure configuration");
+  }
+
+  const config = {
+    ...DEFAULTS,
+    ...options
+  };
+
+  validateConfig(config);
+
+  const pivots = findConfirmedPivots(
+    candles,
+    config.pivotLength
+  );
+
+  const structure = detectStructure(candles, pivots);
+
+  const liquidity = detectLiquidity(
+    pivots,
+    config.equalLevelTolerance,
+    config.maxZones
+  );
+
+  const fvg = detectFVG(
+    candles,
+    config.maxZones
+  );
+
+  const orderBlocks = detectOrderBlocks(
+    candles,
+    structure.events,
+    config.orderBlockLookback,
+    config.maxZones
+  );
+
+  return {
+    version: "12.0",
+    module: "HISTORICAL_MARKET_STRUCTURE",
+    status: "OK",
+    dataType: "HISTORICAL_ONLY",
+
+    settings: config,
+
+    summary: {
+      candleCount: candles.length,
+      confirmedSwingHighs: pivots.highs.length,
+      confirmedSwingLows: pivots.lows.length,
+      structureEvents: structure.events.length,
+      bullishFVGs: fvg.filter(
+        zone => zone.type === "BULLISH_FVG"
+      ).length,
+      bearishFVGs: fvg.filter(
+        zone => zone.type === "BEARISH_FVG"
+      ).length,
+      mitigatedFVGs: fvg.filter(
+        zone => zone.status === "MITIGATED"
+      ).length,
+      orderBlocks: orderBlocks.length,
+      liquidityPools: liquidity.length,
+      historicalTrendClassification: structure.trend
+    },
+
+    pivots,
+    structureEvents: structure.events,
+    liquidity,
+    fairValueGaps: fvg,
+    orderBlocks,
+
+    note:
+      "Historical educational analysis only. Zones and classifications are not forecasts, probabilities, or trading recommendations."
+  };
+}

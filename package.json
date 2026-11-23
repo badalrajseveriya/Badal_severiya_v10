@@ -17,6 +17,7 @@
     "test:dashboard": "node dashboard-data.test.js",
     "test:dashboard-display": "node dashboard-display.test.js",
     "test:dashboard-ui": "node dashboard-ui-model.test.js",
-    "test": "npm run test:decoder && npm run test:market && npm run test:structure && npm run test:support && npm run test:fibonacci && npm run test:candles && npm run test:integration && npm run test:data-quality && npm run test:report && npm run test:dashboard && npm run test:dashboard-display && npm run test:dashboard-ui"
+    "test:dashboard-renderer": "node dashboard-renderer.test.js",
+    "test": "npm run test:decoder && npm run test:market && npm run test:structure && npm run test:support && npm run test:fibonacci && npm run test:candles && npm run test:integration && npm run test:data-quality && npm run test:report && npm run test:dashboard && npm run test:dashboard-display && npm run test:dashboard-ui && npm run test:dashboard-renderer"
   }
 }

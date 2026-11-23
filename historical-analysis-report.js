@@ -11,7 +11,16 @@ import {
 } from "./integrated-historical-analysis.js";
 
 const NOTE =
-  "Historical educational report only. No forecasts, probabilities or trading recommendations.";
+  "Historical educational analysis only. No forecasts, probabilities or trading recommendations.";
+
+const REQUIRED_MODULES = [
+  "dataQuality",
+  "marketData",
+  "marketStructure",
+  "supportResistance",
+  "fibonacci",
+  "candlePatterns"
+];
 
 // ------------------------------------------------------
 // SAFE NUMBER FORMAT
@@ -20,6 +29,41 @@ const NOTE =
 function isFiniteNumber(value) {
   return typeof value === "number" &&
     Number.isFinite(value);
+}
+
+// ------------------------------------------------------
+// MODULE VALIDATION
+// ------------------------------------------------------
+
+function validateModules(modules) {
+  const errors = [];
+
+  if (!modules || typeof modules !== "object") {
+    return {
+      valid: false,
+      errors: ["Integrated modules are missing."]
+    };
+  }
+
+  for (const name of REQUIRED_MODULES) {
+    const result = modules[name];
+
+    if (!result || result.status !== "OK") {
+      errors.push(`${name} module is missing or invalid.`);
+    }
+  }
+
+  if (
+    modules.dataQuality &&
+    modules.dataQuality.quality !== "VALID"
+  ) {
+    errors.push("Data quality is not VALID.");
+  }
+
+  return {
+    valid: errors.length === 0,
+    errors
+  };
 }
 
 // ------------------------------------------------------
@@ -40,9 +84,11 @@ export function generateHistoricalReport(input) {
 
     const modules = integrated.modules;
 
-    if (!modules) {
+    const validation = validateModules(modules);
+
+    if (!validation.valid) {
       throw new Error(
-        "Integrated analysis modules are missing."
+        `Report validation failed: ${validation.errors.join(" ")}`
       );
     }
 
@@ -137,6 +183,19 @@ export function generateHistoricalReport(input) {
     };
 
     // --------------------------------------------------
+    // REPORT SECTIONS
+    // --------------------------------------------------
+
+    const sections = {
+      dataQuality: qualitySummary,
+      marketIndicators: indicatorSummary,
+      marketStructure: structureSummary,
+      supportResistance: supportResistanceSummary,
+      fibonacci: fibonacciSummary,
+      candlePatterns: candlePatternSummary
+    };
+
+    // --------------------------------------------------
     // FINAL REPORT
     // --------------------------------------------------
 
@@ -149,17 +208,29 @@ export function generateHistoricalReport(input) {
       reportInfo: {
         timeframe: integrated.timeframe,
         candleCount: integrated.candleCount,
-        generatedAt: new Date().toISOString()
+        generatedAt: new Date().toISOString(),
+        sectionCount: Object.keys(sections).length
       },
 
-      sections: {
-        dataQuality: qualitySummary,
-        marketIndicators: indicatorSummary,
-        marketStructure: structureSummary,
-        supportResistance: supportResistanceSummary,
-        fibonacci: fibonacciSummary,
-        candlePatterns: candlePatternSummary
+      validation: {
+        status: "OK",
+        valid: true,
+        checkedModules: REQUIRED_MODULES.length,
+        errors: []
       },
+
+      summary: {
+        dataQuality: dataQuality.quality,
+        dataQualityIssues: dataQuality.issueCount,
+        totalCandlePatterns:
+          candlePatterns.summary?.totalPatterns ?? 0,
+        supportZones:
+          supportResistance.supports?.length ?? 0,
+        resistanceZones:
+          supportResistance.resistances?.length ?? 0
+      },
+
+      sections,
 
       note: NOTE
     };

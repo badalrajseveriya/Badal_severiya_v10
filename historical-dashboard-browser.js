@@ -70,7 +70,6 @@ function renderCards(rendered, uiModel) {
   dashboard.appendChild(heading);
 
   const metadata = document.createElement("p");
-
   metadata.textContent =
     `Timeframe: ${rendered.screen.metadata.timeframe} | ` +
     `Candles: ${rendered.screen.metadata.candleCount}`;
@@ -82,20 +81,65 @@ function renderCards(rendered, uiModel) {
     section.className = "card";
 
     const title = document.createElement("h2");
-
-    title.textContent =
-      `${card.order}. ${card.title}`;
-
+    title.textContent = `${card.order}. ${card.title}`;
     section.appendChild(title);
 
-    for (const [key, value] of
-      Object.entries(card.content)) {
+    if (card.id === "data-quality") {
+      const quality = card.content.status ?? "UNKNOWN";
+      const details = card.content.details ?? {};
 
-      if (key === "id" || key === "title") {
-        continue;
+      const issueCount = Number.isFinite(details.issueCount)
+        ? details.issueCount
+        : 0;
+
+      const statusLine = document.createElement("p");
+      statusLine.textContent =
+        `Status: ${quality} | Issues: ${issueCount}`;
+
+      statusLine.style.fontWeight = "bold";
+      statusLine.style.fontSize = "16px";
+      statusLine.style.color =
+        quality === "VALID" && issueCount === 0
+          ? "#86efac"
+          : "#fca5a5";
+
+      section.appendChild(statusLine);
+
+      const checksTitle = document.createElement("p");
+      checksTitle.textContent = "Validation Checks";
+      checksTitle.style.fontWeight = "bold";
+      section.appendChild(checksTitle);
+
+      const checks = details.checks ?? {};
+
+      for (const [name, result] of Object.entries(checks)) {
+        const line = document.createElement("p");
+
+        line.textContent =
+          `${name}: ${
+            typeof result === "object"
+              ? JSON.stringify(result)
+              : String(result ?? "N/A")
+          }`;
+
+        section.appendChild(line);
       }
 
-      addText(section, key, value);
+      if (Object.keys(checks).length === 0) {
+        const line = document.createElement("p");
+        line.textContent =
+          "No individual check details available.";
+        section.appendChild(line);
+      }
+
+    } else {
+      for (const [key, value] of Object.entries(card.content)) {
+        if (key === "id" || key === "title") {
+          continue;
+        }
+
+        addText(section, key, value);
+      }
     }
 
     dashboard.appendChild(section);
@@ -213,7 +257,9 @@ function restoreSavedData() {
       !Array.isArray(savedData.candles) ||
       !savedData.timeframe
     ) {
-      throw new Error("सेव किया हुआ डेटा सही फॉर्मेट में नहीं है।");
+      throw new Error(
+        "सेव किया हुआ डेटा सही फॉर्मेट में नहीं है।"
+      );
     }
 
     const imported = parseHistoricalDataText(

@@ -65,7 +65,7 @@ class FakeDB {
             high: item.high,
             low: item.low,
             close: item.close,
-            volume: item.volume
+            volume: item.volume_available === 1 ? item.volume : null
           }));
 
         return { results: rows };
@@ -86,6 +86,7 @@ class FakeDB {
         low,
         close,
         volume,
+        volumeAvailable,
         source
       ] = statement.values;
 
@@ -104,6 +105,7 @@ class FakeDB {
         low,
         close,
         volume,
+        volume_available: volumeAvailable,
         source
       };
 
@@ -345,6 +347,29 @@ async function ingest(payload, headers = {}) {
   assert.equal(body.source, "HISTORICAL_UPLOAD");
 }
 
+// OHLC-only historical upload keeps volume unavailable (not fabricated)
+{
+  const candle = validCandle("2026-02-01T00:00:00.000Z");
+  delete candle.volume;
+
+  const uploaded = await ingest({
+    index: "NIFTY",
+    timeframe: "1d",
+    candles: [candle]
+  });
+  assert.equal(uploaded.status, 200);
+
+  const response = await call(
+    "/api/data/candles?index=NIFTY&timeframe=1d"
+  );
+  const body = await readJson(response);
+
+  assert.equal(response.status, 200);
+  assert.equal(body.count, 1);
+  assert.equal(body.candles[0].open, 25000);
+  assert.equal(body.candles[0].volume, null);
+}
+
 // Read stored historical candles
 {
   const response = await call(
@@ -364,7 +389,7 @@ async function ingest(payload, headers = {}) {
   const body = await readJson(response);
 
   assert.equal(response.status, 200);
-  assert.equal(body.totalCandles, 1);
+  assert.equal(body.totalCandles, 2);
   assert.equal(body.totalIndices, 1);
 }
 

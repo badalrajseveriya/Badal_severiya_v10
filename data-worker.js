@@ -2,31 +2,17 @@
 const APP_NAME = "BADAL SEVERIYA DATA V11";
 
 const ALLOWED_INDICES = [
-  "NIFTY",
-  "BANKNIFTY",
-  "FINNIFTY",
-  "MIDCPNIFTY",
-  "NIFTYIT",
-  "NIFTYAUTO",
-  "NIFTYBANK",
-  "NIFTYFMCG",
-  "NIFTYPHARMA",
-  "NIFTYMETAL",
-  "NIFTYREALTY",
-  "NIFTYENERGY",
-  "NIFTYINFRA",
-  "NIFTYMEDIA",
-  "NIFTYPSUBANK",
-  "NIFTY50"
+  "NIFTY", "BANKNIFTY", "FINNIFTY", "MIDCPNIFTY", "NIFTYIT",
+  "NIFTYAUTO", "NIFTYBANK", "NIFTYFMCG", "NIFTYPHARMA",
+  "NIFTYMETAL", "NIFTYREALTY", "NIFTYENERGY", "NIFTYINFRA",
+  "NIFTYMEDIA", "NIFTYPSUBANK", "NIFTY50"
 ];
 
 const ALLOWED_TIMEFRAMES = [
-  "1m", "3m", "5m", "10m", "15m",
-  "30m", "1h", "1d"
+  "1m", "3m", "5m", "10m", "15m", "30m", "1h", "1d"
 ];
 
 const MAX_CANDLES = 5000;
-
 let schemaReady = null;
 
 function json(data, status = 200) {
@@ -92,21 +78,17 @@ function validateCandle(item, index) {
   }
 
   const rawTime = item.timestamp ?? item.time;
-
   if (typeof rawTime !== "string" || !rawTime.trim()) {
     throw new Error(`Missing timestamp at row ${index}`);
   }
 
   const timeMs = Date.parse(rawTime);
-
   if (!Number.isFinite(timeMs)) {
     throw new Error(`Invalid timestamp at row ${index}`);
   }
 
-  const candleTime = new Date(timeMs).toISOString();
-
   const candle = {
-    timestamp: candleTime,
+    timestamp: new Date(timeMs).toISOString(),
     open: Number(item.open),
     high: Number(item.high),
     low: Number(item.low),
@@ -115,11 +97,8 @@ function validateCandle(item, index) {
   };
 
   const values = [
-    candle.open,
-    candle.high,
-    candle.low,
-    candle.close,
-    candle.volume
+    candle.open, candle.high, candle.low,
+    candle.close, candle.volume
   ];
 
   if (!values.every(Number.isFinite)) {
@@ -127,26 +106,16 @@ function validateCandle(item, index) {
   }
 
   if (
-    candle.open <= 0 ||
-    candle.high <= 0 ||
-    candle.low <= 0 ||
-    candle.close <= 0 ||
+    candle.open <= 0 || candle.high <= 0 ||
+    candle.low <= 0 || candle.close <= 0 ||
     candle.volume < 0
   ) {
     throw new Error(`Invalid OHLCV range at row ${index}`);
   }
 
   if (
-    candle.high < Math.max(
-      candle.open,
-      candle.close,
-      candle.low
-    ) ||
-    candle.low > Math.min(
-      candle.open,
-      candle.close,
-      candle.high
-    )
+    candle.high < Math.max(candle.open, candle.close, candle.low) ||
+    candle.low > Math.min(candle.open, candle.close, candle.high)
   ) {
     throw new Error(`Invalid high/low values at row ${index}`);
   }
@@ -156,7 +125,6 @@ function validateCandle(item, index) {
 
 async function health(DB) {
   await ensureSchema(DB);
-
   return json({
     app: APP_NAME,
     status: "OK",
@@ -193,41 +161,24 @@ function getIndices() {
 
 async function getCandles(request, DB) {
   const url = new URL(request.url);
-
-  const index = (url.searchParams.get("index") || "NIFTY")
-    .toUpperCase();
-
+  const index = (url.searchParams.get("index") || "NIFTY").toUpperCase();
   const timeframe = url.searchParams.get("timeframe") || "15m";
-
-  const requestedLimit = Number(
-    url.searchParams.get("limit") || 500
-  );
+  const requestedLimit = Number(url.searchParams.get("limit") || 500);
 
   if (!ALLOWED_INDICES.includes(index)) {
     return json({ error: "Unsupported index" }, 400);
   }
-
   if (!ALLOWED_TIMEFRAMES.includes(timeframe)) {
     return json({ error: "Unsupported timeframe" }, 400);
   }
-
-  if (
-    !Number.isInteger(requestedLimit) ||
-    requestedLimit < 1
-  ) {
+  if (!Number.isInteger(requestedLimit) || requestedLimit < 1) {
     return json({ error: "Invalid limit" }, 400);
   }
 
   const limit = Math.min(requestedLimit, MAX_CANDLES);
-
   const result = await DB.prepare(`
     SELECT
-      candle_time AS timestamp,
-      open,
-      high,
-      low,
-      close,
-      volume
+      candle_time AS timestamp, open, high, low, close, volume
     FROM (
       SELECT *
       FROM badal_v11_candles
@@ -251,13 +202,7 @@ async function getCandles(request, DB) {
 
 async function getQuality(DB) {
   const result = await DB.prepare(`
-    SELECT
-      id,
-      index_name,
-      timeframe,
-      event_type,
-      message,
-      created_at
+    SELECT id, index_name, timeframe, event_type, message, created_at
     FROM badal_v11_quality_events
     ORDER BY id DESC
     LIMIT 100
@@ -285,23 +230,24 @@ async function recordQuality(DB, index, timeframe, message) {
 
 async function ingest(request, env) {
   if (!env.INGEST_TOKEN) {
-    return json({
-      error: "Server ingest token is not configured"
-    }, 503);
+    return json({ error: "Server ingest token is not configured" }, 503);
   }
 
   const suppliedToken = request.headers.get("x-ingest-token");
-
   if (suppliedToken !== env.INGEST_TOKEN) {
     return json({ error: "Unauthorized" }, 401);
   }
 
   let body;
-
   try {
     body = await request.json();
   } catch {
     return json({ error: "Invalid JSON body" }, 400);
+  }
+
+  // Reject null, arrays, and primitive JSON values before reading properties.
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    return json({ error: "Request body must be a JSON object" }, 400);
   }
 
   const index = String(body.index || "").toUpperCase();
@@ -310,11 +256,9 @@ async function ingest(request, env) {
   if (!ALLOWED_INDICES.includes(index)) {
     return json({ error: "Unsupported index" }, 400);
   }
-
   if (!ALLOWED_TIMEFRAMES.includes(timeframe)) {
     return json({ error: "Unsupported timeframe" }, 400);
   }
-
   if (
     !Array.isArray(body.candles) ||
     body.candles.length < 1 ||
@@ -326,17 +270,10 @@ async function ingest(request, env) {
   }
 
   let candles;
-
   try {
     candles = body.candles.map(validateCandle);
   } catch (error) {
-    await recordQuality(
-      env.DB,
-      index,
-      timeframe,
-      error.message
-    );
-
+    await recordQuality(env.DB, index, timeframe, error.message);
     return json({
       error: "Candle validation failed",
       details: error.message
@@ -354,7 +291,6 @@ async function ingest(request, env) {
         timeframe,
         "Candles are not strictly chronological or contain duplicates"
       );
-
       return json({
         error: "Candles must be chronological with no duplicate timestamps"
       }, 400);
@@ -364,15 +300,8 @@ async function ingest(request, env) {
   const statements = candles.map(candle =>
     env.DB.prepare(`
       INSERT INTO badal_v11_candles (
-        index_name,
-        timeframe,
-        candle_time,
-        open,
-        high,
-        low,
-        close,
-        volume,
-        source
+        index_name, timeframe, candle_time,
+        open, high, low, close, volume, source
       )
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(index_name, timeframe, candle_time)
@@ -385,15 +314,9 @@ async function ingest(request, env) {
         source = excluded.source,
         inserted_at = CURRENT_TIMESTAMP
     `).bind(
-      index,
-      timeframe,
-      candle.timestamp,
-      candle.open,
-      candle.high,
-      candle.low,
-      candle.close,
-      candle.volume,
-      "HISTORICAL_UPLOAD"
+      index, timeframe, candle.timestamp,
+      candle.open, candle.high, candle.low,
+      candle.close, candle.volume, "HISTORICAL_UPLOAD"
     )
   );
 
@@ -403,15 +326,10 @@ async function ingest(request, env) {
     }
   } catch (error) {
     await recordQuality(
-      env.DB,
-      index,
-      timeframe,
+      env.DB, index, timeframe,
       `Database insert failed: ${error.message}`
     );
-
-    return json({
-      error: "Database insert failed"
-    }, 500);
+    return json({ error: "Database insert failed" }, 500);
   }
 
   return json({
@@ -455,23 +373,18 @@ async function handle(request, env) {
     if (request.method === "GET" && path === "/api/health") {
       return await health(env.DB);
     }
-
     if (request.method === "GET" && path === "/api/data/status") {
       return await getStatus(env.DB);
     }
-
     if (request.method === "GET" && path === "/api/data/indices") {
       return getIndices();
     }
-
     if (request.method === "GET" && path === "/api/data/candles") {
       return await getCandles(request, env.DB);
     }
-
     if (request.method === "GET" && path === "/api/data/quality") {
       return await getQuality(env.DB);
     }
-
     if (request.method === "POST" && path === "/api/data/ingest") {
       return await ingest(request, env);
     }
@@ -488,7 +401,6 @@ async function handle(request, env) {
         "POST /api/data/ingest"
       ]
     }, 404);
-
   } catch (error) {
     return json({
       app: APP_NAME,

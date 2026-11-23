@@ -46,6 +46,19 @@ async function ensureSchema(DB) {
         )
       `).run();
 
+      // Additive migration: preserve existing volume values.
+      // OHLC-only rows will be marked as volume unavailable.
+      try {
+        await DB.prepare(`
+          ALTER TABLE badal_v11_candles
+          ADD COLUMN volume_available INTEGER NOT NULL DEFAULT 1
+        `).run();
+      } catch (error) {
+        if (!String(error.message || error).toLowerCase().includes("duplicate column")) {
+          throw error;
+        }
+      }
+
       await DB.prepare(`
         CREATE INDEX IF NOT EXISTS idx_badal_v11_candles_lookup
         ON badal_v11_candles (index_name, timeframe, candle_time)
@@ -93,24 +106,32 @@ function validateCandle(item, index) {
     high: Number(item.high),
     low: Number(item.low),
     close: Number(item.close),
-    volume: Number(item.volume)
+    volumeAvailable: item.volume !== undefined &&
+      item.volume !== null && item.volume !== "",
+    volume: item.volume === undefined ||
+      item.volume === null || item.volume === ""
+      ? null
+      : Number(item.volume)
   };
 
-  const values = [
-    candle.open, candle.high, candle.low,
-    candle.close, candle.volume
+  const ohlcValues = [
+    candle.open, candle.high, candle.low, candle.close
   ];
 
-  if (!values.every(Number.isFinite)) {
-    throw new Error(`Non-numeric OHLCV value at row ${index}`);
+  if (!ohlcValues.every(Number.isFinite)) {
+    throw new Error(`Non-numeric OHLC value at row ${index}`);
   }
 
   if (
     candle.open <= 0 || candle.high <= 0 ||
-    candle.low <= 0 || candle.close <= 0 ||
-    candle.volume < 0
+    candle.low <= 0 || candle.close <= 0
   ) {
-    throw new Error(`Invalid OHLCV range at row ${index}`);
+    throw new Error(`Invalid OHLC range at row ${index}`);
+  }
+
+  if (candle.volumeAvailable &&
+      (!Number.isFinite(candle.volume) || candle.volume < 0)) {
+    throw new Error(`Invalid volume value at row ${index}`);
   }
 
   if (
@@ -168,17 +189,21 @@ async function getCandles(request, DB) {
   if (!ALLOWED_INDICES.includes(index)) {
     return json({ error: "Unsupported index" }, 400);
   }
+
   if (!ALLOWED_TIMEFRAMES.includes(timeframe)) {
     return json({ error: "Unsupported timeframe" }, 400);
   }
+
   if (!Number.isInteger(requestedLimit) || requestedLimit < 1) {
     return json({ error: "Invalid limit" }, 400);
   }
 
   const limit = Math.min(requestedLimit, MAX_CANDLES);
+
   const result = await DB.prepare(`
     SELECT
-      candle_time AS timestamp, open, high, low, close, volume
+      candle_time AS timestamp, open, high, low, close,
+      CASE WHEN volume_available = 1 THEN volume ELSE NULL END AS volume
     FROM (
       SELECT *
       FROM badal_v11_candles
@@ -239,13 +264,13 @@ async function ingest(request, env) {
   }
 
   let body;
+
   try {
     body = await request.json();
   } catch {
     return json({ error: "Invalid JSON body" }, 400);
   }
 
-  // Reject null, arrays, and primitive JSON values before reading properties.
   if (!body || typeof body !== "object" || Array.isArray(body)) {
     return json({ error: "Request body must be a JSON object" }, 400);
   }
@@ -256,9 +281,11 @@ async function ingest(request, env) {
   if (!ALLOWED_INDICES.includes(index)) {
     return json({ error: "Unsupported index" }, 400);
   }
+
   if (!ALLOWED_TIMEFRAMES.includes(timeframe)) {
     return json({ error: "Unsupported timeframe" }, 400);
   }
+
   if (
     !Array.isArray(body.candles) ||
     body.candles.length < 1 ||
@@ -270,10 +297,12 @@ async function ingest(request, env) {
   }
 
   let candles;
+
   try {
     candles = body.candles.map(validateCandle);
   } catch (error) {
     await recordQuality(env.DB, index, timeframe, error.message);
+
     return json({
       error: "Candle validation failed",
       details: error.message
@@ -291,6 +320,7 @@ async function ingest(request, env) {
         timeframe,
         "Candles are not strictly chronological or contain duplicates"
       );
+
       return json({
         error: "Candles must be chronological with no duplicate timestamps"
       }, 400);
@@ -301,9 +331,9 @@ async function ingest(request, env) {
     env.DB.prepare(`
       INSERT INTO badal_v11_candles (
         index_name, timeframe, candle_time,
-        open, high, low, close, volume, source
+        open, high, low, close, volume, volume_available, source
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(index_name, timeframe, candle_time)
       DO UPDATE SET
         open = excluded.open,
@@ -311,12 +341,15 @@ async function ingest(request, env) {
         low = excluded.low,
         close = excluded.close,
         volume = excluded.volume,
+        volume_available = excluded.volume_available,
         source = excluded.source,
         inserted_at = CURRENT_TIMESTAMP
     `).bind(
       index, timeframe, candle.timestamp,
       candle.open, candle.high, candle.low,
-      candle.close, candle.volume, "HISTORICAL_UPLOAD"
+      candle.close, candle.volume ?? 0,
+      candle.volumeAvailable ? 1 : 0,
+      "HISTORICAL_UPLOAD"
     )
   );
 
@@ -329,6 +362,7 @@ async function ingest(request, env) {
       env.DB, index, timeframe,
       `Database insert failed: ${error.message}`
     );
+
     return json({ error: "Database insert failed" }, 500);
   }
 
@@ -373,18 +407,23 @@ async function handle(request, env) {
     if (request.method === "GET" && path === "/api/health") {
       return await health(env.DB);
     }
+
     if (request.method === "GET" && path === "/api/data/status") {
       return await getStatus(env.DB);
     }
+
     if (request.method === "GET" && path === "/api/data/indices") {
       return getIndices();
     }
+
     if (request.method === "GET" && path === "/api/data/candles") {
       return await getCandles(request, env.DB);
     }
+
     if (request.method === "GET" && path === "/api/data/quality") {
       return await getQuality(env.DB);
     }
+
     if (request.method === "POST" && path === "/api/data/ingest") {
       return await ingest(request, env);
     }

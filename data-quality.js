@@ -1,8 +1,20 @@
 
+ // ======================================================
+// BADAL SEVERIYA V12
+// HISTORICAL DATA QUALITY ENGINE
+// Educational historical data validation only
+// ======================================================
+
 const DEFAULTS = {
   minCandles: 30,
   maxCandles: 5000
 };
+
+// Verified special trading date.
+// This is an exception to the normal weekend calendar.
+const SPECIAL_TRADING_DATES = [
+  "2026-11-08"
+];
 
 function parseTimestamp(value) {
   if (
@@ -36,6 +48,10 @@ function getSource(input) {
   if (Array.isArray(input?.data)) return input.data;
 
   throw new Error("Candle data must be an array.");
+}
+
+function getUTCDate(timestamp) {
+  return new Date(timestamp).toISOString().slice(0, 10);
 }
 
 export function analyzeDataQuality(input, options = {}) {
@@ -84,10 +100,20 @@ export function analyzeDataQuality(input, options = {}) {
     let duplicateTimestamps = 0;
     let unorderedTimestamps = 0;
 
+    let weekendDates = 0;
+    let specialTradingDates = 0;
+    let unexpectedWeekendDates = 0;
+
+    const unexpectedWeekendList = [];
+    const specialTradingDateList = [];
     const timestamps = [];
 
     for (const item of source) {
-      if (!item || typeof item !== "object") {
+      if (
+        !item ||
+        typeof item !== "object" ||
+        Array.isArray(item)
+      ) {
         invalidOHLC++;
         timestamps.push(null);
         continue;
@@ -154,9 +180,21 @@ export function analyzeDataQuality(input, options = {}) {
       }
 
       timestamps.push(timestamp);
+
+      const date = getUTCDate(timestamp);
+      const day = new Date(timestamp).getUTCDay();
+
+      if (SPECIAL_TRADING_DATES.includes(date)) {
+        specialTradingDates++;
+        specialTradingDateList.push(date);
+      } else if (day === 0 || day === 6) {
+        weekendDates++;
+        unexpectedWeekendDates++;
+        unexpectedWeekendList.push(date);
+      }
     }
 
-    // Check duplicates and order independently of invalid dates.
+    // Duplicate and chronological checks
     const seen = new Set();
     let previousTimestamp = null;
 
@@ -187,13 +225,18 @@ export function analyzeDataQuality(input, options = {}) {
       invalidTimestamps,
       missingTimestamps,
       duplicateTimestamps,
-      unorderedTimestamps
+      unorderedTimestamps,
+      weekendDates,
+      specialTradingDates,
+      unexpectedWeekendDates
     };
 
+    // Missing volume is reported separately because
+    // the NIFTY index OHLC source may not provide volume.
+    // Weekend dates are flagged for review, not deleted.
     const issueCount =
       invalidOHLC +
       invalidVolume +
-      missingVolumes +
       invalidTimestamps +
       missingTimestamps +
       duplicateTimestamps +
@@ -205,21 +248,26 @@ export function analyzeDataQuality(input, options = {}) {
 
     return {
       status: "OK",
-      version: "12.0",
+      version: "12.1",
       module: "HISTORICAL_DATA_QUALITY",
       dataType: "HISTORICAL_ONLY",
       quality,
       issueCount,
       checks,
+      dateReview: {
+        specialTradingDateList,
+        unexpectedWeekendList,
+        note: "Weekend dates are flagged for review only. No candle is automatically deleted."
+      },
       settings,
       note:
-        "Historical data validation only. Quality status is not a forecast or trading recommendation."
+        "Historical data validation only. No forecasts or trading recommendations."
     };
 
   } catch (error) {
     return {
       status: "ERROR",
-      version: "12.0",
+      version: "12.1",
       module: "HISTORICAL_DATA_QUALITY",
       dataType: "HISTORICAL_ONLY",
       error: error.message

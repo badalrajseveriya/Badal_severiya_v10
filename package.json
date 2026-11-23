@@ -15,6 +15,7 @@
     "test:data-quality": "node data-quality.test.js",
     "test:report": "node historical-analysis-report.test.js",
     "test:dashboard": "node dashboard-data.test.js",
-    "test": "npm run test:decoder && npm run test:market && npm run test:structure && npm run test:support && npm run test:fibonacci && npm run test:candles && npm run test:integration && npm run test:data-quality && npm run test:report && npm run test:dashboard"
+    "test:dashboard-display": "node dashboard-display.test.js",
+    "test": "npm run test:decoder && npm run test:market && npm run test:structure && npm run test:support && npm run test:fibonacci && npm run test:candles && npm run test:integration && npm run test:data-quality && npm run test:report && npm run test:dashboard && npm run test:dashboard-display"
   }
 }

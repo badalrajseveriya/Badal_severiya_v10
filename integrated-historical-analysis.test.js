@@ -44,7 +44,7 @@ function makeCandles(count = 300) {
   console.log("PASS: Complete integration");
 }
 
-// 2. All five engines present
+// 2. All six engines present
 {
   const result = analyzeHistoricalIntegrated({
     candles: makeCandles(300)
@@ -52,16 +52,33 @@ function makeCandles(count = 300) {
 
   assert.ok(result.modules);
 
+  assert.equal(result.modules.dataQuality.status, "OK");
+  assert.equal(result.modules.dataQuality.quality, "VALID");
+
   assert.equal(result.modules.marketData.status, "OK");
   assert.equal(result.modules.marketStructure.status, "OK");
   assert.equal(result.modules.supportResistance.status, "OK");
   assert.equal(result.modules.fibonacci.status, "OK");
   assert.equal(result.modules.candlePatterns.status, "OK");
 
-  console.log("PASS: All five engines connected");
+  console.log("PASS: All six engines connected");
 }
 
-// 3. Minimum candle validation
+// 3. Data quality report validation
+{
+  const result = analyzeHistoricalIntegrated({
+    candles: makeCandles(300)
+  });
+
+  assert.equal(result.modules.dataQuality.issueCount, 0);
+  assert.equal(result.modules.dataQuality.checks.invalidOHLC, 0);
+  assert.equal(result.modules.dataQuality.checks.invalidVolume, 0);
+  assert.equal(result.modules.dataQuality.checks.missingTimestamps, 0);
+
+  console.log("PASS: Data quality report validation");
+}
+
+// 4. Minimum candle validation
 {
   const result = analyzeHistoricalIntegrated({
     candles: makeCandles(100)
@@ -73,7 +90,7 @@ function makeCandles(count = 300) {
   console.log("PASS: Minimum candle validation");
 }
 
-// 4. Missing timestamp validation
+// 5. Missing timestamp validation
 {
   const candles = makeCandles(300);
   delete candles[10].timestamp;
@@ -88,7 +105,7 @@ function makeCandles(count = 300) {
   console.log("PASS: Missing timestamp validation");
 }
 
-// 5. Invalid timestamp validation
+// 6. Invalid timestamp validation
 {
   const candles = makeCandles(300);
   candles[10].timestamp = "invalid-date";
@@ -103,7 +120,7 @@ function makeCandles(count = 300) {
   console.log("PASS: Invalid timestamp validation");
 }
 
-// 6. Chronological order validation
+// 7. Chronological order validation
 {
   const candles = makeCandles(300);
 
@@ -119,7 +136,7 @@ function makeCandles(count = 300) {
   console.log("PASS: Chronological validation");
 }
 
-// 7. Invalid OHLC validation
+// 8. Invalid OHLC validation
 {
   const candles = makeCandles(300);
   candles[10].high = candles[10].low - 1;
@@ -133,7 +150,35 @@ function makeCandles(count = 300) {
   console.log("PASS: Invalid OHLC validation");
 }
 
-// 8. Empty input validation
+// 9. Duplicate timestamp validation
+{
+  const candles = makeCandles(300);
+  candles[11].timestamp = candles[10].timestamp;
+
+  const result = analyzeHistoricalIntegrated({
+    candles
+  });
+
+  assert.equal(result.status, "ERROR");
+
+  console.log("PASS: Duplicate timestamp validation");
+}
+
+// 10. Invalid volume validation
+{
+  const candles = makeCandles(300);
+  candles[10].volume = -100;
+
+  const result = analyzeHistoricalIntegrated({
+    candles
+  });
+
+  assert.equal(result.status, "ERROR");
+
+  console.log("PASS: Invalid volume validation");
+}
+
+// 11. Empty input validation
 {
   const result = analyzeHistoricalIntegrated(null);
 

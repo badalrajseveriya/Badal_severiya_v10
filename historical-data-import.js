@@ -2,7 +2,7 @@
 // ======================================================
 // BADAL SEVERIYA V12
 // HISTORICAL CSV / JSON DATA IMPORTER
-// Offline historical educational analysis only
+// Educational historical data only
 // ======================================================
 
 const MIN_CANDLES = 200;
@@ -112,21 +112,24 @@ function normalizeCandle(item, rowNumber) {
     high: Number(high),
     low: Number(low),
     close: Number(close),
-    volume: volume === undefined || volume === null || volume === ""
-      ? 0
-      : Number(volume)
+    volume:
+      volume === undefined || volume === null || volume === ""
+        ? null
+        : Number(volume)
   };
 
   if (
-    ![
-      candle.open,
-      candle.high,
-      candle.low,
-      candle.close,
-      candle.volume
-    ].every(Number.isFinite)
+    ![candle.open, candle.high, candle.low, candle.close]
+      .every(Number.isFinite)
   ) {
-    throw new Error(`Invalid numeric value at row ${rowNumber}.`);
+    throw new Error(`Invalid OHLC numeric value at row ${rowNumber}.`);
+  }
+
+  if (
+    candle.volume !== null &&
+    (!Number.isFinite(candle.volume) || candle.volume < 0)
+  ) {
+    throw new Error(`Invalid volume at row ${rowNumber}.`);
   }
 
   if (
@@ -134,11 +137,10 @@ function normalizeCandle(item, rowNumber) {
     candle.high <= 0 ||
     candle.low <= 0 ||
     candle.close <= 0 ||
-    candle.volume < 0 ||
     candle.high < Math.max(candle.open, candle.close, candle.low) ||
     candle.low > Math.min(candle.open, candle.close, candle.high)
   ) {
-    throw new Error(`Invalid OHLCV values at row ${rowNumber}.`);
+    throw new Error(`Invalid OHLC values at row ${rowNumber}.`);
   }
 
   return candle;
@@ -177,7 +179,7 @@ function readCSV(text) {
 
     for (const field of Object.keys(indexes)) {
       const column = indexes[field];
-      item[field] = column < 0 ? 0 : values[column];
+      item[field] = column < 0 ? null : values[column];
     }
 
     return normalizeCandle(item, index + 2);
@@ -257,14 +259,14 @@ export function parseHistoricalDataText(
       timeframe,
       candleCount: candles.length,
       candles,
-      note: "Offline historical educational data only."
+      note: "Missing volume remains null; no volume is fabricated."
     };
   } catch (error) {
     return {
       status: "ERROR",
       dataType: "HISTORICAL_ONLY",
       error: error.message,
-      note: "Offline historical educational data only."
+      note: "Historical educational data only."
     };
   }
 }

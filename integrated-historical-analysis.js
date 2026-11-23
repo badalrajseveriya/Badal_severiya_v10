@@ -1,5 +1,5 @@
 
-// ======================================================
+ // ======================================================
 // BADAL SEVERIYA V12
 // INTEGRATED HISTORICAL ANALYSIS ENGINE
 // Educational and historical analysis only
@@ -31,6 +31,15 @@ import {
 const NOTE =
   "Historical educational analysis only. No forecasts, probabilities or trading recommendations.";
 
+const REQUIRED_MODULES = [
+  "dataQuality",
+  "marketData",
+  "marketStructure",
+  "supportResistance",
+  "fibonacci",
+  "candlePatterns"
+];
+
 // ------------------------------------------------------
 // CANONICAL HISTORICAL CANDLES
 // ------------------------------------------------------
@@ -48,9 +57,26 @@ function prepareTimestampCandles(input) {
     }
   }
 
+  if (source.length === 0) {
+    throw new Error("Historical candle data is empty.");
+  }
+
   return source.map((item, index) => {
+    if (
+      !item ||
+      typeof item !== "object" ||
+      Array.isArray(item)
+    ) {
+      throw new Error(
+        `Invalid candle object at index ${index + 1}.`
+      );
+    }
+
     const timestamp =
-      item.timestamp ?? item.time ?? item.date ?? item.datetime;
+      item.timestamp ??
+      item.time ??
+      item.date ??
+      item.datetime;
 
     if (
       timestamp === null ||
@@ -90,6 +116,139 @@ function prepareTimestampCandles(input) {
 }
 
 // ------------------------------------------------------
+// MODULE OUTPUT VALIDATION
+// ------------------------------------------------------
+
+function validateModuleOutputs(modules) {
+  const errors = [];
+
+  if (!modules || typeof modules !== "object") {
+    return {
+      valid: false,
+      errors: ["Integrated modules are missing."]
+    };
+  }
+
+  for (const name of REQUIRED_MODULES) {
+    const result = modules[name];
+
+    if (
+      !result ||
+      typeof result !== "object" ||
+      result.status !== "OK"
+    ) {
+      errors.push(
+        `${name} module is missing or has invalid status.`
+      );
+    }
+  }
+
+  const dataQuality = modules.dataQuality;
+
+  if (
+    dataQuality &&
+    (
+      dataQuality.quality !== "VALID" ||
+      !dataQuality.checks ||
+      typeof dataQuality.checks !== "object"
+    )
+  ) {
+    errors.push("Data quality output is invalid.");
+  }
+
+  const marketData = modules.marketData;
+
+  if (
+    marketData &&
+    (
+      !marketData.indicators ||
+      typeof marketData.indicators !== "object" ||
+      Array.isArray(marketData.indicators)
+    )
+  ) {
+    errors.push("Market data indicators are invalid.");
+  }
+
+  const structure = modules.marketStructure;
+
+  if (structure) {
+    const requiredArrays = [
+      "highs",
+      "lows"
+    ];
+
+    for (const key of requiredArrays) {
+      if (!Array.isArray(structure.pivots?.[key])) {
+        errors.push(
+          `Market structure pivots.${key} must be an array.`
+        );
+      }
+    }
+
+    const structureArrays = [
+      "structureEvents",
+      "liquidity",
+      "fairValueGaps",
+      "orderBlocks"
+    ];
+
+    for (const key of structureArrays) {
+      if (!Array.isArray(structure[key])) {
+        errors.push(
+          `Market structure ${key} must be an array.`
+        );
+      }
+    }
+  }
+
+  const supportResistance = modules.supportResistance;
+
+  if (supportResistance) {
+    if (!Array.isArray(supportResistance.supports)) {
+      errors.push("Support zones must be an array.");
+    }
+
+    if (!Array.isArray(supportResistance.resistances)) {
+      errors.push("Resistance zones must be an array.");
+    }
+  }
+
+  const fibonacci = modules.fibonacci;
+
+  if (fibonacci) {
+    if (!Array.isArray(fibonacci.retracement)) {
+      errors.push("Fibonacci retracement must be an array.");
+    }
+
+    if (!Array.isArray(fibonacci.extensions)) {
+      errors.push("Fibonacci extensions must be an array.");
+    }
+  }
+
+  const candlePatterns = modules.candlePatterns;
+
+  if (candlePatterns) {
+    if (!Array.isArray(candlePatterns.patterns)) {
+      errors.push("Candle patterns must be an array.");
+    }
+
+    if (
+      !candlePatterns.summary ||
+      typeof candlePatterns.summary !== "object" ||
+      typeof candlePatterns.summary.totalPatterns !== "number" ||
+      !Number.isFinite(candlePatterns.summary.totalPatterns)
+    ) {
+      errors.push("Candle pattern summary is invalid.");
+    }
+  }
+
+  return {
+    valid: errors.length === 0,
+    errors
+  };
+}
+
+// ------------------------------------------------------
 // MAIN INTEGRATION
 // ------------------------------------------------------
 
@@ -107,7 +266,11 @@ export function analyzeHistoricalIntegrated(input) {
       );
     }
 
-    const timeframe = input?.timeframe || "15m";
+    const timeframe =
+      typeof input?.timeframe === "string" &&
+      input.timeframe.trim() !== ""
+        ? input.timeframe.trim()
+        : "15m";
 
     // STEP 1: DATA QUALITY CHECK
 
@@ -118,9 +281,7 @@ export function analyzeHistoricalIntegrated(input) {
       !dataQualityResult ||
       dataQualityResult.status !== "OK"
     ) {
-      throw new Error(
-        "Data Quality Engine failed."
-      );
+      throw new Error("Data Quality Engine failed.");
     }
 
     if (dataQualityResult.quality !== "VALID") {
@@ -136,9 +297,12 @@ export function analyzeHistoricalIntegrated(input) {
       timeframe
     });
 
-    if (marketResult.status !== "OK") {
+    if (
+      !marketResult ||
+      marketResult.status !== "OK"
+    ) {
       throw new Error(
-        `Market Data Engine failed: ${marketResult.error}`
+        `Market Data Engine failed: ${marketResult?.error || "Unknown error"}`
       );
     }
 
@@ -173,24 +337,37 @@ export function analyzeHistoricalIntegrated(input) {
       candlePatterns: candlePatternResult
     };
 
-    for (const [name, result] of Object.entries(modules)) {
-      if (!result || result.status !== "OK") {
-        throw new Error(
-          `${name} engine returned an invalid result.`
-        );
-      }
+    // STEP 8: VALIDATE MODULE OUTPUTS
+
+    const validation =
+      validateModuleOutputs(modules);
+
+    if (!validation.valid) {
+      throw new Error(
+        `Integrated output validation failed: ${validation.errors.join(" ")}`
+      );
     }
 
-    // STEP 8: FINAL HISTORICAL REPORT
+    // STEP 9: FINAL HISTORICAL REPORT
 
     return {
       status: "OK",
       version: "12.0",
       module: "INTEGRATED_HISTORICAL_ANALYSIS",
       dataType: "HISTORICAL_ONLY",
+
       timeframe,
       candleCount: candles.length,
+
+      validation: {
+        status: "OK",
+        valid: true,
+        checkedModules: REQUIRED_MODULES.length,
+        errors: []
+      },
+
       modules,
+
       note: NOTE
     };
 

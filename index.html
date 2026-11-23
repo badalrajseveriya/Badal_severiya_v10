@@ -55,6 +55,47 @@
       margin: 20px 0 12px;
     }
 
+    .import-panel {
+      padding: 18px;
+      margin-bottom: 18px;
+      background: #172338;
+      border: 1px solid #334155;
+      border-radius: 12px;
+    }
+
+    .import-panel label {
+      display: block;
+      margin-bottom: 12px;
+      color: #7dd3fc;
+      font-weight: bold;
+    }
+
+    input[type="file"] {
+      display: block;
+      width: 100%;
+      padding: 12px;
+      color: #f1f5f9;
+      background: #0b1220;
+      border: 1px solid #475569;
+      border-radius: 8px;
+    }
+
+    #import-status {
+      margin-top: 12px;
+      color: #cbd5e1;
+      font-size: 13px;
+      line-height: 1.5;
+      overflow-wrap: anywhere;
+    }
+
+    #import-status[data-state="error"] {
+      color: #fca5a5;
+    }
+
+    #import-status[data-state="success"] {
+      color: #86efac;
+    }
+
     .cards {
       display: grid;
       grid-template-columns: 1fr;
@@ -66,19 +107,21 @@
       background: #172338;
       border: 1px solid #334155;
       border-radius: 12px;
-      min-height: 90px;
+      min-width: 0;
+      overflow-wrap: anywhere;
     }
 
     .card h2 {
-      margin: 0;
+      margin: 0 0 10px;
       font-size: 16px;
       color: #7dd3fc;
     }
 
     .card p {
-      margin-bottom: 0;
+      margin: 8px 0 0;
       color: #cbd5e1;
       font-size: 13px;
+      line-height: 1.5;
     }
 
     footer {
@@ -117,9 +160,25 @@
     इसमें लाइव ट्रेडिंग सिग्नल, भविष्यवाणी या ट्रेडिंग सलाह नहीं दी जाती।
   </div>
 
+  <section class="import-panel">
+    <label for="historical-file">
+      ऐतिहासिक CSV या JSON फाइल चुनें
+    </label>
+
+    <input
+      id="historical-file"
+      type="file"
+      accept=".csv,.json"
+    >
+
+    <div id="import-status" role="status" aria-live="polite">
+      अभी कोई ऐतिहासिक फाइल इम्पोर्ट नहीं हुई है।
+    </div>
+  </section>
+
   <h2 class="section-title">Analysis Dashboard</h2>
 
-  <main class="cards">
+  <main id="analysis-results" class="cards">
 
     <section class="card">
       <h2>01. Data Quality</h2>
@@ -156,6 +215,8 @@
   <footer>
     BADAL SEVERIYA V12 | Historical Educational Dashboard
   </footer>
+
+  <script type="module" src="./historical-dashboard-browser.js"></script>
 
 </body>
 </html>

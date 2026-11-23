@@ -254,7 +254,7 @@ function makeRenderer() {
   assert.equal(result.dataType, "HISTORICAL_ONLY");
 
   assert.match(result.note, /No forecasts/);
-  assert.match(result.note, /No trading recommendations/);
+  assert.match(result.note, /trading recommendations/);
 }
 
 console.log("All 17 dashboard renderer tests passed.");

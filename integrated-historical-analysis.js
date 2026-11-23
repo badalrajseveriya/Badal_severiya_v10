@@ -24,6 +24,10 @@ import {
   analyzeCandlePatterns
 } from "./candle-patterns.js";
 
+import {
+  analyzeDataQuality
+} from "./data-quality.js";
+
 const NOTE =
   "Historical educational analysis only. No forecasts, probabilities or trading recommendations.";
 
@@ -105,6 +109,28 @@ export function analyzeHistoricalIntegrated(input) {
 
     const timeframe = input?.timeframe || "15m";
 
+    // STEP 1: DATA QUALITY CHECK
+
+    const dataQualityResult =
+      analyzeDataQuality(candles);
+
+    if (
+      !dataQualityResult ||
+      dataQualityResult.status !== "OK"
+    ) {
+      throw new Error(
+        "Data Quality Engine failed."
+      );
+    }
+
+    if (dataQualityResult.quality !== "VALID") {
+      throw new Error(
+        `Historical data quality check failed. Issues found: ${dataQualityResult.issueCount}`
+      );
+    }
+
+    // STEP 2: MARKET DATA ENGINE
+
     const marketResult = analyzeMarket({
       candles,
       timeframe
@@ -116,19 +142,30 @@ export function analyzeHistoricalIntegrated(input) {
       );
     }
 
+    // STEP 3: MARKET STRUCTURE
+
     const structureResult =
       analyzeMarketStructure(candles);
+
+    // STEP 4: SUPPORT AND RESISTANCE
 
     const supportResistanceResult =
       analyzeSupportResistance(candles);
 
+    // STEP 5: FIBONACCI
+
     const fibonacciResult =
       analyzeFibonacci(candles);
+
+    // STEP 6: CANDLE PATTERNS
 
     const candlePatternResult =
       analyzeCandlePatterns(candles);
 
+    // STEP 7: COMBINE ALL MODULES
+
     const modules = {
+      dataQuality: dataQualityResult,
       marketData: marketResult,
       marketStructure: structureResult,
       supportResistance: supportResistanceResult,
@@ -143,6 +180,8 @@ export function analyzeHistoricalIntegrated(input) {
         );
       }
     }
+
+    // STEP 8: FINAL HISTORICAL REPORT
 
     return {
       status: "OK",

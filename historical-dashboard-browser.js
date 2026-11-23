@@ -200,6 +200,35 @@ function buildDashboard(candles, timeframe) {
     renderHistoricalDashboard(uiModel);
 
   renderCards(rendered, uiModel);
+
+  // Temporary volume diagnostic
+  const directMissingVolumes = candles.filter(item =>
+    item?.volume === null ||
+    item?.volume === undefined ||
+    item?.volume === ""
+  ).length;
+
+  const qualityMissingVolumes =
+    report.sections?.dataQuality?.checks?.missingVolumes;
+
+  const diagnostic = document.createElement("p");
+
+  diagnostic.textContent =
+    `Diagnostic: input missing volume = ${directMissingVolumes} | ` +
+    `quality engine missing volume = ${String(qualityMissingVolumes ?? "N/A")} | ` +
+    `candles = ${candles.length}`;
+
+  diagnostic.style.fontSize = "13px";
+  diagnostic.style.opacity = "0.85";
+  diagnostic.dataset.diagnostic = "volume-check";
+
+  dashboard.appendChild(diagnostic);
+
+  console.info("BADAL V12 volume diagnostic", {
+    candleCount: candles.length,
+    directMissingVolumes,
+    qualityMissingVolumes
+  });
 }
 
 // Cloudflare से ऐतिहासिक NIFTY डेटा लोड करें

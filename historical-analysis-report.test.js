@@ -50,7 +50,6 @@ function makeCandles(count = 300) {
   });
 
   assert.ok(result.sections);
-
   assert.ok(result.sections.dataQuality);
   assert.ok(result.sections.marketIndicators);
   assert.ok(result.sections.marketStructure);
@@ -258,13 +257,20 @@ function makeCandles(count = 300) {
     candles: makeCandles(300)
   });
 
-  assert.match(result.note, /Historical educational report only/);
-  assert.match(result.note, /No forecasts/);
+  assert.match(
+    result.note,
+    /Historical educational analysis only/
+  );
+
+  assert.match(
+    result.note,
+    /No forecasts/
+  );
 
   console.log("PASS: Educational report note");
 }
 
-// 17. Invalid timeframe input should still return a safe result
+// 17. Default timeframe handling
 {
   const result = generateHistoricalReport({
     candles: makeCandles(300),

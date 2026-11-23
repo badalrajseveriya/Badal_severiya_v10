@@ -1,3 +1,4 @@
+
 import assert from "node:assert/strict";
 import worker from "./data-worker.js";
 
@@ -273,6 +274,26 @@ async function ingest(payload, headers = {}) {
     body: "{not-json"
   });
   assert.equal(response.status, 400);
+}
+
+// Reject JSON null, arrays, and primitive values
+{
+  for (const body of ["null", "[]", '"text"', "123", "true"]) {
+    const response = await call("/api/data/ingest", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-ingest-token": "test-token"
+      },
+      body
+    });
+
+    assert.equal(
+      response.status,
+      400,
+      `Expected 400 for JSON body: ${body}`
+    );
+  }
 }
 
 // Unsupported index and timeframe

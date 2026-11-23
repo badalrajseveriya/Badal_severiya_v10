@@ -27,12 +27,16 @@ function makeCandles(count = 300) {
   });
 }
 
-// 1. Complete report
-{
-  const result = generateHistoricalReport({
+function makeReport() {
+  return generateHistoricalReport({
     candles: makeCandles(300),
     timeframe: "15m"
   });
+}
+
+// 1. Complete report
+{
+  const result = makeReport();
 
   assert.equal(result.status, "OK");
   assert.equal(result.version, "12.0");
@@ -45,9 +49,7 @@ function makeCandles(count = 300) {
 
 // 2. All six report sections
 {
-  const result = generateHistoricalReport({
-    candles: makeCandles(300)
-  });
+  const result = makeReport();
 
   assert.ok(result.sections);
   assert.ok(result.sections.dataQuality);
@@ -62,9 +64,7 @@ function makeCandles(count = 300) {
 
 // 3. Data quality summary
 {
-  const result = generateHistoricalReport({
-    candles: makeCandles(300)
-  });
+  const result = makeReport();
 
   assert.equal(result.sections.dataQuality.status, "OK");
   assert.equal(result.sections.dataQuality.quality, "VALID");
@@ -75,9 +75,7 @@ function makeCandles(count = 300) {
 
 // 4. Market indicator summary
 {
-  const result = generateHistoricalReport({
-    candles: makeCandles(300)
-  });
+  const result = makeReport();
 
   assert.ok(
     Object.keys(result.sections.marketIndicators).length > 0
@@ -88,9 +86,7 @@ function makeCandles(count = 300) {
 
 // 5. Market structure summary
 {
-  const result = generateHistoricalReport({
-    candles: makeCandles(300)
-  });
+  const result = makeReport();
 
   assert.ok(
     result.sections.marketStructure.structureEventCount >= 0
@@ -105,9 +101,7 @@ function makeCandles(count = 300) {
 
 // 6. Support and resistance summary
 {
-  const result = generateHistoricalReport({
-    candles: makeCandles(300)
-  });
+  const result = makeReport();
 
   assert.ok(
     Array.isArray(result.sections.supportResistance.supports)
@@ -122,9 +116,7 @@ function makeCandles(count = 300) {
 
 // 7. Fibonacci summary
 {
-  const result = generateHistoricalReport({
-    candles: makeCandles(300)
-  });
+  const result = makeReport();
 
   assert.ok(
     Array.isArray(result.sections.fibonacci.retracement)
@@ -139,9 +131,7 @@ function makeCandles(count = 300) {
 
 // 8. Candle pattern summary
 {
-  const result = generateHistoricalReport({
-    candles: makeCandles(300)
-  });
+  const result = makeReport();
 
   assert.ok(
     Array.isArray(result.sections.candlePatterns.patterns)
@@ -170,9 +160,7 @@ function makeCandles(count = 300) {
   const candles = makeCandles(300);
   delete candles[10].timestamp;
 
-  const result = generateHistoricalReport({
-    candles
-  });
+  const result = generateHistoricalReport({ candles });
 
   assert.equal(result.status, "ERROR");
 
@@ -184,9 +172,7 @@ function makeCandles(count = 300) {
   const candles = makeCandles(300);
   candles[10].high = candles[10].low - 1;
 
-  const result = generateHistoricalReport({
-    candles
-  });
+  const result = generateHistoricalReport({ candles });
 
   assert.equal(result.status, "ERROR");
 
@@ -204,9 +190,7 @@ function makeCandles(count = 300) {
 
 // 13. Report validation metadata
 {
-  const result = generateHistoricalReport({
-    candles: makeCandles(300)
-  });
+  const result = makeReport();
 
   assert.equal(result.validation.status, "OK");
   assert.equal(result.validation.valid, true);
@@ -218,9 +202,7 @@ function makeCandles(count = 300) {
 
 // 14. Report section count
 {
-  const result = generateHistoricalReport({
-    candles: makeCandles(300)
-  });
+  const result = makeReport();
 
   assert.equal(result.reportInfo.sectionCount, 6);
 
@@ -229,43 +211,28 @@ function makeCandles(count = 300) {
 
 // 15. Report summary metadata
 {
-  const result = generateHistoricalReport({
-    candles: makeCandles(300)
-  });
+  const result = makeReport();
 
   assert.equal(result.summary.dataQuality, "VALID");
   assert.equal(result.summary.dataQualityIssues, 0);
 
-  assert.ok(
-    result.summary.totalCandlePatterns >= 0
-  );
-
-  assert.ok(
-    result.summary.supportZones >= 0
-  );
-
-  assert.ok(
-    result.summary.resistanceZones >= 0
-  );
+  assert.ok(result.summary.totalCandlePatterns >= 0);
+  assert.ok(result.summary.supportZones >= 0);
+  assert.ok(result.summary.resistanceZones >= 0);
 
   console.log("PASS: Report summary metadata");
 }
 
 // 16. Report note validation
 {
-  const result = generateHistoricalReport({
-    candles: makeCandles(300)
-  });
+  const result = makeReport();
 
   assert.match(
     result.note,
     /Historical educational analysis only/
   );
 
-  assert.match(
-    result.note,
-    /No forecasts/
-  );
+  assert.match(result.note, /No forecasts/);
 
   console.log("PASS: Educational report note");
 }
@@ -283,4 +250,60 @@ function makeCandles(count = 300) {
   console.log("PASS: Default timeframe handling");
 }
 
-console.log("ALL HISTORICAL REPORT TESTS PASSED");
+// 18. Section count matches actual sections
+{
+  const result = makeReport();
+
+  assert.equal(
+    result.reportInfo.sectionCount,
+    Object.keys(result.sections).length
+  );
+
+  console.log("PASS: Section count consistency");
+}
+
+// 19. Support and resistance summary matches arrays
+{
+  const result = makeReport();
+
+  assert.equal(
+    result.summary.supportZones,
+    result.sections.supportResistance.supports.length
+  );
+
+  assert.equal(
+    result.summary.resistanceZones,
+    result.sections.supportResistance.resistances.length
+  );
+
+  console.log("PASS: Support resistance count consistency");
+}
+
+// 20. Candle pattern summary matches pattern array
+{
+  const result = makeReport();
+
+  assert.equal(
+    result.summary.totalCandlePatterns,
+    result.sections.candlePatterns.patterns.length
+  );
+
+  console.log("PASS: Candle pattern count consistency");
+}
+
+// 21. Generated timestamp validation
+{
+  const result = makeReport();
+
+  assert.ok(result.reportInfo.generatedAt);
+
+  assert.ok(
+    Number.isFinite(
+      Date.parse(result.reportInfo.generatedAt)
+    )
+  );
+
+  console.log("PASS: Generated timestamp validation");
+}
+
+console.log("ALL 21 HISTORICAL REPORT TESTS PASSED");

@@ -23,6 +23,9 @@ import {
   renderHistoricalDashboard
 } from "./dashboard-renderer.js";
 
+const API_BASE =
+  "https://badal-severiya-data.mrstarrdbs.workers.dev";
+
 const STORAGE_KEY =
   "badal-severiya-v12-historical-import";
 
@@ -70,6 +73,7 @@ function renderCards(rendered, uiModel) {
   dashboard.appendChild(heading);
 
   const metadata = document.createElement("p");
+
   metadata.textContent =
     `Timeframe: ${rendered.screen.metadata.timeframe} | ` +
     `Candles: ${rendered.screen.metadata.candleCount}`;
@@ -79,8 +83,6 @@ function renderCards(rendered, uiModel) {
   for (const card of uiModel.layout.cards) {
     const section = document.createElement("details");
     section.className = "card";
-
-    // UI model के अनुसार शुरुआती खुले कार्ड
     section.open = card.defaultExpanded === true;
 
     const summary = document.createElement("summary");
@@ -104,11 +106,13 @@ function renderCards(rendered, uiModel) {
       const quality = card.content.status ?? "UNKNOWN";
       const details = card.content.details ?? {};
 
-      const issueCount = Number.isFinite(details.issueCount)
-        ? details.issueCount
-        : 0;
+      const issueCount =
+        Number.isFinite(details.issueCount)
+          ? details.issueCount
+          : 0;
 
       const statusLine = document.createElement("p");
+
       statusLine.textContent =
         `Status: ${quality} | Issues: ${issueCount}`;
 
@@ -144,19 +148,14 @@ function renderCards(rendered, uiModel) {
 
       if (Object.keys(checks).length === 0) {
         const line = document.createElement("p");
-
         line.textContent =
           "No individual check details available.";
-
         content.appendChild(line);
       }
 
     } else {
       for (const [key, value] of Object.entries(card.content)) {
-        if (key === "id" || key === "title") {
-          continue;
-        }
-
+        if (key === "id" || key === "title") continue;
         addText(content, key, value);
       }
     }
@@ -184,9 +183,7 @@ function buildDashboard(candles, timeframe) {
   }
 
   const display =
-    createHistoricalDashboardDisplay(
-      dashboardData
-    );
+    createHistoricalDashboardDisplay(dashboardData);
 
   if (display.status !== "OK") {
     throw new Error(display.error);
@@ -205,6 +202,168 @@ function buildDashboard(candles, timeframe) {
   renderCards(rendered, uiModel);
 }
 
+// Cloudflare से ऐतिहासिक NIFTY डेटा लोड करें
+async function loadFromCloudflare() {
+  showStatus("Cloudflare से ऐतिहासिक डेटा लोड हो रहा है...");
+
+  const url =
+    `${API_BASE}/api/data/candles?index=NIFTY&timeframe=1d&limit=5000`;
+
+  const response = await fetch(url, {
+    method: "GET",
+    cache: "no-store"
+  });
+
+  if (!response.ok) {
+    throw new Error(
+      `Cloudflare API error: HTTP ${response.status}`
+    );
+  }
+
+  const result = await response.json();
+
+  if (
+    !result ||
+    result.app !== "BADAL SEVERIYA DATA V11" ||
+    !Array.isArray(result.candles)
+  ) {
+    throw new Error("API response का फॉर्मेट सही नहीं है।");
+  }
+
+  if (result.candles.length < 200) {
+    throw new Error(
+      `पर्याप्त ऐतिहासिक डेटा नहीं मिला। Candles: ${result.candles.length}`
+    );
+  }
+
+  // OHLC डेटा की बुनियादी जाँच
+  let previousTime = 0;
+
+  for (const candle of result.candles) {
+    const time = Date.parse(candle.timestamp);
+
+    const open = Number(candle.open);
+    const high = Number(candle.high);
+    const low = Number(candle.low);
+    const close = Number(candle.close);
+
+    if (
+      !Number.isFinite(time) ||
+      !Number.isFinite(open) ||
+      !Number.isFinite(high) ||
+      !Number.isFinite(low) ||
+      !Number.isFinite(close)
+    ) {
+      throw new Error("कैंडल डेटा में अमान्य मान मिला।");
+    }
+
+    if (
+      high < low ||
+      high < open ||
+      high < close ||
+      low > open ||
+      low > close
+    ) {
+      throw new Error("OHLC डेटा की जाँच असफल हुई।");
+    }
+
+    if (time <= previousTime) {
+      throw new Error(
+        "कैंडल की तारीखें सही क्रम में नहीं हैं।"
+      );
+    }
+
+    previousTime = time;
+  }
+
+  // API डेटा को मौजूदा डेटा इम्पोर्टर से जाँचें
+  const imported = parseHistoricalDataText(
+    JSON.stringify(result.candles),
+    "cloudflare-nifty-historical.json",
+    "1d"
+  );
+
+  if (imported.status !== "OK") {
+    throw new Error(imported.error);
+  }
+
+  buildDashboard(imported.candles, "1d");
+
+  // सफल डेटा को मोबाइल में भी सेव करें
+  try {
+    localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({
+        filename: "Cloudflare NIFTY historical data",
+        timeframe: "1d",
+        candles: imported.candles,
+        savedAt: new Date().toISOString()
+      })
+    );
+  } catch (storageError) {
+    console.warn("Local storage unavailable:", storageError);
+  }
+
+  showStatus(
+    `सफलता: Cloudflare से ${imported.candleCount} ऐतिहासिक कैंडल लोड हुईं।`
+  );
+}
+
+// मोबाइल में सेव डेटा वापस लोड करें
+function restoreSavedData() {
+  try {
+    const savedText =
+      localStorage.getItem(STORAGE_KEY);
+
+    if (!savedText) {
+      showStatus(
+        "Cloudflare डेटा उपलब्ध नहीं हुआ और मोबाइल में पुराना डेटा भी सेव नहीं है।"
+      );
+      return false;
+    }
+
+    const savedData = JSON.parse(savedText);
+
+    if (
+      !savedData ||
+      !Array.isArray(savedData.candles) ||
+      !savedData.timeframe
+    ) {
+      throw new Error("सेव किया हुआ डेटा सही फॉर्मेट में नहीं है।");
+    }
+
+    const imported = parseHistoricalDataText(
+      JSON.stringify(savedData.candles),
+      "saved-historical-data.json",
+      savedData.timeframe
+    );
+
+    if (imported.status !== "OK") {
+      throw new Error(imported.error);
+    }
+
+    buildDashboard(
+      imported.candles,
+      imported.timeframe
+    );
+
+    showStatus(
+      `मोबाइल में सेव पुराना डेटा लोड हुआ: ${imported.candleCount} कैंडल।`
+    );
+
+    return true;
+
+  } catch (error) {
+    showStatus(
+      `पुराना डेटा लोड नहीं हुआ: ${error.message}`,
+      true
+    );
+
+    return false;
+  }
+}
+
+// CSV या JSON फाइल से डेटा इम्पोर्ट
 async function importHistoricalFile(file) {
   if (!file) return;
 
@@ -230,88 +389,49 @@ async function importHistoricalFile(file) {
     );
 
     try {
-      const savedData = {
-        filename: file.name,
-        timeframe: imported.timeframe,
-        candles: imported.candles,
-        savedAt: new Date().toISOString()
-      };
-
       localStorage.setItem(
         STORAGE_KEY,
-        JSON.stringify(savedData)
+        JSON.stringify({
+          filename: file.name,
+          timeframe: imported.timeframe,
+          candles: imported.candles,
+          savedAt: new Date().toISOString()
+        })
       );
-
-      showStatus(
-        `सफलता: ${imported.candleCount} ऐतिहासिक कैंडल इम्पोर्ट और सेव हुईं।`
-      );
-
     } catch (storageError) {
-      showStatus(
-        `डेटा इम्पोर्ट हुआ, लेकिन मोबाइल में सेव नहीं हो पाया: ${storageError.message}`,
-        true
-      );
+      console.warn("Local storage unavailable:", storageError);
     }
+
+    showStatus(
+      `सफलता: ${imported.candleCount} ऐतिहासिक कैंडल इम्पोर्ट हुईं।`
+    );
 
   } catch (error) {
     showStatus(error.message, true);
   }
 }
 
-function restoreSavedData() {
+// Dashboard शुरू करें
+async function startDashboard() {
   try {
-    const savedText =
-      localStorage.getItem(STORAGE_KEY);
-
-    if (!savedText) {
-      showStatus(
-        "अभी कोई पुराना ऐतिहासिक डेटा सेव नहीं है। CSV या JSON फाइल चुनें।"
-      );
-      return;
-    }
-
-    const savedData = JSON.parse(savedText);
-
-    if (
-      !savedData ||
-      !Array.isArray(savedData.candles) ||
-      !savedData.timeframe
-    ) {
-      throw new Error(
-        "सेव किया हुआ डेटा सही फॉर्मेट में नहीं है।"
-      );
-    }
-
-    const imported = parseHistoricalDataText(
-      JSON.stringify(savedData.candles),
-      "saved-historical-data.json",
-      savedData.timeframe
-    );
-
-    if (imported.status !== "OK") {
-      throw new Error(imported.error);
-    }
-
-    buildDashboard(
-      imported.candles,
-      imported.timeframe
-    );
-
-    showStatus(
-      `पिछला डेटा वापस लोड हुआ: ${imported.candleCount} ऐतिहासिक कैंडल।`
-    );
+    await loadFromCloudflare();
 
   } catch (error) {
-    try {
-      localStorage.removeItem(STORAGE_KEY);
-    } catch {
-      // Storage cleanup is optional.
-    }
+    console.error("Cloudflare loading failed:", error);
 
     showStatus(
-      `पुराना डेटा लोड नहीं हुआ: ${error.message}। कृपया CSV या JSON दोबारा इम्पोर्ट करें।`,
+      `Cloudflare डेटा लोड नहीं हुआ: ${error.message}। सेव डेटा जाँचा जा रहा है।`,
       true
     );
+
+    const restored = restoreSavedData();
+
+    if (!restored) {
+      showStatus(
+        "Cloudflare और मोबाइल दोनों से डेटा लोड नहीं हुआ। बाद में दोबारा प्रयास करें।",
+        true
+      );
+    }
   }
 }
 
@@ -321,7 +441,7 @@ if (fileInput && statusBox && dashboard) {
     importHistoricalFile(file);
   });
 
-  restoreSavedData();
+  startDashboard();
 
 } else {
   console.error(

@@ -31,7 +31,7 @@ function makeCandles(count = 100) {
 {
   const result = analyzeDataQuality(makeCandles());
   assert.equal(result.status, "OK");
-  assert.equal(result.version, "12.0");
+  assert.equal(result.version, "12.1");
   assert.equal(result.dataType, "HISTORICAL_ONLY");
   assert.equal(result.quality, "VALID");
   assert.equal(result.issueCount, 0);

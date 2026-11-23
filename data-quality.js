@@ -1,10 +1,4 @@
 
- // ======================================================
-// BADAL SEVERIYA V12
-// HISTORICAL DATA QUALITY ENGINE
-// Educational and historical analysis only
-// ======================================================
-
 const DEFAULTS = {
   minCandles: 30,
   maxCandles: 5000
@@ -84,6 +78,7 @@ export function analyzeDataQuality(input, options = {}) {
 
     let invalidOHLC = 0;
     let invalidVolume = 0;
+    let missingVolumes = 0;
     let invalidTimestamps = 0;
     let missingTimestamps = 0;
     let duplicateTimestamps = 0;
@@ -91,11 +86,10 @@ export function analyzeDataQuality(input, options = {}) {
 
     const timestamps = [];
 
-    for (let i = 0; i < source.length; i++) {
-      const item = source[i];
-
+    for (const item of source) {
       if (!item || typeof item !== "object") {
         invalidOHLC++;
+        timestamps.push(null);
         continue;
       }
 
@@ -103,7 +97,6 @@ export function analyzeDataQuality(input, options = {}) {
       const high = Number(item.high ?? item.High);
       const low = Number(item.low ?? item.Low);
       const close = Number(item.close ?? item.Close);
-      const volume = Number(item.volume ?? item.Volume ?? 0);
 
       if (
         ![open, high, low, close].every(Number.isFinite) ||
@@ -120,8 +113,20 @@ export function analyzeDataQuality(input, options = {}) {
         invalidOHLC++;
       }
 
-      if (!Number.isFinite(volume) || volume < 0) {
-        invalidVolume++;
+      const rawVolume = item.volume ?? item.Volume;
+
+      if (
+        rawVolume === null ||
+        rawVolume === undefined ||
+        rawVolume === ""
+      ) {
+        missingVolumes++;
+      } else {
+        const volume = Number(rawVolume);
+
+        if (!Number.isFinite(volume) || volume < 0) {
+          invalidVolume++;
+        }
       }
 
       const rawTimestamp =
@@ -151,32 +156,34 @@ export function analyzeDataQuality(input, options = {}) {
       timestamps.push(timestamp);
     }
 
-    const validTimestamps =
-      timestamps.every(value => value !== null);
+    // Check duplicates and order independently of invalid dates.
+    const seen = new Set();
+    let previousTimestamp = null;
 
-    if (validTimestamps) {
-      const seen = new Set();
+    for (const timestamp of timestamps) {
+      if (timestamp === null) continue;
 
-      for (let i = 0; i < timestamps.length; i++) {
-        if (seen.has(timestamps[i])) {
-          duplicateTimestamps++;
-        }
-
-        seen.add(timestamps[i]);
-
-        if (
-          i > 0 &&
-          timestamps[i] < timestamps[i - 1]
-        ) {
-          unorderedTimestamps++;
-        }
+      if (seen.has(timestamp)) {
+        duplicateTimestamps++;
       }
+
+      seen.add(timestamp);
+
+      if (
+        previousTimestamp !== null &&
+        timestamp < previousTimestamp
+      ) {
+        unorderedTimestamps++;
+      }
+
+      previousTimestamp = timestamp;
     }
 
     const checks = {
       candleCount: source.length,
       invalidOHLC,
       invalidVolume,
+      missingVolumes,
       invalidTimestamps,
       missingTimestamps,
       duplicateTimestamps,
@@ -186,6 +193,7 @@ export function analyzeDataQuality(input, options = {}) {
     const issueCount =
       invalidOHLC +
       invalidVolume +
+      missingVolumes +
       invalidTimestamps +
       missingTimestamps +
       duplicateTimestamps +

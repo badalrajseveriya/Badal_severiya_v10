@@ -67,20 +67,9 @@ function makeCandles(count = 300) {
     candles: makeCandles(300)
   });
 
-  assert.equal(
-    result.sections.dataQuality.status,
-    "OK"
-  );
-
-  assert.equal(
-    result.sections.dataQuality.quality,
-    "VALID"
-  );
-
-  assert.equal(
-    result.sections.dataQuality.issueCount,
-    0
-  );
+  assert.equal(result.sections.dataQuality.status, "OK");
+  assert.equal(result.sections.dataQuality.quality, "VALID");
+  assert.equal(result.sections.dataQuality.issueCount, 0);
 
   console.log("PASS: Data quality summary");
 }
@@ -92,9 +81,7 @@ function makeCandles(count = 300) {
   });
 
   assert.ok(
-    Object.keys(
-      result.sections.marketIndicators
-    ).length > 0
+    Object.keys(result.sections.marketIndicators).length > 0
   );
 
   console.log("PASS: Market indicators summary");
@@ -107,13 +94,11 @@ function makeCandles(count = 300) {
   });
 
   assert.ok(
-    result.sections.marketStructure
-      .structureEventCount >= 0
+    result.sections.marketStructure.structureEventCount >= 0
   );
 
   assert.ok(
-    result.sections.marketStructure
-      .pivotHighCount >= 0
+    result.sections.marketStructure.pivotHighCount >= 0
   );
 
   console.log("PASS: Market structure summary");
@@ -126,15 +111,11 @@ function makeCandles(count = 300) {
   });
 
   assert.ok(
-    Array.isArray(
-      result.sections.supportResistance.supports
-    )
+    Array.isArray(result.sections.supportResistance.supports)
   );
 
   assert.ok(
-    Array.isArray(
-      result.sections.supportResistance.resistances
-    )
+    Array.isArray(result.sections.supportResistance.resistances)
   );
 
   console.log("PASS: Support resistance summary");
@@ -147,15 +128,11 @@ function makeCandles(count = 300) {
   });
 
   assert.ok(
-    Array.isArray(
-      result.sections.fibonacci.retracement
-    )
+    Array.isArray(result.sections.fibonacci.retracement)
   );
 
   assert.ok(
-    Array.isArray(
-      result.sections.fibonacci.extensions
-    )
+    Array.isArray(result.sections.fibonacci.extensions)
   );
 
   console.log("PASS: Fibonacci summary");
@@ -168,9 +145,7 @@ function makeCandles(count = 300) {
   });
 
   assert.ok(
-    Array.isArray(
-      result.sections.candlePatterns.patterns
-    )
+    Array.isArray(result.sections.candlePatterns.patterns)
   );
 
   assert.ok(
@@ -226,6 +201,80 @@ function makeCandles(count = 300) {
   assert.equal(result.status, "ERROR");
 
   console.log("PASS: Empty input validation");
+}
+
+// 13. Report validation metadata
+{
+  const result = generateHistoricalReport({
+    candles: makeCandles(300)
+  });
+
+  assert.equal(result.validation.status, "OK");
+  assert.equal(result.validation.valid, true);
+  assert.equal(result.validation.checkedModules, 6);
+  assert.deepEqual(result.validation.errors, []);
+
+  console.log("PASS: Report validation metadata");
+}
+
+// 14. Report section count
+{
+  const result = generateHistoricalReport({
+    candles: makeCandles(300)
+  });
+
+  assert.equal(result.reportInfo.sectionCount, 6);
+
+  console.log("PASS: Report section count");
+}
+
+// 15. Report summary metadata
+{
+  const result = generateHistoricalReport({
+    candles: makeCandles(300)
+  });
+
+  assert.equal(result.summary.dataQuality, "VALID");
+  assert.equal(result.summary.dataQualityIssues, 0);
+
+  assert.ok(
+    result.summary.totalCandlePatterns >= 0
+  );
+
+  assert.ok(
+    result.summary.supportZones >= 0
+  );
+
+  assert.ok(
+    result.summary.resistanceZones >= 0
+  );
+
+  console.log("PASS: Report summary metadata");
+}
+
+// 16. Report note validation
+{
+  const result = generateHistoricalReport({
+    candles: makeCandles(300)
+  });
+
+  assert.match(result.note, /Historical educational report only/);
+  assert.match(result.note, /No forecasts/);
+
+  console.log("PASS: Educational report note");
+}
+
+// 17. Invalid timeframe input should still return a safe result
+{
+  const result = generateHistoricalReport({
+    candles: makeCandles(300),
+    timeframe: ""
+  });
+
+  assert.equal(result.status, "OK");
+  assert.equal(result.reportInfo.timeframe, "15m");
+
+  console.log("PASS: Default timeframe handling");
 }
 
 console.log("ALL HISTORICAL REPORT TESTS PASSED");

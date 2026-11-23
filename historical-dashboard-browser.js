@@ -23,22 +23,35 @@ import {
   renderHistoricalDashboard
 } from "./dashboard-renderer.js";
 
-const fileInput = document.getElementById("historical-file");
-const statusBox = document.getElementById("import-status");
-const dashboard = document.getElementById("analysis-results");
+const STORAGE_KEY =
+  "badal-severiya-v12-historical-import";
+
+const fileInput =
+  document.getElementById("historical-file");
+
+const statusBox =
+  document.getElementById("import-status");
+
+const dashboard =
+  document.getElementById("analysis-results");
 
 function showStatus(message, isError = false) {
+  if (!statusBox) return;
+
   statusBox.textContent = message;
-  statusBox.dataset.state = isError ? "error" : "success";
+  statusBox.dataset.state =
+    isError ? "error" : "success";
 }
 
 function addText(parent, label, value) {
   const line = document.createElement("p");
+
   line.textContent = `${label}: ${
     typeof value === "object"
       ? JSON.stringify(value)
       : String(value ?? "N/A")
   }`;
+
   parent.appendChild(line);
 }
 
@@ -46,7 +59,10 @@ function renderCards(rendered, uiModel) {
   dashboard.replaceChildren();
 
   if (rendered.status !== "OK") {
-    throw new Error(rendered.error || "Dashboard rendering failed.");
+    throw new Error(
+      rendered.error ||
+      "Dashboard rendering failed."
+    );
   }
 
   const heading = document.createElement("h2");
@@ -54,9 +70,11 @@ function renderCards(rendered, uiModel) {
   dashboard.appendChild(heading);
 
   const metadata = document.createElement("p");
+
   metadata.textContent =
     `Timeframe: ${rendered.screen.metadata.timeframe} | ` +
     `Candles: ${rendered.screen.metadata.candleCount}`;
+
   dashboard.appendChild(metadata);
 
   for (const card of uiModel.layout.cards) {
@@ -64,18 +82,63 @@ function renderCards(rendered, uiModel) {
     section.className = "card";
 
     const title = document.createElement("h2");
-    title.textContent = `${card.order}. ${card.title}`;
+
+    title.textContent =
+      `${card.order}. ${card.title}`;
+
     section.appendChild(title);
 
-    const content = card.content;
+    for (const [key, value] of
+      Object.entries(card.content)) {
 
-    for (const [key, value] of Object.entries(content)) {
-      if (key === "id" || key === "title") continue;
+      if (key === "id" || key === "title") {
+        continue;
+      }
+
       addText(section, key, value);
     }
 
     dashboard.appendChild(section);
   }
+}
+
+function buildDashboard(candles, timeframe) {
+  const report = generateHistoricalReport({
+    candles,
+    timeframe
+  });
+
+  if (report.status !== "OK") {
+    throw new Error(report.error);
+  }
+
+  const dashboardData =
+    formatHistoricalDashboardData(report);
+
+  if (dashboardData.status !== "OK") {
+    throw new Error(dashboardData.error);
+  }
+
+  const display =
+    createHistoricalDashboardDisplay(
+      dashboardData
+    );
+
+  if (display.status !== "OK") {
+    throw new Error(display.error);
+  }
+
+  const uiModel =
+    createHistoricalDashboardUIModel(display);
+
+  if (uiModel.status !== "OK") {
+    throw new Error(uiModel.error);
+  }
+
+  const rendered =
+    renderHistoricalDashboard(uiModel);
+
+  renderCards(rendered, uiModel);
 }
 
 async function importHistoricalFile(file) {
@@ -97,47 +160,92 @@ async function importHistoricalFile(file) {
       throw new Error(imported.error);
     }
 
-    const report = generateHistoricalReport({
-      candles: imported.candles,
-      timeframe: imported.timeframe
-    });
-
-    if (report.status !== "OK") {
-      throw new Error(report.error);
-    }
-
-    const dashboardData =
-      formatHistoricalDashboardData(report);
-
-    if (dashboardData.status !== "OK") {
-      throw new Error(dashboardData.error);
-    }
-
-    const display =
-      createHistoricalDashboardDisplay(dashboardData);
-
-    if (display.status !== "OK") {
-      throw new Error(display.error);
-    }
-
-    const uiModel =
-      createHistoricalDashboardUIModel(display);
-
-    if (uiModel.status !== "OK") {
-      throw new Error(uiModel.error);
-    }
-
-    const rendered =
-      renderHistoricalDashboard(uiModel);
-
-    renderCards(rendered, uiModel);
-
-    showStatus(
-      `सफलता: ${imported.candleCount} ऐतिहासिक कैंडल इम्पोर्ट हुईं।`
+    buildDashboard(
+      imported.candles,
+      imported.timeframe
     );
+
+    try {
+      const savedData = {
+        filename: file.name,
+        timeframe: imported.timeframe,
+        candles: imported.candles,
+        savedAt: new Date().toISOString()
+      };
+
+      localStorage.setItem(
+        STORAGE_KEY,
+        JSON.stringify(savedData)
+      );
+
+      showStatus(
+        `सफलता: ${imported.candleCount} ऐतिहासिक कैंडल इम्पोर्ट और सेव हुईं।`
+      );
+
+    } catch (storageError) {
+      showStatus(
+        `डेटा इम्पोर्ट हुआ, लेकिन मोबाइल में सेव नहीं हो पाया: ${storageError.message}`,
+        true
+      );
+    }
 
   } catch (error) {
     showStatus(error.message, true);
+  }
+}
+
+function restoreSavedData() {
+  try {
+    const savedText =
+      localStorage.getItem(STORAGE_KEY);
+
+    if (!savedText) {
+      showStatus(
+        "अभी कोई पुराना ऐतिहासिक डेटा सेव नहीं है। CSV या JSON फाइल चुनें।"
+      );
+      return;
+    }
+
+    const savedData = JSON.parse(savedText);
+
+    if (
+      !savedData ||
+      !Array.isArray(savedData.candles) ||
+      !savedData.timeframe
+    ) {
+      throw new Error("सेव किया हुआ डेटा सही फॉर्मेट में नहीं है।");
+    }
+
+    const imported = parseHistoricalDataText(
+      JSON.stringify(savedData.candles),
+      "saved-historical-data.json",
+      savedData.timeframe
+    );
+
+    if (imported.status !== "OK") {
+      throw new Error(imported.error);
+    }
+
+    buildDashboard(
+      imported.candles,
+      imported.timeframe
+    );
+
+    showStatus(
+      `पिछला डेटा वापस लोड हुआ: ${imported.candleCount} ऐतिहासिक कैंडल।`
+    );
+
+  } catch (error) {
+    try {
+      localStorage.removeItem(STORAGE_KEY);
+    } catch {
+      // Storage cleanup is optional.
+    }
+
+    showStatus(
+      `पुराना डेटा लोड नहीं हुआ: ${error.message}। कृपया CSV या JSON दोबारा इम्पोर्ट करें।`,
+      true
+    );
   }
 }
 
@@ -146,6 +254,9 @@ if (fileInput && statusBox && dashboard) {
     const file = event.target.files?.[0];
     importHistoricalFile(file);
   });
+
+  restoreSavedData();
+
 } else {
   console.error(
     "Historical dashboard HTML elements are missing."

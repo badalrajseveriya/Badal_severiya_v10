@@ -77,12 +77,28 @@ function renderCards(rendered, uiModel) {
   dashboard.appendChild(metadata);
 
   for (const card of uiModel.layout.cards) {
-    const section = document.createElement("section");
+    const section = document.createElement("details");
     section.className = "card";
 
-    const title = document.createElement("h2");
-    title.textContent = `${card.order}. ${card.title}`;
-    section.appendChild(title);
+    // UI model के अनुसार शुरुआती खुले कार्ड
+    section.open = card.defaultExpanded === true;
+
+    const summary = document.createElement("summary");
+
+    summary.textContent =
+      `${String(card.order).padStart(2, "0")}. ${card.title}`;
+
+    summary.style.cursor = "pointer";
+    summary.style.fontWeight = "bold";
+    summary.style.fontSize = "16px";
+    summary.style.color = "#7dd3fc";
+    summary.style.padding = "4px 0";
+    summary.style.listStylePosition = "inside";
+
+    section.appendChild(summary);
+
+    const content = document.createElement("div");
+    content.style.paddingTop = "10px";
 
     if (card.id === "data-quality") {
       const quality = card.content.status ?? "UNKNOWN";
@@ -103,12 +119,13 @@ function renderCards(rendered, uiModel) {
           ? "#86efac"
           : "#fca5a5";
 
-      section.appendChild(statusLine);
+      content.appendChild(statusLine);
 
       const checksTitle = document.createElement("p");
       checksTitle.textContent = "Validation Checks";
       checksTitle.style.fontWeight = "bold";
-      section.appendChild(checksTitle);
+
+      content.appendChild(checksTitle);
 
       const checks = details.checks ?? {};
 
@@ -122,14 +139,16 @@ function renderCards(rendered, uiModel) {
               : String(result ?? "N/A")
           }`;
 
-        section.appendChild(line);
+        content.appendChild(line);
       }
 
       if (Object.keys(checks).length === 0) {
         const line = document.createElement("p");
+
         line.textContent =
           "No individual check details available.";
-        section.appendChild(line);
+
+        content.appendChild(line);
       }
 
     } else {
@@ -138,10 +157,11 @@ function renderCards(rendered, uiModel) {
           continue;
         }
 
-        addText(section, key, value);
+        addText(content, key, value);
       }
     }
 
+    section.appendChild(content);
     dashboard.appendChild(section);
   }
 }

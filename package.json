@@ -11,6 +11,8 @@
     "test:support": "node support-resistance.test.js",
     "test:fibonacci": "node fibonacci-engine.test.js",
     "test:candles": "node candle-patterns.test.js",
-    "test": "npm run test:decoder && npm run test:market && npm run test:structure && npm run test:support && npm run test:fibonacci && npm run test:candles"
+    "test:integration": "node integrated-historical-analysis.test.js",
+    "test:data-quality": "node data-quality.test.js",
+    "test": "npm run test:decoder && npm run test:market && npm run test:structure && npm run test:support && npm run test:fibonacci && npm run test:candles && npm run test:integration && npm run test:data-quality"
   }
 }

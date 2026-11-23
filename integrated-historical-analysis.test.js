@@ -18,7 +18,6 @@ function makeCandles(count = 300) {
       timestamp: new Date(
         START + i * 15 * 60 * 1000
       ).toISOString(),
-
       open: close - 5,
       high: close + 15,
       low: close - 15,
@@ -28,12 +27,16 @@ function makeCandles(count = 300) {
   });
 }
 
-// 1. Complete integration test
-{
-  const result = analyzeHistoricalIntegrated({
+function makeResult() {
+  return analyzeHistoricalIntegrated({
     candles: makeCandles(300),
     timeframe: "15m"
   });
+}
+
+// 1. Complete integration test
+{
+  const result = makeResult();
 
   assert.equal(result.status, "OK");
   assert.equal(result.version, "12.0");
@@ -46,15 +49,12 @@ function makeCandles(count = 300) {
 
 // 2. All six engines present
 {
-  const result = analyzeHistoricalIntegrated({
-    candles: makeCandles(300)
-  });
+  const result = makeResult();
 
   assert.ok(result.modules);
 
   assert.equal(result.modules.dataQuality.status, "OK");
   assert.equal(result.modules.dataQuality.quality, "VALID");
-
   assert.equal(result.modules.marketData.status, "OK");
   assert.equal(result.modules.marketStructure.status, "OK");
   assert.equal(result.modules.supportResistance.status, "OK");
@@ -66,9 +66,7 @@ function makeCandles(count = 300) {
 
 // 3. Data quality report validation
 {
-  const result = analyzeHistoricalIntegrated({
-    candles: makeCandles(300)
-  });
+  const result = makeResult();
 
   assert.equal(result.modules.dataQuality.issueCount, 0);
   assert.equal(result.modules.dataQuality.checks.invalidOHLC, 0);
@@ -95,9 +93,7 @@ function makeCandles(count = 300) {
   const candles = makeCandles(300);
   delete candles[10].timestamp;
 
-  const result = analyzeHistoricalIntegrated({
-    candles
-  });
+  const result = analyzeHistoricalIntegrated({ candles });
 
   assert.equal(result.status, "ERROR");
   assert.match(result.error, /Timestamp is required/);
@@ -110,9 +106,7 @@ function makeCandles(count = 300) {
   const candles = makeCandles(300);
   candles[10].timestamp = "invalid-date";
 
-  const result = analyzeHistoricalIntegrated({
-    candles
-  });
+  const result = analyzeHistoricalIntegrated({ candles });
 
   assert.equal(result.status, "ERROR");
   assert.match(result.error, /Invalid timestamp/);
@@ -127,9 +121,7 @@ function makeCandles(count = 300) {
   [candles[10], candles[11]] =
     [candles[11], candles[10]];
 
-  const result = analyzeHistoricalIntegrated({
-    candles
-  });
+  const result = analyzeHistoricalIntegrated({ candles });
 
   assert.equal(result.status, "ERROR");
 
@@ -141,9 +133,7 @@ function makeCandles(count = 300) {
   const candles = makeCandles(300);
   candles[10].high = candles[10].low - 1;
 
-  const result = analyzeHistoricalIntegrated({
-    candles
-  });
+  const result = analyzeHistoricalIntegrated({ candles });
 
   assert.equal(result.status, "ERROR");
 
@@ -155,9 +145,7 @@ function makeCandles(count = 300) {
   const candles = makeCandles(300);
   candles[11].timestamp = candles[10].timestamp;
 
-  const result = analyzeHistoricalIntegrated({
-    candles
-  });
+  const result = analyzeHistoricalIntegrated({ candles });
 
   assert.equal(result.status, "ERROR");
 
@@ -169,9 +157,7 @@ function makeCandles(count = 300) {
   const candles = makeCandles(300);
   candles[10].volume = -100;
 
-  const result = analyzeHistoricalIntegrated({
-    candles
-  });
+  const result = analyzeHistoricalIntegrated({ candles });
 
   assert.equal(result.status, "ERROR");
 
@@ -187,4 +173,72 @@ function makeCandles(count = 300) {
   console.log("PASS: Empty input validation");
 }
 
-console.log("ALL INTEGRATION TESTS PASSED");
+// 12. Market data output structure
+{
+  const result = makeResult();
+  const marketData = result.modules.marketData;
+
+  assert.ok(
+    marketData.indicators &&
+    typeof marketData.indicators === "object"
+  );
+
+  assert.ok(
+    Object.keys(marketData.indicators).length > 0
+  );
+
+  console.log("PASS: Market data output structure");
+}
+
+// 13. Market structure output structure
+{
+  const result = makeResult();
+  const structure = result.modules.marketStructure;
+
+  assert.ok(Array.isArray(structure.pivots.highs));
+  assert.ok(Array.isArray(structure.pivots.lows));
+  assert.ok(Array.isArray(structure.structureEvents));
+  assert.ok(Array.isArray(structure.liquidity));
+  assert.ok(Array.isArray(structure.fairValueGaps));
+  assert.ok(Array.isArray(structure.orderBlocks));
+
+  console.log("PASS: Market structure output structure");
+}
+
+// 14. Support and resistance output structure
+{
+  const result = makeResult();
+  const supportResistance = result.modules.supportResistance;
+
+  assert.ok(Array.isArray(supportResistance.supports));
+  assert.ok(Array.isArray(supportResistance.resistances));
+
+  console.log("PASS: Support resistance output structure");
+}
+
+// 15. Fibonacci output structure
+{
+  const result = makeResult();
+  const fibonacci = result.modules.fibonacci;
+
+  assert.ok(Array.isArray(fibonacci.retracement));
+  assert.ok(Array.isArray(fibonacci.extensions));
+
+  console.log("PASS: Fibonacci output structure");
+}
+
+// 16. Candle pattern output structure
+{
+  const result = makeResult();
+  const patterns = result.modules.candlePatterns;
+
+  assert.ok(Array.isArray(patterns.patterns));
+  assert.ok(patterns.summary);
+  assert.ok(
+    typeof patterns.summary.totalPatterns === "number"
+  );
+
+  console.log("PASS: Candle pattern output structure");
+}
+
+console.log("ALL 16 INTEGRATION TESTS PASSED");

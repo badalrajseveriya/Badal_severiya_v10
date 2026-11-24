@@ -154,7 +154,10 @@ runTest("Null configuration rejection", () => {
   );
 
   assert.equal(result.status, "ERROR");
-  assert.match(result.error, /Invalid data quality configuration/);
+  assert.match(
+    result.error,
+    /Invalid data quality configuration/
+  );
 });
 
 // 12. Empty input
@@ -176,7 +179,7 @@ runTest("Missing volume is reported but not treated as an issue", () => {
   assert.equal(result.issueCount, 0);
 });
 
-// 14. Zero volume is valid
+// 14. Zero volume
 runTest("Zero volume acceptance", () => {
   const data = makeCandles();
   data[10].volume = 0;
@@ -187,7 +190,7 @@ runTest("Zero volume acceptance", () => {
   assert.equal(result.quality, "VALID");
 });
 
-// 15. Duplicate check despite invalid timestamp
+// 15. Duplicate with invalid timestamp
 runTest("Duplicate check with invalid timestamp", () => {
   const data = makeCandles();
 
@@ -200,7 +203,7 @@ runTest("Duplicate check with invalid timestamp", () => {
   assert.equal(result.checks.duplicateTimestamps, 1);
 });
 
-// 16. Object input with candles property
+// 16. Candles object input
 runTest("Candles object input", () => {
   const result = analyzeDataQuality({
     candles: makeCandles()
@@ -210,7 +213,7 @@ runTest("Candles object input", () => {
   assert.equal(result.quality, "VALID");
 });
 
-// 17. Object input with data property
+// 17. Data object input
 runTest("Data object input", () => {
   const result = analyzeDataQuality({
     data: makeCandles()
@@ -220,8 +223,8 @@ runTest("Data object input", () => {
   assert.equal(result.quality, "VALID");
 });
 
-// 18. Uppercase OHLC field support
-runTest("Uppercase OHLC fields", () => {
+// 18. Uppercase OHLC and Volume fields
+runTest("Uppercase OHLC and Volume fields", () => {
   const data = makeCandles().map(item => ({
     Date: item.timestamp,
     Open: item.open,
@@ -234,10 +237,12 @@ runTest("Uppercase OHLC fields", () => {
   const result = analyzeDataQuality(data);
 
   assert.equal(result.checks.invalidOHLC, 0);
-  assert.equal(result.checks.missingVolumes, 100);
+  assert.equal(result.checks.missingVolumes, 0);
+  assert.equal(result.checks.invalidVolume, 0);
+  assert.equal(result.quality, "VALID");
 });
 
-// 19. Numeric timestamp in seconds
+// 19. Unix timestamp seconds
 runTest("Unix timestamp seconds", () => {
   const data = makeCandles().map(item => ({
     ...item,
@@ -252,7 +257,7 @@ runTest("Unix timestamp seconds", () => {
   assert.equal(result.checks.missingTimestamps, 0);
 });
 
-// 20. Numeric timestamp in milliseconds
+// 20. Unix timestamp milliseconds
 runTest("Unix timestamp milliseconds", () => {
   const data = makeCandles().map(item => ({
     ...item,
@@ -302,7 +307,7 @@ runTest("Invalid candle object detection", () => {
   assert.equal(result.quality, "ISSUES_FOUND");
 });
 
-// 24. Invalid high and low relationships
+// 24. Invalid high and low relationship
 runTest("Invalid high and low relationship", () => {
   const data = makeCandles();
 

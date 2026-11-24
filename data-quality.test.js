@@ -226,7 +226,7 @@ runTest("Data object input", () => {
 // 18. Uppercase OHLC and Volume fields
 runTest("Uppercase OHLC and Volume fields", () => {
   const data = makeCandles().map(item => ({
-    Date: item.timestamp,
+    timestamp: item.timestamp,
     Open: item.open,
     High: item.high,
     Low: item.low,

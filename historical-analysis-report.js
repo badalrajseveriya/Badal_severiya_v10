@@ -110,8 +110,14 @@ export function generateHistoricalReport(input) {
     }
 
     // MARKET STRUCTURE
+    // Trend is stored inside structure.summary.
+    const historicalTrend =
+      structure.summary?.historicalTrendClassification ??
+      structure.trend ??
+      null;
+
     const structureSummary = {
-      trend: structure.trend ?? null,
+      trend: historicalTrend,
       pivotHighCount: structure.pivots?.highs?.length ?? 0,
       pivotLowCount: structure.pivots?.lows?.length ?? 0,
       structureEventCount:

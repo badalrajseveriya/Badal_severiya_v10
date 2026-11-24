@@ -1,5 +1,5 @@
 
- // ======================================================
+// ======================================================
 // BADAL SEVERIYA V12
 // HISTORICAL ANALYSIS REPORT ENGINE
 // Educational and historical analysis only
@@ -22,18 +22,10 @@ const REQUIRED_MODULES = [
   "candlePatterns"
 ];
 
-// ------------------------------------------------------
-// SAFE NUMBER FORMAT
-// ------------------------------------------------------
-
 function isFiniteNumber(value) {
   return typeof value === "number" &&
     Number.isFinite(value);
 }
-
-// ------------------------------------------------------
-// MODULE VALIDATION
-// ------------------------------------------------------
 
 function validateModules(modules) {
   const errors = [];
@@ -66,10 +58,6 @@ function validateModules(modules) {
   };
 }
 
-// ------------------------------------------------------
-// REPORT BUILDER
-// ------------------------------------------------------
-
 export function generateHistoricalReport(input) {
   try {
     const integrated =
@@ -83,7 +71,6 @@ export function generateHistoricalReport(input) {
     }
 
     const modules = integrated.modules;
-
     const validation = validateModules(modules);
 
     if (!validation.valid) {
@@ -99,10 +86,7 @@ export function generateHistoricalReport(input) {
     const fibonacci = modules.fibonacci;
     const candlePatterns = modules.candlePatterns;
 
-    // --------------------------------------------------
-    // DATA QUALITY SUMMARY
-    // --------------------------------------------------
-
+    // DATA QUALITY
     const qualitySummary = {
       status: dataQuality.status,
       quality: dataQuality.quality,
@@ -110,12 +94,8 @@ export function generateHistoricalReport(input) {
       checks: dataQuality.checks
     };
 
-    // --------------------------------------------------
-    // MARKET INDICATOR SUMMARY
-    // --------------------------------------------------
-
+    // MARKET INDICATORS
     const indicators = marketData.indicators || {};
-
     const indicatorSummary = {};
 
     for (const [name, value] of Object.entries(indicators)) {
@@ -129,10 +109,7 @@ export function generateHistoricalReport(input) {
       }
     }
 
-    // --------------------------------------------------
-    // MARKET STRUCTURE SUMMARY
-    // --------------------------------------------------
-
+    // MARKET STRUCTURE
     const structureSummary = {
       trend: structure.trend ?? null,
       pivotHighCount: structure.pivots?.highs?.length ?? 0,
@@ -146,10 +123,7 @@ export function generateHistoricalReport(input) {
         structure.orderBlocks?.length ?? 0
     };
 
-    // --------------------------------------------------
-    // SUPPORT AND RESISTANCE SUMMARY
-    // --------------------------------------------------
-
+    // SUPPORT AND RESISTANCE
     const supportResistanceSummary = {
       supportCount:
         supportResistance.supports?.length ?? 0,
@@ -159,33 +133,27 @@ export function generateHistoricalReport(input) {
       resistances: supportResistance.resistances ?? []
     };
 
-    // --------------------------------------------------
-    // FIBONACCI SUMMARY
-    // --------------------------------------------------
-
+    // FIBONACCI
     const fibonacciSummary = {
       swing: fibonacci.swing ?? null,
       retracement: fibonacci.retracement ?? [],
       extensions: fibonacci.extensions ?? []
     };
 
-    // --------------------------------------------------
-    // CANDLE PATTERN SUMMARY
-    // --------------------------------------------------
+    // CANDLE PATTERNS
+    const candlePatternCounts =
+      candlePatterns.summary?.patternCounts ??
+      candlePatterns.summary?.counts ??
+      {};
 
     const candlePatternSummary = {
       totalPatterns:
         candlePatterns.summary?.totalPatterns ?? 0,
-      counts:
-        candlePatterns.summary?.counts ?? {},
-      patterns:
-        candlePatterns.patterns ?? []
+      counts: candlePatternCounts,
+      patterns: candlePatterns.patterns ?? []
     };
 
-    // --------------------------------------------------
     // REPORT SECTIONS
-    // --------------------------------------------------
-
     const sections = {
       dataQuality: qualitySummary,
       marketIndicators: indicatorSummary,
@@ -195,10 +163,7 @@ export function generateHistoricalReport(input) {
       candlePatterns: candlePatternSummary
     };
 
-    // --------------------------------------------------
     // FINAL REPORT
-    // --------------------------------------------------
-
     return {
       status: "OK",
       version: "12.0",

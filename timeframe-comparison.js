@@ -22,6 +22,7 @@ function isValidReport(report, expectedTimeframe) {
 
 function createSnapshot(report, timeframe) {
   const sections = report.sections;
+  const supportResistance = sections.supportResistance ?? {};
 
   return {
     timeframe,
@@ -47,9 +48,15 @@ function createSnapshot(report, timeframe) {
 
     supportResistance: {
       supportCount:
-        sections.supportResistance?.supportCount ?? 0,
+        supportResistance.supportCount ??
+        supportResistance.supports?.length ?? 0,
+
       resistanceCount:
-        sections.supportResistance?.resistanceCount ?? 0
+        supportResistance.resistanceCount ??
+        supportResistance.resistances?.length ?? 0,
+
+      supports: supportResistance.supports ?? [],
+      resistances: supportResistance.resistances ?? []
     },
 
     fibonacci: {

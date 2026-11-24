@@ -1,7 +1,9 @@
+
 // ======================================================
 // BADAL SEVERIYA V12
 // HISTORICAL DASHBOARD BROWSER
-// Educational historical data only
+// DAILY DATA ONLY
+// Educational historical analysis only
 // ======================================================
 
 import {
@@ -28,6 +30,10 @@ import {
   renderHistoricalDashboard
 } from "./dashboard-renderer.js";
 
+import {
+  buildHistoricalCandlestickChart
+} from "./historical-candlestick-chart.js";
+
 // ------------------------------------------------------
 // CONFIGURATION
 // ------------------------------------------------------
@@ -35,12 +41,10 @@ import {
 const API_BASE =
   "https://badal-severiya-data.mrstarrdbs.workers.dev";
 
-const STORAGE_PREFIX =
-  "badal-severiya-v12-historical-import-";
+const STORAGE_KEY =
+  "badal-severiya-v12-historical-import-1d";
 
-const ALLOWED_TIMEFRAMES = ["15m", "1d"];
-
-let selectedTimeframe = "1d";
+const SELECTED_TIMEFRAME = "1d";
 
 // ------------------------------------------------------
 // HTML ELEMENTS
@@ -69,11 +73,12 @@ function showStatus(message, isError = false) {
 }
 
 // ------------------------------------------------------
-// TIMEFRAME SELECTOR
+// TIMEFRAME DISPLAY
+// 15M IS TEMPORARILY DISABLED
 // ------------------------------------------------------
 
 function createTimeframeSelector() {
-  if (!fileInput) return;
+  if (!fileInput || !fileInput.parentNode) return;
 
   if (document.getElementById("historical-timeframe")) {
     return;
@@ -81,100 +86,269 @@ function createTimeframeSelector() {
 
   const wrapper = document.createElement("div");
 
+  wrapper.id = "historical-timeframe";
+  wrapper.textContent =
+    "Historical Timeframe: 1D - Daily Historical Data";
+
   wrapper.style.margin = "12px 0";
-  wrapper.style.padding = "10px";
+  wrapper.style.padding = "12px";
   wrapper.style.borderRadius = "8px";
   wrapper.style.background = "#172033";
-
-  const label = document.createElement("label");
-
-  label.textContent = "Historical Timeframe चुनें";
-
-  label.style.display = "block";
-  label.style.marginBottom = "8px";
-  label.style.fontWeight = "bold";
-  label.style.color = "#ffffff";
-
-  const select = document.createElement("select");
-
-  select.id = "historical-timeframe";
-
-  select.style.width = "100%";
-  select.style.padding = "12px";
-  select.style.borderRadius = "6px";
-  select.style.background = "#0f172a";
-  select.style.color = "#ffffff";
-  select.style.border = "1px solid #475569";
-
-  const options = [
-    {
-      value: "1d",
-      text: "1D - Daily Historical Data"
-    },
-    {
-      value: "15m",
-      text: "15M - 15 Minute Historical Data"
-    }
-  ];
-
-  for (const optionData of options) {
-    const option = document.createElement("option");
-
-    option.value = optionData.value;
-    option.textContent = optionData.text;
-
-    select.appendChild(option);
-  }
-
-  select.value = selectedTimeframe;
-
-  label.htmlFor = select.id;
-
-  wrapper.appendChild(label);
-  wrapper.appendChild(select);
+  wrapper.style.color = "#ffffff";
+  wrapper.style.fontWeight = "bold";
+  wrapper.style.fontSize = "14px";
 
   fileInput.parentNode.insertBefore(
     wrapper,
     fileInput
   );
-
-  select.addEventListener("change", async () => {
-    const nextTimeframe = select.value;
-
-    if (!ALLOWED_TIMEFRAMES.includes(nextTimeframe)) {
-      showStatus("Invalid timeframe selected.", true);
-      return;
-    }
-
-    selectedTimeframe = nextTimeframe;
-
-    fileInput.value = "";
-
-    await loadForSelectedTimeframe();
-  });
 }
 
 // ------------------------------------------------------
-// DASHBOARD TEXT HELPER
+// TEXT HELPER
 // ------------------------------------------------------
 
 function addText(parent, label, value) {
   const line = document.createElement("p");
 
-  line.textContent = `${label}: ${
-    typeof value === "object"
-      ? JSON.stringify(value)
-      : String(value ?? "N/A")
-  }`;
+  line.textContent =
+    `${label}: ${
+      typeof value === "object"
+        ? JSON.stringify(value)
+        : String(value ?? "N/A")
+    }`;
 
   parent.appendChild(line);
 }
 
 // ------------------------------------------------------
-// DASHBOARD RENDERING
+// SVG HELPER
 // ------------------------------------------------------
 
-function renderCards(rendered, uiModel) {
+function createSvgElement(name, attributes = {}) {
+  const element = document.createElementNS(
+    "http://www.w3.org/2000/svg",
+    name
+  );
+
+  for (const [key, value] of Object.entries(attributes)) {
+    element.setAttribute(key, String(value));
+  }
+
+  return element;
+}
+
+// ------------------------------------------------------
+// HISTORICAL DAILY CANDLESTICK CHART
+// ------------------------------------------------------
+
+function renderHistoricalCandlestickChart(candles) {
+  const model = buildHistoricalCandlestickChart(
+    candles,
+    {
+      width: 1000,
+      height: 420,
+      padding: 55,
+      maxVisibleCandles: 100
+    }
+  );
+
+  if (model.status !== "OK") {
+    throw new Error(
+      model.error || "Historical chart generation failed."
+    );
+  }
+
+  const section = document.createElement("section");
+
+  section.className = "historical-candlestick-panel";
+  section.style.margin = "16px 0";
+  section.style.padding = "14px";
+  section.style.background = "#0f172a";
+  section.style.border = "1px solid #334155";
+  section.style.borderRadius = "12px";
+  section.style.color = "#ffffff";
+  section.style.overflow = "hidden";
+  section.style.minWidth = "0";
+
+  const heading = document.createElement("h2");
+
+  heading.textContent =
+    "NIFTY 50 - Daily Historical Candlestick Chart";
+
+  heading.style.fontSize = "18px";
+  heading.style.margin = "0 0 8px";
+
+  section.appendChild(heading);
+
+  const description = document.createElement("p");
+
+  description.textContent =
+    `${model.totalCandles} total candles | ` +
+    `${model.visibleCandles} displayed | ` +
+    `${model.firstVisibleDate} to ${model.lastVisibleDate}`;
+
+  description.style.fontSize = "12px";
+  description.style.color = "#cbd5e1";
+  description.style.margin = "0 0 12px";
+
+  section.appendChild(description);
+
+  const svg = createSvgElement("svg", {
+    viewBox: `0 0 ${model.width} ${model.height}`,
+    role: "img",
+    "aria-label": "NIFTY 50 historical daily candlestick chart",
+    preserveAspectRatio: "xMidYMid meet"
+  });
+
+  svg.style.display = "block";
+  svg.style.width = "100%";
+  svg.style.height = "auto";
+  svg.style.background = "#111827";
+  svg.style.borderRadius = "8px";
+
+  const left = model.padding;
+  const right = model.width - model.padding;
+  const top = model.padding;
+  const bottom = model.height - model.padding;
+
+  const priceRange =
+    model.priceRange.high - model.priceRange.low;
+
+  // Horizontal price grid.
+  for (let i = 0; i <= 4; i++) {
+    const ratio = i / 4;
+
+    const y =
+      top + (bottom - top) * ratio;
+
+    const price =
+      model.priceRange.high - priceRange * ratio;
+
+    const gridLine = createSvgElement("line", {
+      x1: left,
+      y1: y,
+      x2: right,
+      y2: y,
+      stroke: "#334155",
+      "stroke-width": 1,
+      "stroke-dasharray": "4 5"
+    });
+
+    svg.appendChild(gridLine);
+
+    const priceLabel = createSvgElement("text", {
+      x: 5,
+      y: y + 4,
+      fill: "#cbd5e1",
+      "font-size": 13
+    });
+
+    priceLabel.textContent =
+      price.toLocaleString("en-IN", {
+        maximumFractionDigits: 2
+      });
+
+    svg.appendChild(priceLabel);
+  }
+
+  // Daily candle wicks and bodies.
+  for (const bar of model.bars) {
+    const bullish =
+      bar.direction === "BULLISH_CANDLE";
+
+    const bearish =
+      bar.direction === "BEARISH_CANDLE";
+
+    const candleColor = bullish
+      ? "#22c55e"
+      : bearish
+        ? "#ef4444"
+        : "#94a3b8";
+
+    const wick = createSvgElement("line", {
+      x1: bar.x,
+      y1: bar.wickTop,
+      x2: bar.x,
+      y2: bar.wickBottom,
+      stroke: candleColor,
+      "stroke-width": 2
+    });
+
+    svg.appendChild(wick);
+
+    const body = createSvgElement("rect", {
+      x: bar.bodyX,
+      y: bar.bodyY,
+      width: bar.bodyWidth,
+      height: bar.bodyHeight,
+      fill: candleColor,
+      stroke: candleColor,
+      "stroke-width": 1,
+      rx: 1
+    });
+
+    svg.appendChild(body);
+  }
+
+  // Date labels: first, middle and last dates.
+  const labelIndexes = [
+    0,
+    Math.floor((model.bars.length - 1) / 2),
+    model.bars.length - 1
+  ];
+
+  const uniqueIndexes = [...new Set(labelIndexes)];
+
+  for (const index of uniqueIndexes) {
+    const bar = model.bars[index];
+
+    const dateLabel = createSvgElement("text", {
+      x: bar.x,
+      y: model.height - 12,
+      fill: "#cbd5e1",
+      "font-size": 12,
+      "text-anchor": "middle"
+    });
+
+    dateLabel.textContent = bar.date;
+
+    svg.appendChild(dateLabel);
+  }
+
+  section.appendChild(svg);
+
+  const legend = document.createElement("p");
+
+  legend.textContent =
+    "हरा = Close, Open से ऊपर | लाल = Close, Open से नीचे";
+
+  legend.style.fontSize = "12px";
+  legend.style.color = "#cbd5e1";
+  legend.style.margin = "10px 0 0";
+
+  section.appendChild(legend);
+
+  const note = document.createElement("p");
+
+  note.textContent =
+    "यह केवल पुराने ऐतिहासिक डेटा का चार्ट है। " +
+    "यह भविष्य की कीमत या ट्रेडिंग सलाह नहीं देता।";
+
+  note.style.fontSize = "12px";
+  note.style.color = "#94a3b8";
+  note.style.margin = "8px 0 0";
+
+  section.appendChild(note);
+
+  return section;
+}
+
+// ------------------------------------------------------
+// DASHBOARD CARDS
+// ------------------------------------------------------
+
+function renderCards(rendered, uiModel, chartPanel) {
   dashboard.replaceChildren();
 
   if (rendered.status !== "OK") {
@@ -197,6 +371,11 @@ function renderCards(rendered, uiModel) {
     `Candles: ${rendered.screen.metadata.candleCount}`;
 
   dashboard.appendChild(metadata);
+
+  // Chart appears before analysis cards.
+  if (chartPanel) {
+    dashboard.appendChild(chartPanel);
+  }
 
   for (const card of uiModel.layout.cards) {
     const section = document.createElement("details");
@@ -224,7 +403,6 @@ function renderCards(rendered, uiModel) {
 
     if (card.id === "data-quality") {
       const quality = card.content.status ?? "UNKNOWN";
-
       const details = card.content.details ?? {};
 
       const issueCount =
@@ -287,7 +465,6 @@ function renderCards(rendered, uiModel) {
     }
 
     section.appendChild(content);
-
     dashboard.appendChild(section);
   }
 }
@@ -296,10 +473,10 @@ function renderCards(rendered, uiModel) {
 // BUILD HISTORICAL DASHBOARD
 // ------------------------------------------------------
 
-function buildDashboard(candles, timeframe) {
+function buildDashboard(candles) {
   const report = generateHistoricalReport({
     candles,
-    timeframe
+    timeframe: SELECTED_TIMEFRAME
   });
 
   if (report.status !== "OK") {
@@ -330,9 +507,40 @@ function buildDashboard(candles, timeframe) {
   const rendered =
     renderHistoricalDashboard(uiModel);
 
-  renderCards(rendered, uiModel);
+  if (rendered.status !== "OK") {
+    throw new Error(rendered.error);
+  }
 
-  // Volume diagnostic
+  // Chart failure should not destroy analysis cards.
+  let chartPanel = null;
+
+  try {
+    chartPanel =
+      renderHistoricalCandlestickChart(candles);
+  } catch (chartError) {
+    console.error("Historical chart error:", chartError);
+
+    chartPanel = document.createElement("section");
+    chartPanel.style.padding = "12px";
+    chartPanel.style.margin = "12px 0";
+    chartPanel.style.background = "#292313";
+    chartPanel.style.borderRadius = "8px";
+
+    const errorText = document.createElement("p");
+
+    errorText.textContent =
+      `Historical chart could not be displayed: ${chartError.message}`;
+
+    chartPanel.appendChild(errorText);
+  }
+
+  renderCards(
+    rendered,
+    uiModel,
+    chartPanel
+  );
+
+  // Volume diagnostic.
   const directMissingVolumes = candles.filter(item =>
     item?.volume === null ||
     item?.volume === undefined ||
@@ -357,7 +565,7 @@ function buildDashboard(candles, timeframe) {
   dashboard.appendChild(diagnostic);
 
   console.info("BADAL V12 historical diagnostic", {
-    timeframe,
+    timeframe: SELECTED_TIMEFRAME,
     candleCount: candles.length,
     directMissingVolumes,
     qualityMissingVolumes
@@ -365,28 +573,16 @@ function buildDashboard(candles, timeframe) {
 }
 
 // ------------------------------------------------------
-// STORAGE KEY
+// SAVE DATA
 // ------------------------------------------------------
 
-function getStorageKey(timeframe) {
-  return STORAGE_PREFIX + timeframe;
-}
-
-// ------------------------------------------------------
-// SAVE DATA ON MOBILE
-// ------------------------------------------------------
-
-function saveHistoricalData(
-  candles,
-  timeframe,
-  filename
-) {
+function saveHistoricalData(candles, filename) {
   try {
     localStorage.setItem(
-      getStorageKey(timeframe),
+      STORAGE_KEY,
       JSON.stringify({
         filename,
-        timeframe,
+        timeframe: SELECTED_TIMEFRAME,
         candles,
         savedAt: new Date().toISOString()
       })
@@ -396,7 +592,6 @@ function saveHistoricalData(
 
   } catch (error) {
     console.warn("Local storage unavailable:", error);
-
     return false;
   }
 }
@@ -405,44 +600,37 @@ function saveHistoricalData(
 // RESTORE MOBILE DATA
 // ------------------------------------------------------
 
-function restoreSavedData(timeframe) {
+function restoreSavedData() {
   try {
     const savedText =
-      localStorage.getItem(getStorageKey(timeframe));
+      localStorage.getItem(STORAGE_KEY);
 
-    if (!savedText) {
-      return false;
-    }
+    if (!savedText) return false;
 
     const savedData = JSON.parse(savedText);
 
     if (
       !savedData ||
       !Array.isArray(savedData.candles) ||
-      savedData.timeframe !== timeframe
+      savedData.timeframe !== SELECTED_TIMEFRAME
     ) {
-      throw new Error(
-        "Saved timeframe data does not match."
-      );
+      throw new Error("Saved Daily data is invalid.");
     }
 
     const imported = parseHistoricalDataText(
       JSON.stringify(savedData.candles),
       "saved-historical-data.json",
-      timeframe
+      SELECTED_TIMEFRAME
     );
 
     if (imported.status !== "OK") {
       throw new Error(imported.error);
     }
 
-    buildDashboard(
-      imported.candles,
-      timeframe
-    );
+    buildDashboard(imported.candles);
 
     showStatus(
-      `मोबाइल का सेव डेटा लोड हुआ: ${timeframe} | ${imported.candleCount} candles`
+      `मोबाइल का सेव डेटा लोड हुआ: 1D | ${imported.candleCount} candles`
     );
 
     return true;
@@ -461,15 +649,15 @@ function restoreSavedData(timeframe) {
 // LOAD DATA FROM CLOUDFLARE
 // ------------------------------------------------------
 
-async function loadFromCloudflare(timeframe) {
+async function loadFromCloudflare() {
   showStatus(
-    `Cloudflare से ${timeframe} ऐतिहासिक डेटा लोड हो रहा है...`
+    "Cloudflare से 1D ऐतिहासिक डेटा लोड हो रहा है..."
   );
 
   const url =
     `${API_BASE}/api/data/candles` +
     `?index=NIFTY` +
-    `&timeframe=${encodeURIComponent(timeframe)}` +
+    `&timeframe=1d` +
     `&limit=5000`;
 
   const response = await fetch(url, {
@@ -495,64 +683,53 @@ async function loadFromCloudflare(timeframe) {
     );
   }
 
-  // Existing importer validates OHLC,
-  // timestamps, candle count and ordering.
   const imported = parseHistoricalDataText(
     JSON.stringify(result.candles),
-    `cloudflare-nifty-${timeframe}.json`,
-    timeframe
+    "cloudflare-nifty-1d.json",
+    SELECTED_TIMEFRAME
   );
 
   if (imported.status !== "OK") {
     throw new Error(imported.error);
   }
 
-  buildDashboard(
-    imported.candles,
-    timeframe
-  );
+  buildDashboard(imported.candles);
 
   saveHistoricalData(
     imported.candles,
-    timeframe,
-    `Cloudflare NIFTY ${timeframe} historical data`
+    "Cloudflare NIFTY 1D historical data"
   );
 
   showStatus(
-    `सफलता: Cloudflare से ${timeframe} की ${imported.candleCount} ऐतिहासिक candles लोड हुईं।`
+    `सफलता: Cloudflare से 1D की ${imported.candleCount} ऐतिहासिक candles लोड हुईं।`
   );
 
   return true;
 }
 
 // ------------------------------------------------------
-// LOAD SELECTED TIMEFRAME
+// LOAD DAILY DATA
 // ------------------------------------------------------
 
-async function loadForSelectedTimeframe() {
-  const timeframe = selectedTimeframe;
-
+async function loadDailyData() {
   try {
-    await loadFromCloudflare(timeframe);
+    await loadFromCloudflare();
 
   } catch (error) {
-    console.error(
-      `Cloudflare ${timeframe} loading failed:`,
-      error
-    );
+    console.error("Cloudflare Daily loading failed:", error);
 
-    const restored = restoreSavedData(timeframe);
+    const restored = restoreSavedData();
 
     if (restored) {
       showStatus(
-        `Cloudflare पर ${timeframe} डेटा उपलब्ध नहीं हुआ। मोबाइल में सेव डेटा दिखाया गया।`
+        "Cloudflare उपलब्ध नहीं हुआ। मोबाइल में सेव 1D डेटा दिखाया गया।"
       );
 
       return;
     }
 
     showStatus(
-      `Cloudflare ${timeframe} डेटा उपलब्ध नहीं है और मोबाइल में भी सेव डेटा नहीं मिला। कारण: ${error.message}`,
+      `1D डेटा लोड नहीं हुआ। कारण: ${error.message}`,
       true
     );
   }
@@ -565,11 +742,7 @@ async function loadForSelectedTimeframe() {
 async function importHistoricalFile(file) {
   if (!file) return;
 
-  const timeframe = selectedTimeframe;
-
-  showStatus(
-    `${timeframe} फाइल पढ़ी जा रही है...`
-  );
+  showStatus("1D ऐतिहासिक फाइल पढ़ी जा रही है...");
 
   try {
     const fileText = await file.text();
@@ -577,26 +750,22 @@ async function importHistoricalFile(file) {
     const imported = parseHistoricalDataText(
       fileText,
       file.name,
-      timeframe
+      SELECTED_TIMEFRAME
     );
 
     if (imported.status !== "OK") {
       throw new Error(imported.error);
     }
 
-    buildDashboard(
-      imported.candles,
-      timeframe
-    );
+    buildDashboard(imported.candles);
 
     const saved = saveHistoricalData(
       imported.candles,
-      timeframe,
       file.name
     );
 
     showStatus(
-      `सफलता: ${imported.candleCount} ऐतिहासिक candles इम्पोर्ट हुईं। Timeframe: ${timeframe}. Mobile save: ${saved ? "OK" : "Unavailable"}`
+      `सफलता: ${imported.candleCount} Daily candles इम्पोर्ट हुईं। Mobile save: ${saved ? "OK" : "Unavailable"}`
     );
 
   } catch (error) {
@@ -605,14 +774,6 @@ async function importHistoricalFile(file) {
       true
     );
   }
-}
-
-// ------------------------------------------------------
-// START DASHBOARD
-// ------------------------------------------------------
-
-async function startDashboard() {
-  await loadForSelectedTimeframe();
 }
 
 // ------------------------------------------------------
@@ -628,7 +789,7 @@ if (fileInput && statusBox && dashboard) {
     importHistoricalFile(file);
   });
 
-  startDashboard();
+  loadDailyData();
 
 } else {
   console.error(

@@ -151,11 +151,76 @@ function renderComparisonSnapshot(parent, heading, snapshot) {
     snapshot.candlePatterns?.totalPatterns
   );
 
+  // Fibonacci Swing — readable historical details
   if (snapshot.fibonacci?.swing) {
+    const swing = snapshot.fibonacci.swing;
+
+    const fibonacciSection = document.createElement("div");
+
+    fibonacciSection.style.margin = "12px 0 0";
+    fibonacciSection.style.padding = "10px";
+    fibonacciSection.style.background = "#172338";
+    fibonacciSection.style.border = "1px solid #475569";
+    fibonacciSection.style.borderRadius = "8px";
+
+    const fibonacciTitle = document.createElement("h4");
+
+    fibonacciTitle.textContent =
+      "Fibonacci Swing — Historical Details";
+
+    fibonacciTitle.style.margin = "0 0 10px";
+    fibonacciTitle.style.color = "#93c5fd";
+
+    fibonacciSection.appendChild(fibonacciTitle);
+
+    addComparisonLine(
+      fibonacciSection,
+      "Direction",
+      swing.direction
+    );
+
+    addComparisonLine(
+      fibonacciSection,
+      "Start Price",
+      formatLevelNumber(swing.startPrice)
+    );
+
+    addComparisonLine(
+      fibonacciSection,
+      "End Price",
+      formatLevelNumber(swing.endPrice)
+    );
+
+    addComparisonLine(
+      fibonacciSection,
+      "Start Candle Index",
+      swing.startIndex
+    );
+
+    addComparisonLine(
+      fibonacciSection,
+      "End Candle Index",
+      swing.endIndex
+    );
+
+    addComparisonLine(
+      fibonacciSection,
+      "Start Confirmed At",
+      swing.startConfirmedAt
+    );
+
+    addComparisonLine(
+      fibonacciSection,
+      "End Confirmed At",
+      swing.endConfirmedAt
+    );
+
+    section.appendChild(fibonacciSection);
+  } else {
     addComparisonLine(
       section,
       "Fibonacci Swing",
-      JSON.stringify(snapshot.fibonacci.swing)
+      "ऐतिहासिक Swing डेटा उपलब्ध नहीं"
     );
   }
 

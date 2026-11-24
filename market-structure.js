@@ -32,7 +32,16 @@ function validateCandles(candles) {
     }
 
     const time = Date.parse(c.timestamp);
-    const values = [c.open, c.high, c.low, c.close, c.volume];
+    const values = [c.open, c.high, c.low, c.close];
+
+    const volumeMissing =
+      c.volume === null ||
+      c.volume === undefined ||
+      c.volume === "";
+
+    const invalidVolume =
+      !volumeMissing &&
+      (!Number.isFinite(c.volume) || c.volume < 0);
 
     if (!Number.isFinite(time) || time <= previousTime) {
       throw new Error(`Invalid candle timestamp at index ${i}`);
@@ -44,7 +53,7 @@ function validateCandles(candles) {
       c.high <= 0 ||
       c.low <= 0 ||
       c.close <= 0 ||
-      c.volume < 0 ||
+      invalidVolume ||
       c.high < Math.max(c.open, c.close, c.low) ||
       c.low > Math.min(c.open, c.close, c.high)
     ) {
@@ -348,8 +357,6 @@ function detectStructure(candles, pivots) {
 
 // ------------------------------------------------------
 // HISTORICAL ORDER BLOCK ZONES
-// Definition: nearest prior opposite-color candle
-// before a confirmed structure break.
 // ------------------------------------------------------
 
 function detectOrderBlocks(

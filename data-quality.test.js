@@ -23,132 +23,298 @@ function candle(i, open, high, low, close, volume = 1000) {
 function makeCandles(count = 100) {
   return Array.from({ length: count }, (_, i) => {
     const close = 25000 + i * 2;
-    return candle(i, close - 2, close + 5, close - 5, close, 1000 + i);
+    return candle(
+      i,
+      close - 2,
+      close + 5,
+      close - 5,
+      close,
+      1000 + i
+    );
   });
 }
 
+function runTest(name, callback) {
+  callback();
+  console.log(`PASS: ${name}`);
+}
+
 // 1. Valid historical data
-{
+runTest("Valid historical data", () => {
   const result = analyzeDataQuality(makeCandles());
+
   assert.equal(result.status, "OK");
   assert.equal(result.version, "12.1");
   assert.equal(result.dataType, "HISTORICAL_ONLY");
   assert.equal(result.quality, "VALID");
   assert.equal(result.issueCount, 0);
   assert.equal(result.checks.candleCount, 100);
-  console.log("PASS: Valid historical data");
-}
+});
 
 // 2. Invalid OHLC
-{
-  const candles = makeCandles();
-  candles[10].high = candles[10].low - 1;
-  const result = analyzeDataQuality(candles);
+runTest("Invalid OHLC detection", () => {
+  const data = makeCandles();
+  data[10].high = data[10].low - 1;
+
+  const result = analyzeDataQuality(data);
+
   assert.equal(result.checks.invalidOHLC, 1);
   assert.equal(result.quality, "ISSUES_FOUND");
-  console.log("PASS: Invalid OHLC detection");
-}
+});
 
 // 3. Invalid volume
-{
-  const candles = makeCandles();
-  candles[10].volume = -100;
-  const result = analyzeDataQuality(candles);
+runTest("Negative volume detection", () => {
+  const data = makeCandles();
+  data[10].volume = -100;
+
+  const result = analyzeDataQuality(data);
+
   assert.equal(result.checks.invalidVolume, 1);
   assert.equal(result.quality, "ISSUES_FOUND");
-  console.log("PASS: Invalid volume detection");
-}
+});
 
 // 4. Missing timestamp
-{
-  const candles = makeCandles();
-  delete candles[10].timestamp;
-  const result = analyzeDataQuality(candles);
+runTest("Missing timestamp detection", () => {
+  const data = makeCandles();
+  delete data[10].timestamp;
+
+  const result = analyzeDataQuality(data);
+
   assert.equal(result.checks.missingTimestamps, 1);
-  console.log("PASS: Missing timestamp detection");
-}
+});
 
 // 5. Invalid timestamp
-{
-  const candles = makeCandles();
-  candles[10].timestamp = "invalid-date";
-  const result = analyzeDataQuality(candles);
+runTest("Invalid timestamp detection", () => {
+  const data = makeCandles();
+  data[10].timestamp = "invalid-date";
+
+  const result = analyzeDataQuality(data);
+
   assert.equal(result.checks.invalidTimestamps, 1);
-  console.log("PASS: Invalid timestamp detection");
-}
+});
 
 // 6. Duplicate timestamp
-{
-  const candles = makeCandles();
-  candles[10].timestamp = candles[9].timestamp;
-  const result = analyzeDataQuality(candles);
+runTest("Duplicate timestamp detection", () => {
+  const data = makeCandles();
+  data[10].timestamp = data[9].timestamp;
+
+  const result = analyzeDataQuality(data);
+
   assert.equal(result.checks.duplicateTimestamps, 1);
-  console.log("PASS: Duplicate timestamp detection");
-}
+});
 
 // 7. Unordered timestamp
-{
-  const candles = makeCandles();
-  [candles[10], candles[11]] = [candles[11], candles[10]];
-  const result = analyzeDataQuality(candles);
+runTest("Unordered timestamp detection", () => {
+  const data = makeCandles();
+
+  [data[10], data[11]] = [data[11], data[10]];
+
+  const result = analyzeDataQuality(data);
+
   assert.ok(result.checks.unorderedTimestamps > 0);
-  console.log("PASS: Unordered timestamp detection");
-}
+});
 
 // 8. Minimum candle validation
-{
-  const result = analyzeDataQuality(makeCandles(20), { minCandles: 30 });
+runTest("Minimum candle validation", () => {
+  const result = analyzeDataQuality(
+    makeCandles(20),
+    { minCandles: 30 }
+  );
+
   assert.equal(result.status, "ERROR");
   assert.match(result.error, /At least 30 candles/);
-  console.log("PASS: Minimum candle validation");
-}
+});
 
 // 9. Maximum candle validation
-{
-  const result = analyzeDataQuality(makeCandles(100), {
-    minCandles: 30,
-    maxCandles: 50
-  });
+runTest("Maximum candle validation", () => {
+  const result = analyzeDataQuality(
+    makeCandles(100),
+    { minCandles: 30, maxCandles: 50 }
+  );
+
   assert.equal(result.status, "ERROR");
   assert.match(result.error, /Maximum 50 candles/);
-  console.log("PASS: Maximum candle validation");
-}
+});
 
 // 10. Invalid configuration
-{
-  const result = analyzeDataQuality(makeCandles(), { minCandles: 0 });
-  assert.equal(result.status, "ERROR");
-  console.log("PASS: Invalid configuration");
-}
+runTest("Invalid configuration", () => {
+  const result = analyzeDataQuality(
+    makeCandles(),
+    { minCandles: 0 }
+  );
 
-// 11. Empty input
-{
+  assert.equal(result.status, "ERROR");
+});
+
+// 11. Null configuration
+runTest("Null configuration rejection", () => {
+  const result = analyzeDataQuality(
+    makeCandles(),
+    null
+  );
+
+  assert.equal(result.status, "ERROR");
+  assert.match(result.error, /Invalid data quality configuration/);
+});
+
+// 12. Empty input
+runTest("Empty input validation", () => {
   const result = analyzeDataQuality(null);
+
   assert.equal(result.status, "ERROR");
-  console.log("PASS: Empty input validation");
-}
+});
 
-// 12. Invalid timestamp must not hide duplicate timestamps
-{
-  const candles = makeCandles();
-  candles[10].timestamp = "invalid-date";
-  candles[20].timestamp = candles[19].timestamp;
+// 13. Missing volume
+runTest("Missing volume is reported but not treated as an issue", () => {
+  const data = makeCandles();
+  delete data[10].volume;
 
-  const result = analyzeDataQuality(candles);
-  assert.equal(result.checks.invalidTimestamps, 1);
-  assert.equal(result.checks.duplicateTimestamps, 1);
-  console.log("PASS: Duplicate check with invalid timestamp");
-}
+  const result = analyzeDataQuality(data);
 
-// 13. Missing volume detection
-{
-  const candles = makeCandles();
-  delete candles[10].volume;
-
-  const result = analyzeDataQuality(candles);
   assert.equal(result.checks.missingVolumes, 1);
   assert.equal(result.quality, "VALID");
-  console.log("PASS: Missing volume detection");
-}
+  assert.equal(result.issueCount, 0);
+});
 
+// 14. Zero volume is valid
+runTest("Zero volume acceptance", () => {
+  const data = makeCandles();
+  data[10].volume = 0;
+
+  const result = analyzeDataQuality(data);
+
+  assert.equal(result.checks.invalidVolume, 0);
+  assert.equal(result.quality, "VALID");
+});
+
+// 15. Duplicate check despite invalid timestamp
+runTest("Duplicate check with invalid timestamp", () => {
+  const data = makeCandles();
+
+  data[10].timestamp = "invalid-date";
+  data[20].timestamp = data[19].timestamp;
+
+  const result = analyzeDataQuality(data);
+
+  assert.equal(result.checks.invalidTimestamps, 1);
+  assert.equal(result.checks.duplicateTimestamps, 1);
+});
+
+// 16. Object input with candles property
+runTest("Candles object input", () => {
+  const result = analyzeDataQuality({
+    candles: makeCandles()
+  });
+
+  assert.equal(result.status, "OK");
+  assert.equal(result.quality, "VALID");
+});
+
+// 17. Object input with data property
+runTest("Data object input", () => {
+  const result = analyzeDataQuality({
+    data: makeCandles()
+  });
+
+  assert.equal(result.status, "OK");
+  assert.equal(result.quality, "VALID");
+});
+
+// 18. Uppercase OHLC field support
+runTest("Uppercase OHLC fields", () => {
+  const data = makeCandles().map(item => ({
+    Date: item.timestamp,
+    Open: item.open,
+    High: item.high,
+    Low: item.low,
+    Close: item.close,
+    Volume: item.volume
+  }));
+
+  const result = analyzeDataQuality(data);
+
+  assert.equal(result.checks.invalidOHLC, 0);
+  assert.equal(result.checks.missingVolumes, 100);
+});
+
+// 19. Numeric timestamp in seconds
+runTest("Unix timestamp seconds", () => {
+  const data = makeCandles().map(item => ({
+    ...item,
+    timestamp: Math.floor(
+      Date.parse(item.timestamp) / 1000
+    )
+  }));
+
+  const result = analyzeDataQuality(data);
+
+  assert.equal(result.checks.invalidTimestamps, 0);
+  assert.equal(result.checks.missingTimestamps, 0);
+});
+
+// 20. Numeric timestamp in milliseconds
+runTest("Unix timestamp milliseconds", () => {
+  const data = makeCandles().map(item => ({
+    ...item,
+    timestamp: Date.parse(item.timestamp)
+  }));
+
+  const result = analyzeDataQuality(data);
+
+  assert.equal(result.checks.invalidTimestamps, 0);
+});
+
+// 21. Special trading date
+runTest("Special trading date classification", () => {
+  const data = makeCandles();
+
+  data[10].timestamp = "2026-11-08T10:00:00.000Z";
+
+  const result = analyzeDataQuality(data);
+
+  assert.ok(
+    result.dateReview.specialTradingDateList.includes(
+      "2026-11-08"
+    )
+  );
+});
+
+// 22. Weekend review
+runTest("Weekend date review", () => {
+  const data = makeCandles();
+
+  data[10].timestamp = "2026-11-07T10:00:00.000Z";
+
+  const result = analyzeDataQuality(data);
+
+  assert.ok(result.checks.weekendDates > 0);
+  assert.ok(result.checks.unexpectedWeekendDates > 0);
+});
+
+// 23. Invalid candle object
+runTest("Invalid candle object detection", () => {
+  const data = makeCandles();
+  data[10] = null;
+
+  const result = analyzeDataQuality(data);
+
+  assert.equal(result.checks.invalidOHLC, 1);
+  assert.equal(result.quality, "ISSUES_FOUND");
+});
+
+// 24. Invalid high and low relationships
+runTest("Invalid high and low relationship", () => {
+  const data = makeCandles();
+
+  data[10].low = data[10].open + 10;
+
+  const result = analyzeDataQuality(data);
+
+  assert.equal(result.checks.invalidOHLC, 1);
+});
+
+console.log("--------------------------------");
 console.log("ALL DATA QUALITY TESTS PASSED");
+console.log("Total test groups: 24");
+console.log("Historical educational validation only.");
+console.log("--------------------------------");

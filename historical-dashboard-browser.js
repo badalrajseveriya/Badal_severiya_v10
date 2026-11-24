@@ -221,18 +221,109 @@ function renderHistoricalCandlestickChart(candles, timeframe) {
   return section;
 }
 
-function addText(parent, label, value) {
-  const line = document.createElement("p");
+// ------------------------------------------------------
+// READABLE HISTORICAL VALUES
+// ------------------------------------------------------
 
-  line.textContent =
-    `${label}: ${
-      typeof value === "object"
-        ? JSON.stringify(value)
-        : String(value ?? "N/A")
-    }`;
+function formatLevelNumber(value) {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return String(value ?? "N/A");
+  }
+
+  return value.toLocaleString("en-IN", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  });
+}
+
+function renderReadableValue(parent, label, value, depth = 0) {
+  if (depth > 4) return;
+
+  if (Array.isArray(value)) {
+    const group = document.createElement("div");
+    group.style.margin = "8px 0";
+    group.style.padding = "8px";
+    group.style.borderLeft = "2px solid #475569";
+    group.style.background = "#111827";
+    group.style.borderRadius = "6px";
+
+    const heading = document.createElement("p");
+    heading.textContent = `${label} (${value.length})`;
+    heading.style.fontWeight = "bold";
+    heading.style.color = "#93c5fd";
+    group.appendChild(heading);
+
+    if (value.length === 0) {
+      const empty = document.createElement("p");
+      empty.textContent = "कोई ऐतिहासिक स्तर उपलब्ध नहीं";
+      empty.style.color = "#94a3b8";
+      group.appendChild(empty);
+    } else {
+      value.forEach((item, index) => {
+        const itemBox = document.createElement("div");
+        itemBox.style.padding = "6px 0";
+        itemBox.style.borderTop = "1px solid #334155";
+
+        if (item && typeof item === "object") {
+          renderReadableValue(
+            itemBox,
+            `स्तर ${index + 1}`,
+            item,
+            depth + 1
+          );
+        } else {
+          const line = document.createElement("p");
+          line.textContent = String(item ?? "N/A");
+          itemBox.appendChild(line);
+        }
+
+        group.appendChild(itemBox);
+      });
+    }
+
+    parent.appendChild(group);
+    return;
+  }
+
+  if (value !== null && typeof value === "object") {
+    const group = document.createElement("div");
+    group.style.margin = "6px 0";
+    group.style.paddingLeft = "8px";
+
+    const heading = document.createElement("p");
+    heading.textContent = label;
+    heading.style.fontWeight = "bold";
+    heading.style.color = "#cbd5e1";
+    group.appendChild(heading);
+
+    for (const [key, nestedValue] of Object.entries(value)) {
+      renderReadableValue(group, key, nestedValue, depth + 1);
+    }
+
+    parent.appendChild(group);
+    return;
+  }
+
+  const line = document.createElement("p");
+  const displayValue =
+    typeof value === "number"
+      ? formatLevelNumber(value)
+      : String(value ?? "N/A");
+
+  line.textContent = `${label}: ${displayValue}`;
+  line.style.margin = "4px 0";
+  line.style.overflowWrap = "anywhere";
 
   parent.appendChild(line);
 }
+
+function addText(parent, label, value) {
+  renderReadableValue(parent, label, value);
+}
+
+// ------------------------------------------------------
+// CARD RENDERING
+// ------------------------------------------------------
 
 function renderCards(timeframe, rendered, uiModel, chartPanel) {
   const target = CONFIG[timeframe].dashboard;
@@ -313,6 +404,10 @@ function renderCards(timeframe, rendered, uiModel, chartPanel) {
   }
 }
 
+// ------------------------------------------------------
+// BUILD DASHBOARD
+// ------------------------------------------------------
+
 function buildDashboard(timeframe, candles) {
   const report = generateHistoricalReport({
     candles,
@@ -369,6 +464,10 @@ function buildDashboard(timeframe, candles) {
 
   updateCombinedStatus();
 }
+
+// ------------------------------------------------------
+// LOCAL STORAGE
+// ------------------------------------------------------
 
 function saveHistoricalData(timeframe, candles, filename) {
   try {
@@ -434,6 +533,10 @@ function restoreSavedData(timeframe) {
     return false;
   }
 }
+
+// ------------------------------------------------------
+// CLOUDFLARE DATA
+// ------------------------------------------------------
 
 async function loadFromCloudflare(timeframe) {
   showStatus(
@@ -559,6 +662,10 @@ async function loadTimeframe(timeframe) {
   }
 }
 
+// ------------------------------------------------------
+// FILE IMPORT
+// ------------------------------------------------------
+
 async function importHistoricalFile(timeframe, file) {
   if (!file) return;
 
@@ -598,6 +705,10 @@ async function importHistoricalFile(timeframe, file) {
     );
   }
 }
+
+// ------------------------------------------------------
+// INITIALIZATION
+// ------------------------------------------------------
 
 for (const timeframe of ["1d", "15m"]) {
   const elements = CONFIG[timeframe];

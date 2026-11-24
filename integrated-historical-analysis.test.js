@@ -241,4 +241,87 @@ function makeResult() {
   console.log("PASS: Candle pattern output structure");
 }
 
-console.log("ALL 16 INTEGRATION TESTS PASSED");
+// 17. Candle count consistency between modules
+{
+  const result = makeResult();
+
+  const structureCount =
+    result.modules.marketStructure.summary.candleCount;
+
+  const supportCount =
+    result.modules.supportResistance.summary.candleCount;
+
+  assert.equal(structureCount, result.candleCount);
+  assert.equal(supportCount, result.candleCount);
+  assert.equal(structureCount, supportCount);
+
+  console.log("PASS: Module candle count consistency");
+}
+
+// 18. Support/resistance pivot index boundaries
+{
+  const result = makeResult();
+  const count = result.candleCount;
+
+  const zones = [
+    ...result.modules.supportResistance.supports,
+    ...result.modules.supportResistance.resistances
+  ];
+
+  for (const zone of zones) {
+    assert.ok(Array.isArray(zone.pivotIndices));
+    assert.ok(zone.pivotIndices.length > 0);
+
+    for (const index of zone.pivotIndices) {
+      assert.ok(Number.isInteger(index));
+      assert.ok(index >= 0);
+      assert.ok(index < count);
+    }
+
+    assert.ok(zone.firstConfirmedAt >= 0);
+    assert.ok(zone.lastConfirmedAt < count);
+    assert.ok(
+      zone.firstConfirmedAt <= zone.lastConfirmedAt
+    );
+  }
+
+  console.log("PASS: Support resistance pivot index boundaries");
+}
+
+// 19. Cross-module pivot consistency
+{
+  const result = makeResult();
+
+  const structure = result.modules.marketStructure;
+  const supportResistance = result.modules.supportResistance;
+
+  const highPivotIndices = new Set(
+    structure.pivots.highs.map(pivot => pivot.pivotIndex)
+  );
+
+  const lowPivotIndices = new Set(
+    structure.pivots.lows.map(pivot => pivot.pivotIndex)
+  );
+
+  for (const zone of supportResistance.resistances) {
+    for (const index of zone.pivotIndices) {
+      assert.ok(
+        highPivotIndices.has(index),
+        `Resistance pivot ${index} is missing from market structure`
+      );
+    }
+  }
+
+  for (const zone of supportResistance.supports) {
+    for (const index of zone.pivotIndices) {
+      assert.ok(
+        lowPivotIndices.has(index),
+        `Support pivot ${index} is missing from market structure`
+      );
+    }
+  }
+
+  console.log("PASS: Cross-module pivot consistency");
+}
+
+console.log("ALL 19 INTEGRATION TESTS PASSED");

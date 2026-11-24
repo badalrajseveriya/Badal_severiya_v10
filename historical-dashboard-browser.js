@@ -139,10 +139,24 @@ function renderComparisonSnapshot(parent, heading, snapshot) {
     snapshot.supportResistance?.supportCount
   );
 
+  // Actual historical support zone details
+  renderReadableValue(
+    section,
+    "Support Details",
+    snapshot.supportResistance?.supports ?? []
+  );
+
   addComparisonLine(
     section,
     "Resistance Levels",
     snapshot.supportResistance?.resistanceCount
+  );
+
+  // Actual historical resistance zone details
+  renderReadableValue(
+    section,
+    "Resistance Details",
+    snapshot.supportResistance?.resistances ?? []
   );
 
   addComparisonLine(

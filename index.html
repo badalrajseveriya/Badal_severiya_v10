@@ -9,24 +9,33 @@
   <style>
     * { box-sizing: border-box; }
     body {
-      margin: 0; padding: 16px;
-      background: #0b1220; color: #f1f5f9;
+      margin: 0;
+      padding: 16px;
+      background: #0b1220;
+      color: #f1f5f9;
       font-family: Arial, sans-serif;
     }
     header, .panel {
-      padding: 18px; margin-bottom: 18px;
-      background: #172338; border: 1px solid #334155;
-      border-radius: 12px; min-width: 0;
+      padding: 18px;
+      margin-bottom: 18px;
+      background: #172338;
+      border: 1px solid #334155;
+      border-radius: 12px;
+      min-width: 0;
     }
     h1 { margin: 0 0 8px; font-size: 23px; color: #38bdf8; }
     h2 { color: #7dd3fc; font-size: 18px; }
     h3 { color: #7dd3fc; font-size: 16px; }
     .subtitle, .muted { color: #cbd5e1; font-size: 13px; }
     .notice {
-      padding: 12px; margin-bottom: 18px;
-      background: #292313; border: 1px solid #a16207;
-      border-radius: 10px; color: #fde68a;
-      font-size: 13px; line-height: 1.5;
+      padding: 12px;
+      margin-bottom: 18px;
+      background: #292313;
+      border: 1px solid #a16207;
+      border-radius: 10px;
+      color: #fde68a;
+      font-size: 13px;
+      line-height: 1.5;
     }
     .timeframe-grid {
       display: grid;
@@ -34,51 +43,140 @@
       gap: 16px;
     }
     .timeframe-panel {
-      min-width: 0; padding: 16px;
-      background: #111c2e; border: 1px solid #334155;
+      min-width: 0;
+      padding: 16px;
+      background: #111c2e;
+      border: 1px solid #334155;
       border-radius: 12px;
     }
     .timeframe-panel h2 { margin-top: 0; }
     label {
-      display: block; margin: 12px 0;
-      color: #7dd3fc; font-weight: bold;
+      display: block;
+      margin: 12px 0;
+      color: #7dd3fc;
+      font-weight: bold;
     }
     input[type="file"] {
-      display: block; width: 100%; padding: 12px;
-      color: #f1f5f9; background: #0b1220;
-      border: 1px solid #475569; border-radius: 8px;
+      display: block;
+      width: 100%;
+      padding: 12px;
+      color: #f1f5f9;
+      background: #0b1220;
+      border: 1px solid #475569;
+      border-radius: 8px;
     }
     .status {
-      margin-top: 12px; color: #cbd5e1;
-      font-size: 13px; line-height: 1.5;
+      margin-top: 12px;
+      color: #cbd5e1;
+      font-size: 13px;
+      line-height: 1.5;
       overflow-wrap: anywhere;
     }
     .status[data-state="error"] { color: #fca5a5; }
     .status[data-state="success"] { color: #86efac; }
+
+    .master-summary {
+      margin: 16px 0;
+      padding: 14px;
+      background: #0b1220;
+      border: 1px solid #475569;
+      border-radius: 12px;
+    }
+    .master-summary h3 {
+      margin: 0 0 12px;
+    }
+    .reference-grid,
+    .percentage-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 8px;
+    }
+    .reference-item,
+    .percentage-item {
+      min-width: 0;
+      padding: 11px 5px;
+      border-radius: 9px;
+      text-align: center;
+      overflow-wrap: anywhere;
+    }
+    .reference-item {
+      font-size: 12px;
+      font-weight: bold;
+      color: #111827;
+    }
+    .entry-item { background: #facc15; }
+    .target-item { background: #16a34a; color: #ffffff; }
+    .stop-item { background: #dc2626; color: #ffffff; }
+
+    .percentage-grid { margin-top: 10px; }
+    .percentage-item {
+      background: #172338;
+      border: 1px solid #334155;
+    }
+    .percentage-value {
+      display: block;
+      font-size: 22px;
+      font-weight: bold;
+      margin-bottom: 5px;
+    }
+    .up-value { color: #4ade80; }
+    .down-value { color: #f87171; }
+    .unclear-value { color: #cbd5e1; }
+    .percentage-label {
+      display: block;
+      color: #cbd5e1;
+      font-size: 11px;
+      line-height: 1.35;
+    }
+    .summary-note {
+      margin: 12px 0 0;
+      color: #94a3b8;
+      font-size: 11px;
+      line-height: 1.5;
+    }
+
     .analysis-results {
-      display: grid; grid-template-columns: 1fr;
-      gap: 12px; margin-top: 16px;
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 12px;
+      margin-top: 16px;
     }
     .card {
-      padding: 16px; background: #172338;
-      border: 1px solid #334155; border-radius: 10px;
-      min-width: 0; overflow-wrap: anywhere;
+      padding: 16px;
+      background: #172338;
+      border: 1px solid #334155;
+      border-radius: 10px;
+      min-width: 0;
+      overflow-wrap: anywhere;
     }
     .card p {
-      color: #cbd5e1; font-size: 13px; line-height: 1.5;
+      color: #cbd5e1;
+      font-size: 13px;
+      line-height: 1.5;
     }
     #combined-analysis {
-      padding: 18px; margin-top: 18px;
-      background: #172338; border: 1px solid #334155;
+      padding: 18px;
+      margin-top: 18px;
+      background: #172338;
+      border: 1px solid #334155;
       border-radius: 12px;
     }
     footer {
-      margin-top: 22px; padding: 14px 0;
-      color: #94a3b8; font-size: 12px;
+      margin-top: 22px;
+      padding: 14px 0;
+      color: #94a3b8;
+      font-size: 12px;
       text-align: center;
     }
     @media (min-width: 800px) {
       .timeframe-grid { grid-template-columns: 1fr 1fr; }
+    }
+    @media (max-width: 360px) {
+      body { padding: 9px; }
+      .timeframe-panel { padding: 10px; }
+      .reference-item { font-size: 10px; }
+      .percentage-value { font-size: 19px; }
+      .percentage-label { font-size: 10px; }
     }
   </style>
 </head>
@@ -91,8 +189,9 @@
   </header>
 
   <div class="notice">
-    यह डैशबोर्ड केवल ऐतिहासिक शैक्षणिक विश्लेषण के लिए है।
-    इसमें लाइव ट्रेडिंग संकेत, भविष्यवाणी या ट्रेडिंग सलाह नहीं दी जाती।
+    यह डैशबोर्ड ऐतिहासिक शैक्षणिक विश्लेषण के लिए है।
+    प्रतिशत पुराने डेटा में मिले पैटर्न का परीक्षण करके दिखाए जाएँगे।
+    इन्हें भविष्य की गारंटी या लाइव ट्रेडिंग निर्देश न समझें।
   </div>
 
   <main>
@@ -103,9 +202,34 @@
         <p class="muted">
           दैनिक ऐतिहासिक डेटा और उसका अलग विश्लेषण।
         </p>
-        <label for="historical-file">
-          1D CSV या JSON फाइल चुनें
-        </label>
+
+        <section class="master-summary" id="master-summary-1d">
+          <h3>1D — Master Summary</h3>
+          <div class="reference-grid">
+            <div class="reference-item entry-item">ENTRY</div>
+            <div class="reference-item target-item">TARGET</div>
+            <div class="reference-item stop-item">STOP LOSS</div>
+          </div>
+          <div class="percentage-grid">
+            <div class="percentage-item">
+              <span class="percentage-value up-value" id="up-percent-1d">--%</span>
+              <span class="percentage-label">ऊपर के ऐतिहासिक पैटर्न</span>
+            </div>
+            <div class="percentage-item">
+              <span class="percentage-value down-value" id="down-percent-1d">--%</span>
+              <span class="percentage-label">नीचे के ऐतिहासिक पैटर्न</span>
+            </div>
+            <div class="percentage-item">
+              <span class="percentage-value unclear-value" id="unclear-percent-1d">--%</span>
+              <span class="percentage-label">कुछ स्पष्ट नहीं</span>
+            </div>
+          </div>
+          <p class="summary-note" id="summary-status-1d">
+            ऐतिहासिक परीक्षण की प्रतीक्षा है।
+          </p>
+        </section>
+
+        <label for="historical-file">1D CSV या JSON फाइल चुनें</label>
         <input id="historical-file" type="file" accept=".csv,.json">
         <div id="import-status" class="status" role="status" aria-live="polite">
           1D डेटा लोड होने की प्रतीक्षा है।
@@ -123,9 +247,34 @@
         <p class="muted">
           15 मिनट के ऐतिहासिक डेटा और उसका अलग विश्लेषण।
         </p>
-        <label for="historical-file-15m">
-          15M CSV या JSON फाइल चुनें
-        </label>
+
+        <section class="master-summary" id="master-summary-15m">
+          <h3>15M — Master Summary</h3>
+          <div class="reference-grid">
+            <div class="reference-item entry-item">ENTRY</div>
+            <div class="reference-item target-item">TARGET</div>
+            <div class="reference-item stop-item">STOP LOSS</div>
+          </div>
+          <div class="percentage-grid">
+            <div class="percentage-item">
+              <span class="percentage-value up-value" id="up-percent-15m">--%</span>
+              <span class="percentage-label">ऊपर के ऐतिहासिक पैटर्न</span>
+            </div>
+            <div class="percentage-item">
+              <span class="percentage-value down-value" id="down-percent-15m">--%</span>
+              <span class="percentage-label">नीचे के ऐतिहासिक पैटर्न</span>
+            </div>
+            <div class="percentage-item">
+              <span class="percentage-value unclear-value" id="unclear-percent-15m">--%</span>
+              <span class="percentage-label">कुछ स्पष्ट नहीं</span>
+            </div>
+          </div>
+          <p class="summary-note" id="summary-status-15m">
+            15M डेटा उपलब्ध होने की प्रतीक्षा है।
+          </p>
+        </section>
+
+        <label for="historical-file-15m">15M CSV या JSON फाइल चुनें</label>
         <input id="historical-file-15m" type="file" accept=".csv,.json">
         <div id="import-status-15m" class="status" role="status" aria-live="polite">
           15M डेटा की प्रतीक्षा है।
@@ -143,8 +292,8 @@
     <section id="combined-analysis">
       <h2>Combined Historical Analysis</h2>
       <p class="muted">
-        1D और 15M दोनों के उपलब्ध परिणामों की तुलना यहाँ दिखाई जाएगी।
-        किसी टाइमफ्रेम का डेटा उपलब्ध न होने पर उसकी स्थिति अलग दिखाई जाएगी।
+        1D और 15M के उपलब्ध ऐतिहासिक परिणामों की तुलना।
+        दोनों टाइमफ्रेम का विश्लेषण अलग-अलग रखा जाएगा।
       </p>
       <div id="combined-status" class="status">
         दोनों टाइमफ्रेम के विश्लेषण की प्रतीक्षा है।
@@ -156,6 +305,6 @@
     BADAL SEVERIYA V12 | Historical Educational Dashboard
   </footer>
 
-  <script type="module" src="./historical-dashboard-browser.js?v=20261124-3"></script>
+  <script type="module" src="./historical-dashboard-browser.js?v=20261124-4"></script>
 </body>
 </html>

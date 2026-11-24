@@ -6,210 +6,150 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="theme-color" content="#101827">
   <title>BADAL SEVERIYA V12</title>
-
   <style>
-    * {
-      box-sizing: border-box;
-    }
-
+    * { box-sizing: border-box; }
     body {
-      margin: 0;
-      padding: 16px;
-      background: #0b1220;
-      color: #f1f5f9;
+      margin: 0; padding: 16px;
+      background: #0b1220; color: #f1f5f9;
       font-family: Arial, sans-serif;
     }
-
-    header {
-      padding: 20px;
-      background: #172338;
-      border: 1px solid #334155;
-      border-radius: 14px;
-      margin-bottom: 18px;
+    header, .panel {
+      padding: 18px; margin-bottom: 18px;
+      background: #172338; border: 1px solid #334155;
+      border-radius: 12px; min-width: 0;
     }
-
-    h1 {
-      margin: 0 0 8px;
-      font-size: 23px;
-      color: #38bdf8;
-    }
-
-    .subtitle {
-      color: #cbd5e1;
-      font-size: 14px;
-    }
-
+    h1 { margin: 0 0 8px; font-size: 23px; color: #38bdf8; }
+    h2 { color: #7dd3fc; font-size: 18px; }
+    h3 { color: #7dd3fc; font-size: 16px; }
+    .subtitle, .muted { color: #cbd5e1; font-size: 13px; }
     .notice {
-      padding: 12px;
-      margin-bottom: 18px;
-      background: #292313;
-      border: 1px solid #a16207;
-      border-radius: 10px;
-      color: #fde68a;
-      font-size: 13px;
-      line-height: 1.5;
+      padding: 12px; margin-bottom: 18px;
+      background: #292313; border: 1px solid #a16207;
+      border-radius: 10px; color: #fde68a;
+      font-size: 13px; line-height: 1.5;
     }
-
-    .section-title {
-      font-size: 18px;
-      margin: 20px 0 12px;
-    }
-
-    .import-panel {
-      padding: 18px;
-      margin-bottom: 18px;
-      background: #172338;
-      border: 1px solid #334155;
-      border-radius: 12px;
-    }
-
-    .import-panel label {
-      display: block;
-      margin-bottom: 12px;
-      color: #7dd3fc;
-      font-weight: bold;
-    }
-
-    input[type="file"] {
-      display: block;
-      width: 100%;
-      padding: 12px;
-      color: #f1f5f9;
-      background: #0b1220;
-      border: 1px solid #475569;
-      border-radius: 8px;
-    }
-
-    #import-status {
-      margin-top: 12px;
-      color: #cbd5e1;
-      font-size: 13px;
-      line-height: 1.5;
-      overflow-wrap: anywhere;
-    }
-
-    #import-status[data-state="error"] {
-      color: #fca5a5;
-    }
-
-    #import-status[data-state="success"] {
-      color: #86efac;
-    }
-
-    .cards {
+    .timeframe-grid {
       display: grid;
       grid-template-columns: 1fr;
-      gap: 12px;
+      gap: 16px;
     }
-
-    .card {
-      padding: 18px;
-      background: #172338;
-      border: 1px solid #334155;
+    .timeframe-panel {
+      min-width: 0; padding: 16px;
+      background: #111c2e; border: 1px solid #334155;
       border-radius: 12px;
-      min-width: 0;
+    }
+    .timeframe-panel h2 { margin-top: 0; }
+    label {
+      display: block; margin: 12px 0;
+      color: #7dd3fc; font-weight: bold;
+    }
+    input[type="file"] {
+      display: block; width: 100%; padding: 12px;
+      color: #f1f5f9; background: #0b1220;
+      border: 1px solid #475569; border-radius: 8px;
+    }
+    .status {
+      margin-top: 12px; color: #cbd5e1;
+      font-size: 13px; line-height: 1.5;
       overflow-wrap: anywhere;
     }
-
-    .card h2 {
-      margin: 0 0 10px;
-      font-size: 16px;
-      color: #7dd3fc;
+    .status[data-state="error"] { color: #fca5a5; }
+    .status[data-state="success"] { color: #86efac; }
+    .analysis-results {
+      display: grid; grid-template-columns: 1fr;
+      gap: 12px; margin-top: 16px;
     }
-
+    .card {
+      padding: 16px; background: #172338;
+      border: 1px solid #334155; border-radius: 10px;
+      min-width: 0; overflow-wrap: anywhere;
+    }
     .card p {
-      margin: 8px 0 0;
-      color: #cbd5e1;
-      font-size: 13px;
-      line-height: 1.5;
+      color: #cbd5e1; font-size: 13px; line-height: 1.5;
     }
-
+    #combined-analysis {
+      padding: 18px; margin-top: 18px;
+      background: #172338; border: 1px solid #334155;
+      border-radius: 12px;
+    }
     footer {
-      margin-top: 22px;
-      padding: 14px 0;
-      color: #94a3b8;
-      font-size: 12px;
+      margin-top: 22px; padding: 14px 0;
+      color: #94a3b8; font-size: 12px;
       text-align: center;
     }
-
-    @media (min-width: 650px) {
-      .cards {
-        grid-template-columns: repeat(2, 1fr);
-      }
-    }
-
-    @media (min-width: 1000px) {
-      .cards {
-        grid-template-columns: repeat(3, 1fr);
-      }
+    @media (min-width: 800px) {
+      .timeframe-grid { grid-template-columns: 1fr 1fr; }
     }
   </style>
 </head>
-
 <body>
-
   <header>
     <h1>BADAL SEVERIYA V12</h1>
     <div class="subtitle">
-      Historical Market Analysis Dashboard
+      Dual Timeframe Historical Market Analysis Dashboard
     </div>
   </header>
 
   <div class="notice">
     यह डैशबोर्ड केवल ऐतिहासिक शैक्षणिक विश्लेषण के लिए है।
-    इसमें लाइव ट्रेडिंग सिग्नल, भविष्यवाणी या ट्रेडिंग सलाह नहीं दी जाती।
+    इसमें लाइव ट्रेडिंग संकेत, भविष्यवाणी या ट्रेडिंग सलाह नहीं दी जाती।
   </div>
 
-  <section class="import-panel">
-    <label for="historical-file">
-      ऐतिहासिक CSV या JSON फाइल चुनें
-    </label>
+  <main>
+    <div class="timeframe-grid">
 
-    <input
-      id="historical-file"
-      type="file"
-      accept=".csv,.json"
-    >
+      <section class="timeframe-panel" id="panel-1d">
+        <h2>1D — Daily Analysis</h2>
+        <p class="muted">
+          दैनिक ऐतिहासिक डेटा और उसका अलग विश्लेषण।
+        </p>
+        <label for="historical-file">
+          1D CSV या JSON फाइल चुनें
+        </label>
+        <input id="historical-file" type="file" accept=".csv,.json">
+        <div id="import-status" class="status" role="status" aria-live="polite">
+          1D डेटा लोड होने की प्रतीक्षा है।
+        </div>
+        <div id="analysis-results" class="analysis-results">
+          <section class="card">
+            <h3>1D Analysis</h3>
+            <p>दैनिक ऐतिहासिक विश्लेषण यहाँ दिखाई देगा।</p>
+          </section>
+        </div>
+      </section>
 
-    <div id="import-status" role="status" aria-live="polite">
-      अभी कोई ऐतिहासिक फाइल इम्पोर्ट नहीं हुई है।
+      <section class="timeframe-panel" id="panel-15m">
+        <h2>15M — Intraday Historical Analysis</h2>
+        <p class="muted">
+          15 मिनट के ऐतिहासिक डेटा और उसका अलग विश्लेषण।
+        </p>
+        <label for="historical-file-15m">
+          15M CSV या JSON फाइल चुनें
+        </label>
+        <input id="historical-file-15m" type="file" accept=".csv,.json">
+        <div id="import-status-15m" class="status" role="status" aria-live="polite">
+          15M डेटा की प्रतीक्षा है।
+        </div>
+        <div id="analysis-results-15m" class="analysis-results">
+          <section class="card">
+            <h3>15M Analysis</h3>
+            <p>15 मिनट का ऐतिहासिक विश्लेषण यहाँ दिखाई देगा।</p>
+          </section>
+        </div>
+      </section>
+
     </div>
-  </section>
 
-  <h2 class="section-title">Analysis Dashboard</h2>
-
-  <main id="analysis-results" class="cards">
-
-    <section class="card">
-      <h2>01. Data Quality</h2>
-      <p>ऐतिहासिक डेटा की गुणवत्ता और जाँच।</p>
+    <section id="combined-analysis">
+      <h2>Combined Historical Analysis</h2>
+      <p class="muted">
+        1D और 15M दोनों के उपलब्ध परिणामों की तुलना यहाँ दिखाई जाएगी।
+        किसी टाइमफ्रेम का डेटा उपलब्ध न होने पर उसकी स्थिति अलग दिखाई जाएगी।
+      </p>
+      <div id="combined-status" class="status">
+        दोनों टाइमफ्रेम के विश्लेषण की प्रतीक्षा है।
+      </div>
     </section>
-
-    <section class="card">
-      <h2>02. Market Indicators</h2>
-      <p>ऐतिहासिक इंडिकेटर की जानकारी।</p>
-    </section>
-
-    <section class="card">
-      <h2>03. Market Structure</h2>
-      <p>पुराने मार्केट स्ट्रक्चर का विश्लेषण।</p>
-    </section>
-
-    <section class="card">
-      <h2>04. Support & Resistance</h2>
-      <p>ऐतिहासिक सपोर्ट और रेजिस्टेंस स्तर।</p>
-    </section>
-
-    <section class="card">
-      <h2>05. Fibonacci</h2>
-      <p>ऐतिहासिक Fibonacci स्तरों की जानकारी।</p>
-    </section>
-
-    <section class="card">
-      <h2>06. Candle Patterns</h2>
-      <p>पुराने कैंडल पैटर्न का विवरण।</p>
-    </section>
-
   </main>
 
   <footer>
@@ -217,6 +157,5 @@
   </footer>
 
   <script type="module" src="./historical-dashboard-browser.js"></script>
-
 </body>
 </html>

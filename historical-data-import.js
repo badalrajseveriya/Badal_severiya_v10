@@ -5,7 +5,8 @@
 // Educational historical data only
 // ======================================================
 
-const MIN_CANDLES = 200;
+const MIN_CANDLES_15M = 200;
+const MIN_CANDLES_1D = 1;
 const MAX_CANDLES = 5000;
 
 function parseCSV(text) {
@@ -38,7 +39,9 @@ function parseCSV(text) {
     }
   }
 
-  if (quoted) throw new Error("CSV quoted field is incomplete.");
+  if (quoted) {
+    throw new Error("CSV quoted field is incomplete.");
+  }
 
   row.push(field.trim());
   if (row.some(value => value !== "")) rows.push(row);
@@ -59,8 +62,10 @@ function getTimestamp(value, rowNumber) {
   }
 
   const numeric = Number(value);
+
   const milliseconds =
-    Number.isFinite(numeric) && /^\d+$/.test(String(value).trim())
+    Number.isFinite(numeric) &&
+    /^\d+$/.test(String(value).trim())
       ? (numeric < 1e12 ? numeric * 1000 : numeric)
       : Date.parse(String(value));
 
@@ -96,7 +101,9 @@ function normalizeCandle(item, rowNumber) {
       return undefined;
     };
 
-    timestamp = get("timestamp", "time", "date", "datetime", "tradedate");
+    timestamp = get(
+      "timestamp", "time", "date", "datetime", "tradedate"
+    );
     open = get("open", "into");
     high = get("high", "inth");
     low = get("low", "intl");
@@ -122,7 +129,9 @@ function normalizeCandle(item, rowNumber) {
     ![candle.open, candle.high, candle.low, candle.close]
       .every(Number.isFinite)
   ) {
-    throw new Error(`Invalid OHLC numeric value at row ${rowNumber}.`);
+    throw new Error(
+      `Invalid OHLC numeric value at row ${rowNumber}.`
+    );
   }
 
   if (
@@ -137,8 +146,16 @@ function normalizeCandle(item, rowNumber) {
     candle.high <= 0 ||
     candle.low <= 0 ||
     candle.close <= 0 ||
-    candle.high < Math.max(candle.open, candle.close, candle.low) ||
-    candle.low > Math.min(candle.open, candle.close, candle.high)
+    candle.high < Math.max(
+      candle.open,
+      candle.close,
+      candle.low
+    ) ||
+    candle.low > Math.min(
+      candle.open,
+      candle.close,
+      candle.high
+    )
   ) {
     throw new Error(`Invalid OHLC values at row ${rowNumber}.`);
   }
@@ -167,7 +184,9 @@ function readCSV(text) {
   const indexes = {};
 
   for (const [field, names] of Object.entries(aliases)) {
-    indexes[field] = headers.findIndex(name => names.includes(name));
+    indexes[field] = headers.findIndex(name =>
+      names.includes(name)
+    );
 
     if (indexes[field] < 0 && field !== "volume") {
       throw new Error(`CSV is missing the ${field} column.`);
@@ -222,6 +241,10 @@ export function parseHistoricalDataText(
       throw new Error("Selected file is empty.");
     }
 
+    if (!["15m", "1d"].includes(timeframe)) {
+      throw new Error("Unsupported historical timeframe.");
+    }
+
     const isJSON =
       String(filename).toLowerCase().endsWith(".json") ||
       /^[\s]*[\[{]/.test(text);
@@ -230,9 +253,14 @@ export function parseHistoricalDataText(
       ? readJSON(text)
       : readCSV(text);
 
-    if (candles.length < MIN_CANDLES) {
+    const minimumCandles =
+      timeframe === "1d"
+        ? MIN_CANDLES_1D
+        : MIN_CANDLES_15M;
+
+    if (candles.length < minimumCandles) {
       throw new Error(
-        `At least ${MIN_CANDLES} candles required. Found ${candles.length}.`
+        `At least ${minimumCandles} candles required for ${timeframe}. Found ${candles.length}.`
       );
     }
 
@@ -259,7 +287,8 @@ export function parseHistoricalDataText(
       timeframe,
       candleCount: candles.length,
       candles,
-      note: "Missing volume remains null; no volume is fabricated."
+      note:
+        "Missing volume remains null; no volume is fabricated."
     };
   } catch (error) {
     return {

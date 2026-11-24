@@ -12,6 +12,7 @@ import { createHistoricalDashboardDisplay } from "./dashboard-display.js";
 import { createHistoricalDashboardUIModel } from "./dashboard-ui-model.js";
 import { renderHistoricalDashboard } from "./dashboard-renderer.js";
 import { buildHistoricalCandlestickChart } from "./historical-candlestick-chart.js";
+import { compareHistoricalTimeframes } from "./timeframe-comparison.js";
 
 const API_BASE = "https://badal-severiya-data.mrstarrdbs.workers.dev";
 
@@ -31,8 +32,16 @@ const CONFIG = {
 };
 
 const state = {
-  "1d": { status: "LOADING", candleCount: 0 },
-  "15m": { status: "WAITING_FOR_DATA", candleCount: 0 }
+  "1d": {
+    status: "LOADING",
+    candleCount: 0,
+    report: null
+  },
+  "15m": {
+    status: "WAITING_FOR_DATA",
+    candleCount: 0,
+    report: null
+  }
 };
 
 function showStatus(timeframe, message, isError = false) {
@@ -43,6 +52,116 @@ function showStatus(timeframe, message, isError = false) {
   target.dataset.state = isError ? "error" : "success";
 }
 
+// ------------------------------------------------------
+// COMBINED HISTORICAL COMPARISON
+// ------------------------------------------------------
+
+function addComparisonLine(parent, label, value) {
+  const line = document.createElement("p");
+  line.style.margin = "7px 0";
+  line.style.color = "#cbd5e1";
+  line.style.fontSize = "13px";
+  line.style.overflowWrap = "anywhere";
+  line.textContent = `${label}: ${value ?? "N/A"}`;
+  parent.appendChild(line);
+}
+
+function renderComparisonSnapshot(parent, heading, snapshot) {
+  const section = document.createElement("section");
+
+  section.style.marginTop = "12px";
+  section.style.padding = "12px";
+  section.style.background = "#111c2e";
+  section.style.border = "1px solid #334155";
+  section.style.borderRadius = "10px";
+
+  const title = document.createElement("h3");
+  title.textContent = heading;
+  section.appendChild(title);
+
+  if (!snapshot) {
+    addComparisonLine(
+      section,
+      "स्थिति",
+      "डेटा उपलब्ध नहीं"
+    );
+
+    parent.appendChild(section);
+    return;
+  }
+
+  addComparisonLine(section, "स्थिति", snapshot.status);
+  addComparisonLine(
+    section,
+    "ऐतिहासिक कैंडल",
+    snapshot.candleCount
+  );
+
+  addComparisonLine(
+    section,
+    "डेटा गुणवत्ता",
+    snapshot.dataQuality?.quality
+  );
+
+  addComparisonLine(
+    section,
+    "डेटा समस्याएँ",
+    snapshot.dataQuality?.issueCount
+  );
+
+  addComparisonLine(
+    section,
+    "ऐतिहासिक ट्रेंड वर्गीकरण",
+    snapshot.historicalTrend
+  );
+
+  addComparisonLine(
+    section,
+    "Pivot High",
+    snapshot.marketStructure?.pivotHighCount
+  );
+
+  addComparisonLine(
+    section,
+    "Pivot Low",
+    snapshot.marketStructure?.pivotLowCount
+  );
+
+  addComparisonLine(
+    section,
+    "Structure Events",
+    snapshot.marketStructure?.structureEventCount
+  );
+
+  addComparisonLine(
+    section,
+    "Support Levels",
+    snapshot.supportResistance?.supportCount
+  );
+
+  addComparisonLine(
+    section,
+    "Resistance Levels",
+    snapshot.supportResistance?.resistanceCount
+  );
+
+  addComparisonLine(
+    section,
+    "Candle Patterns",
+    snapshot.candlePatterns?.totalPatterns
+  );
+
+  if (snapshot.fibonacci?.swing) {
+    addComparisonLine(
+      section,
+      "Fibonacci Swing",
+      JSON.stringify(snapshot.fibonacci.swing)
+    );
+  }
+
+  parent.appendChild(section);
+}
+
 function updateCombinedStatus() {
   const target = document.getElementById("combined-status");
   if (!target) return;
@@ -50,11 +169,127 @@ function updateCombinedStatus() {
   const daily = state["1d"];
   const intraday = state["15m"];
 
-  target.textContent =
+  target.replaceChildren();
+
+  const summary = document.createElement("p");
+
+  summary.textContent =
     `1D: ${daily.status} (${daily.candleCount} candles) | ` +
-    `15M: ${intraday.status} (${intraday.candleCount} candles). ` +
-    "दोनों टाइमफ्रेम का डेटा और विश्लेषण अलग-अलग रखा गया है।";
+    `15M: ${intraday.status} (${intraday.candleCount} candles)`;
+
+  summary.style.fontWeight = "bold";
+  summary.style.color = "#7dd3fc";
+
+  target.appendChild(summary);
+
+  if (!daily.report || daily.status !== "VALID") {
+    addComparisonLine(
+      target,
+      "Combined Analysis",
+      "वैध 1D ऐतिहासिक रिपोर्ट की प्रतीक्षा है।"
+    );
+    return;
+  }
+
+  const comparison = compareHistoricalTimeframes(
+    daily.report,
+    intraday.report
+  );
+
+  if (comparison.status === "ERROR") {
+    addComparisonLine(
+      target,
+      "Comparison Status",
+      `ERROR: ${comparison.error}`
+    );
+    return;
+  }
+
+  const note = document.createElement("p");
+  note.textContent = comparison.note;
+  note.style.color = "#94a3b8";
+  note.style.fontSize = "12px";
+  target.appendChild(note);
+
+  renderComparisonSnapshot(
+    target,
+    "1D — Daily Historical Snapshot",
+    comparison.daily
+  );
+
+  if (comparison.status === "WAITING_FOR_DATA") {
+    const waiting = document.createElement("p");
+
+    waiting.textContent =
+      "15M ऐतिहासिक डेटा अभी उपलब्ध नहीं है। " +
+      "15M तुलना डेटा जुड़ने के बाद अपने आप उपलब्ध होगी।";
+
+    waiting.style.color = "#fbbf24";
+    waiting.style.fontWeight = "bold";
+
+    target.appendChild(waiting);
+
+    renderComparisonSnapshot(
+      target,
+      "15M — Intraday Historical Snapshot",
+      null
+    );
+
+    return;
+  }
+
+  renderComparisonSnapshot(
+    target,
+    "15M — Intraday Historical Snapshot",
+    comparison.intraday
+  );
+
+  const result = document.createElement("section");
+
+  result.style.marginTop = "12px";
+  result.style.padding = "12px";
+  result.style.background = "#111c2e";
+  result.style.border = "1px solid #334155";
+  result.style.borderRadius = "10px";
+
+  const title = document.createElement("h3");
+  title.textContent = "Historical Timeframe Comparison";
+  result.appendChild(title);
+
+  addComparisonLine(
+    result,
+    "Trend Classification Match",
+    comparison.comparison.trendClassificationMatches
+      ? "हाँ — दोनों का वर्गीकरण समान है"
+      : "नहीं — दोनों का वर्गीकरण अलग है"
+  );
+
+  addComparisonLine(
+    result,
+    "Data Quality Match",
+    comparison.comparison.dataQualityMatches
+      ? "हाँ — डेटा गुणवत्ता समान है"
+      : "नहीं — डेटा गुणवत्ता अलग है"
+  );
+
+  addComparisonLine(
+    result,
+    "1D Candle Count",
+    comparison.comparison.candleCounts.daily
+  );
+
+  addComparisonLine(
+    result,
+    "15M Candle Count",
+    comparison.comparison.candleCounts.intraday
+  );
+
+  target.appendChild(result);
 }
+
+// ------------------------------------------------------
+// SVG HELPERS
+// ------------------------------------------------------
 
 function createSvgElement(name, attributes = {}) {
   const element = document.createElementNS(
@@ -78,7 +313,9 @@ function renderHistoricalCandlestickChart(candles, timeframe) {
   });
 
   if (model.status !== "OK") {
-    throw new Error(model.error || "Historical chart generation failed.");
+    throw new Error(
+      model.error || "Historical chart generation failed."
+    );
   }
 
   const section = document.createElement("section");
@@ -98,12 +335,14 @@ function renderHistoricalCandlestickChart(candles, timeframe) {
   section.appendChild(heading);
 
   const description = document.createElement("p");
+
   description.textContent =
     `${model.totalCandles} candles | ${model.visibleCandles} displayed | ` +
     `${model.firstVisibleDate} to ${model.lastVisibleDate}`;
 
   description.style.fontSize = "12px";
   description.style.color = "#cbd5e1";
+
   section.appendChild(description);
 
   const svg = createSvgElement("svg", {
@@ -210,6 +449,7 @@ function renderHistoricalCandlestickChart(candles, timeframe) {
   section.appendChild(svg);
 
   const note = document.createElement("p");
+
   note.textContent =
     "केवल पुराने ऐतिहासिक OHLC डेटा का चार्ट; भविष्य की कीमत या ट्रेडिंग सलाह नहीं।";
 
@@ -305,6 +545,7 @@ function renderReadableValue(parent, label, value, depth = 0) {
   }
 
   const line = document.createElement("p");
+
   const displayValue =
     typeof value === "number"
       ? formatLevelNumber(value)
@@ -459,7 +700,8 @@ function buildDashboard(timeframe, candles) {
 
   state[timeframe] = {
     status: "VALID",
-    candleCount: candles.length
+    candleCount: candles.length,
+    report
   };
 
   updateCombinedStatus();
@@ -571,7 +813,8 @@ async function loadFromCloudflare(timeframe) {
   if (result.candles.length === 0) {
     state[timeframe] = {
       status: "WAITING_FOR_DATA",
-      candleCount: 0
+      candleCount: 0,
+      report: null
     };
 
     updateCombinedStatus();
@@ -638,7 +881,8 @@ async function loadTimeframe(timeframe) {
     if (timeframe === "15m") {
       state[timeframe] = {
         status: "WAITING_FOR_DATA",
-        candleCount: 0
+        candleCount: 0,
+        report: null
       };
 
       showStatus(
@@ -648,7 +892,8 @@ async function loadTimeframe(timeframe) {
     } else {
       state[timeframe] = {
         status: "ERROR",
-        candleCount: 0
+        candleCount: 0,
+        report: null
       };
 
       showStatus(

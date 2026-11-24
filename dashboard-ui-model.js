@@ -1,11 +1,4 @@
 
-// ======================================================
-// BADAL SEVERIYA V12
-// HISTORICAL DASHBOARD UI MODEL
-// Educational and historical analysis only
-// No forecasts, probabilities or trading recommendations
-// ======================================================
-
 const NOTE =
   "Historical educational dashboard only. No forecasts, probabilities or trading recommendations.";
 
@@ -86,10 +79,7 @@ function createCardModel(card, index) {
     order: index + 1,
     visible: true,
     collapsible: true,
-
-    // सभी छह सेक्शन शुरू से खुले रहेंगे।
-    defaultExpanded: true,
-
+    defaultExpanded: index < 3,
     content: card
   };
 }
@@ -112,13 +102,11 @@ function createResponsiveLayout() {
       cardDirection: "VERTICAL",
       scrollable: true
     },
-
     tablet: {
       columns: 2,
       cardDirection: "GRID",
       scrollable: true
     },
-
     desktop: {
       columns: 3,
       cardDirection: "GRID",

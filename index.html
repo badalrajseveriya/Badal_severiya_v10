@@ -8,6 +8,7 @@
   <title>BADAL SEVERIYA V12</title>
   <style>
     * { box-sizing: border-box; }
+
     body {
       margin: 0;
       padding: 16px;
@@ -15,6 +16,7 @@
       color: #f1f5f9;
       font-family: Arial, sans-serif;
     }
+
     header, .panel {
       padding: 18px;
       margin-bottom: 18px;
@@ -23,10 +25,17 @@
       border-radius: 12px;
       min-width: 0;
     }
+
     h1 { margin: 0 0 8px; font-size: 23px; color: #38bdf8; }
     h2 { color: #7dd3fc; font-size: 18px; }
     h3 { color: #7dd3fc; font-size: 16px; }
-    .subtitle, .muted { color: #cbd5e1; font-size: 13px; }
+    h4 { color: #7dd3fc; font-size: 14px; }
+
+    .subtitle, .muted {
+      color: #cbd5e1;
+      font-size: 13px;
+    }
+
     .notice {
       padding: 12px;
       margin-bottom: 18px;
@@ -37,11 +46,13 @@
       font-size: 13px;
       line-height: 1.5;
     }
+
     .timeframe-grid {
       display: grid;
       grid-template-columns: 1fr;
       gap: 16px;
     }
+
     .timeframe-panel {
       min-width: 0;
       padding: 16px;
@@ -49,13 +60,16 @@
       border: 1px solid #334155;
       border-radius: 12px;
     }
+
     .timeframe-panel h2 { margin-top: 0; }
+
     label {
       display: block;
       margin: 12px 0;
       color: #7dd3fc;
       font-weight: bold;
     }
+
     input[type="file"] {
       display: block;
       width: 100%;
@@ -65,6 +79,7 @@
       border: 1px solid #475569;
       border-radius: 8px;
     }
+
     .status {
       margin-top: 12px;
       color: #cbd5e1;
@@ -72,6 +87,7 @@
       line-height: 1.5;
       overflow-wrap: anywhere;
     }
+
     .status[data-state="error"] { color: #fca5a5; }
     .status[data-state="success"] { color: #86efac; }
 
@@ -82,15 +98,16 @@
       border: 1px solid #475569;
       border-radius: 12px;
     }
-    .master-summary h3 {
-      margin: 0 0 12px;
-    }
+
+    .master-summary h3 { margin: 0 0 12px; }
+
     .reference-grid,
     .percentage-grid {
       display: grid;
       grid-template-columns: repeat(3, minmax(0, 1fr));
       gap: 8px;
     }
+
     .reference-item,
     .percentage-item {
       min-width: 0;
@@ -99,35 +116,42 @@
       text-align: center;
       overflow-wrap: anywhere;
     }
+
     .reference-item {
       font-size: 12px;
       font-weight: bold;
       color: #111827;
     }
+
     .entry-item { background: #facc15; }
     .target-item { background: #16a34a; color: #ffffff; }
     .stop-item { background: #dc2626; color: #ffffff; }
 
     .percentage-grid { margin-top: 10px; }
+
     .percentage-item {
       background: #172338;
       border: 1px solid #334155;
     }
+
     .percentage-value {
       display: block;
       font-size: 22px;
       font-weight: bold;
       margin-bottom: 5px;
     }
+
     .up-value { color: #4ade80; }
     .down-value { color: #f87171; }
     .unclear-value { color: #cbd5e1; }
+
     .percentage-label {
       display: block;
       color: #cbd5e1;
       font-size: 11px;
       line-height: 1.35;
     }
+
     .summary-note {
       margin: 12px 0 0;
       color: #94a3b8;
@@ -141,6 +165,7 @@
       gap: 12px;
       margin-top: 16px;
     }
+
     .card {
       padding: 16px;
       background: #172338;
@@ -149,11 +174,85 @@
       min-width: 0;
       overflow-wrap: anywhere;
     }
+
     .card p {
       color: #cbd5e1;
       font-size: 13px;
       line-height: 1.5;
     }
+
+    /* Historical Period Stability */
+
+    .stability-section {
+      margin-top: 18px;
+      padding: 14px;
+      background: #0b1220;
+      border: 1px solid #475569;
+      border-radius: 12px;
+    }
+
+    .stability-section h3 {
+      margin-top: 0;
+    }
+
+    .stability-summary,
+    .stability-period-card {
+      margin-top: 12px;
+      padding: 13px;
+      background: #172338;
+      border: 1px solid #334155;
+      border-radius: 10px;
+      min-width: 0;
+    }
+
+    .stability-summary h4,
+    .stability-period-card h4 {
+      margin: 0 0 10px;
+    }
+
+    .stability-spread-grid,
+    .stability-period-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 7px;
+    }
+
+    .stability-spread-item,
+    .stability-period-item {
+      min-width: 0;
+      padding: 10px 4px;
+      background: #0b1220;
+      border: 1px solid #334155;
+      border-radius: 8px;
+      text-align: center;
+      overflow-wrap: anywhere;
+    }
+
+    .stability-value {
+      display: block;
+      font-size: 19px;
+      font-weight: bold;
+      margin-bottom: 5px;
+    }
+
+    .stability-bullish { color: #4ade80; }
+    .stability-bearish { color: #f87171; }
+    .stability-neutral { color: #cbd5e1; }
+
+    .stability-label {
+      display: block;
+      color: #cbd5e1;
+      font-size: 11px;
+      line-height: 1.4;
+    }
+
+    .stability-date {
+      color: #94a3b8;
+      font-size: 11px;
+      line-height: 1.5;
+      overflow-wrap: anywhere;
+    }
+
     #combined-analysis {
       padding: 18px;
       margin-top: 18px;
@@ -161,6 +260,7 @@
       border: 1px solid #334155;
       border-radius: 12px;
     }
+
     footer {
       margin-top: 22px;
       padding: 14px 0;
@@ -168,18 +268,23 @@
       font-size: 12px;
       text-align: center;
     }
+
     @media (min-width: 800px) {
       .timeframe-grid { grid-template-columns: 1fr 1fr; }
     }
+
     @media (max-width: 360px) {
       body { padding: 9px; }
       .timeframe-panel { padding: 10px; }
       .reference-item { font-size: 10px; }
       .percentage-value { font-size: 19px; }
       .percentage-label { font-size: 10px; }
+      .stability-value { font-size: 16px; }
+      .stability-label { font-size: 10px; }
     }
   </style>
 </head>
+
 <body>
   <header>
     <h1>BADAL SEVERIYA V12</h1>
@@ -197,6 +302,8 @@
   <main>
     <div class="timeframe-grid">
 
+      <!-- 1D PANEL -->
+
       <section class="timeframe-panel" id="panel-1d">
         <h2>1D — Daily Analysis</h2>
         <p class="muted">
@@ -205,25 +312,30 @@
 
         <section class="master-summary" id="master-summary-1d">
           <h3>1D — Master Summary</h3>
+
           <div class="reference-grid">
             <div class="reference-item entry-item">ENTRY</div>
             <div class="reference-item target-item">TARGET</div>
             <div class="reference-item stop-item">STOP LOSS</div>
           </div>
+
           <div class="percentage-grid">
             <div class="percentage-item">
               <span class="percentage-value up-value" id="up-percent-1d">--%</span>
               <span class="percentage-label">ऊपर के ऐतिहासिक पैटर्न</span>
             </div>
+
             <div class="percentage-item">
               <span class="percentage-value down-value" id="down-percent-1d">--%</span>
               <span class="percentage-label">नीचे के ऐतिहासिक पैटर्न</span>
             </div>
+
             <div class="percentage-item">
               <span class="percentage-value unclear-value" id="unclear-percent-1d">--%</span>
               <span class="percentage-label">कुछ स्पष्ट नहीं</span>
             </div>
           </div>
+
           <p class="summary-note" id="summary-status-1d">
             ऐतिहासिक परीक्षण की प्रतीक्षा है।
           </p>
@@ -231,16 +343,35 @@
 
         <label for="historical-file">1D CSV या JSON फाइल चुनें</label>
         <input id="historical-file" type="file" accept=".csv,.json">
+
         <div id="import-status" class="status" role="status" aria-live="polite">
           1D डेटा लोड होने की प्रतीक्षा है।
         </div>
+
         <div id="analysis-results" class="analysis-results">
           <section class="card">
             <h3>1D Analysis</h3>
             <p>दैनिक ऐतिहासिक विश्लेषण यहाँ दिखाई देगा।</p>
           </section>
         </div>
+
+        <!-- 1D STABILITY -->
+
+        <section class="stability-section" id="stability-panel-1d">
+          <h3>1D — Historical Period Stability</h3>
+          <p class="muted">
+            पुराने दैनिक डेटा को चार बराबर अवधियों में बाँटकर तुलना।
+          </p>
+
+          <div id="stability-status-1d" class="status" role="status" aria-live="polite">
+            ऐतिहासिक अवधियों की जाँच की प्रतीक्षा है।
+          </div>
+
+          <div id="stability-results-1d"></div>
+        </section>
       </section>
+
+      <!-- 15M PANEL -->
 
       <section class="timeframe-panel" id="panel-15m">
         <h2>15M — Intraday Historical Analysis</h2>
@@ -250,25 +381,30 @@
 
         <section class="master-summary" id="master-summary-15m">
           <h3>15M — Master Summary</h3>
+
           <div class="reference-grid">
             <div class="reference-item entry-item">ENTRY</div>
             <div class="reference-item target-item">TARGET</div>
             <div class="reference-item stop-item">STOP LOSS</div>
           </div>
+
           <div class="percentage-grid">
             <div class="percentage-item">
               <span class="percentage-value up-value" id="up-percent-15m">--%</span>
               <span class="percentage-label">ऊपर के ऐतिहासिक पैटर्न</span>
             </div>
+
             <div class="percentage-item">
               <span class="percentage-value down-value" id="down-percent-15m">--%</span>
               <span class="percentage-label">नीचे के ऐतिहासिक पैटर्न</span>
             </div>
+
             <div class="percentage-item">
               <span class="percentage-value unclear-value" id="unclear-percent-15m">--%</span>
               <span class="percentage-label">कुछ स्पष्ट नहीं</span>
             </div>
           </div>
+
           <p class="summary-note" id="summary-status-15m">
             15M डेटा उपलब्ध होने की प्रतीक्षा है।
           </p>
@@ -276,18 +412,36 @@
 
         <label for="historical-file-15m">15M CSV या JSON फाइल चुनें</label>
         <input id="historical-file-15m" type="file" accept=".csv,.json">
+
         <div id="import-status-15m" class="status" role="status" aria-live="polite">
           15M डेटा की प्रतीक्षा है।
         </div>
+
         <div id="analysis-results-15m" class="analysis-results">
           <section class="card">
             <h3>15M Analysis</h3>
             <p>15 मिनट का ऐतिहासिक विश्लेषण यहाँ दिखाई देगा।</p>
           </section>
         </div>
-      </section>
 
+        <!-- 15M STABILITY -->
+
+        <section class="stability-section" id="stability-panel-15m">
+          <h3>15M — Historical Period Stability</h3>
+          <p class="muted">
+            15 मिनट के पुराने डेटा की चार अवधियों में तुलना।
+          </p>
+
+          <div id="stability-status-15m" class="status" role="status" aria-live="polite">
+            15M डेटा उपलब्ध होने की प्रतीक्षा है।
+          </div>
+
+          <div id="stability-results-15m"></div>
+        </section>
+      </section>
     </div>
+
+    <!-- COMBINED ANALYSIS -->
 
     <section id="combined-analysis">
       <h2>Combined Historical Analysis</h2>
@@ -295,6 +449,7 @@
         1D और 15M के उपलब्ध ऐतिहासिक परिणामों की तुलना।
         दोनों टाइमफ्रेम का विश्लेषण अलग-अलग रखा जाएगा।
       </p>
+
       <div id="combined-status" class="status">
         दोनों टाइमफ्रेम के विश्लेषण की प्रतीक्षा है।
       </div>
@@ -307,5 +462,6 @@
 
   <script type="module" src="./historical-dashboard-browser.js?v=20261124-4"></script>
   <script type="module" src="./historical-candle-composition-ui.js?v=20261124-1"></script>
+  <script type="module" src="./historical-candle-stability-ui.js?v=20261124-1"></script>
 </body>
 </html>

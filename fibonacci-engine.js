@@ -43,13 +43,23 @@ function validateCandles(candles) {
       throw new Error(`Invalid candle timestamp at index ${i}`);
     }
 
+    // OHLC is mandatory. Volume may be unavailable
+    // for index data such as NIFTY 50.
     const values = [
       c.open,
       c.high,
       c.low,
-      c.close,
-      c.volume
+      c.close
     ];
+
+    const volumeMissing =
+      c.volume === null ||
+      c.volume === undefined ||
+      c.volume === "";
+
+    const invalidVolume =
+      !volumeMissing &&
+      (!Number.isFinite(c.volume) || c.volume < 0);
 
     if (
       !values.every(Number.isFinite) ||
@@ -57,7 +67,7 @@ function validateCandles(candles) {
       c.high <= 0 ||
       c.low <= 0 ||
       c.close <= 0 ||
-      c.volume < 0 ||
+      invalidVolume ||
       c.high < Math.max(c.open, c.close, c.low) ||
       c.low > Math.min(c.open, c.close, c.high)
     ) {

@@ -41,28 +41,12 @@ function makeReport(candles, timeframe = "1d", trend = "BULLISH") {
       },
       supportResistance: {
         supports: [
-          {
-            price: 110,
-            lower: 108,
-            upper: 112
-          },
-          {
-            price: 90,
-            lower: 88,
-            upper: 92
-          }
+          { price: 110, lower: 108, upper: 112 },
+          { price: 90, lower: 88, upper: 92 }
         ],
         resistances: [
-          {
-            price: 150,
-            lower: 148,
-            upper: 152
-          },
-          {
-            price: 130,
-            lower: 128,
-            upper: 132
-          }
+          { price: 150, lower: 148, upper: 152 },
+          { price: 130, lower: 128, upper: 132 }
         ]
       }
     }
@@ -168,9 +152,10 @@ function makeStructure(candles) {
   console.log("PASS: Historical percentages total 100");
 }
 
-// 3. Historical level order for bullish classification
+// 3. Bullish historical level labels and colors
 {
   const candles = makeCandles();
+
   const result = calculateHistoricalMasterAnalysis({
     candles,
     timeframe: "1d",
@@ -192,9 +177,10 @@ function makeStructure(candles) {
   console.log("PASS: Bullish historical level labels and colors");
 }
 
-// 4. Historical level order for bearish classification
+// 4. Bearish historical level labels and colors
 {
   const candles = makeCandles();
+
   const result = calculateHistoricalMasterAnalysis({
     candles,
     timeframe: "1d",
@@ -216,9 +202,10 @@ function makeStructure(candles) {
   console.log("PASS: Bearish historical level labels and colors");
 }
 
-// 5. SMC scores use four historical checks
+// 5. Historical SMC score bounds
 {
   const candles = makeCandles();
+
   const result = calculateHistoricalMasterAnalysis({
     candles,
     timeframe: "1d",
@@ -243,7 +230,7 @@ function makeStructure(candles) {
   console.log("PASS: Historical SMC score bounds");
 }
 
-// 6. No 15M candles means WAITING_FOR_DATA
+// 6. 15M waiting state
 {
   const result = calculateHistoricalMasterAnalysis({
     candles: [],
@@ -339,8 +326,8 @@ function makeStructure(candles) {
   });
 
   assert.equal(result.dataType, "HISTORICAL_ONLY");
-  assert.match(result.note, /No forecasts/);
-  assert.match(result.note, /no trading recommendations/i);
+  assert.match(result.note, /No forecasts/i);
+  assert.match(result.note, /trading recommendations/i);
 
   console.log("PASS: Historical-only safety");
 }

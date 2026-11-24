@@ -7,24 +7,48 @@ import {
 
 const START = Date.UTC(2026, 0, 1, 3, 45);
 
-function makeCandles(count = 300) {
-  return Array.from({ length: count }, (_, i) => {
-    const close =
-      25000 +
-      Math.sin(i / 5) * 100 +
-      i * 0.5;
+function makeCandle(index, timestamp) {
+  const close =
+    25000 +
+    Math.sin(index / 5) * 100 +
+    index * 0.5;
 
-    return {
-      timestamp: new Date(
-        START + i * 15 * 60 * 1000
-      ).toISOString(),
-      open: close - 5,
-      high: close + 15,
-      low: close - 15,
-      close,
-      volume: 1000 + i * 2
-    };
-  });
+  return {
+    timestamp: new Date(timestamp).toISOString(),
+    open: close - 5,
+    high: close + 15,
+    low: close - 15,
+    close,
+    volume: 1000 + index * 2
+  };
+}
+
+function makeCandles(
+  count = 300,
+  intervalMs = 15 * 60 * 1000
+) {
+  return Array.from({ length: count }, (_, i) =>
+    makeCandle(i, START + i * intervalMs)
+  );
+}
+
+function makeDailyCandles(count = 220) {
+  const candles = [];
+  let timestamp = Date.UTC(2025, 0, 1, 10, 0);
+
+  while (candles.length < count) {
+    const day = new Date(timestamp).getUTCDay();
+
+    if (day !== 0 && day !== 6) {
+      candles.push(
+        makeCandle(candles.length, timestamp)
+      );
+    }
+
+    timestamp += 24 * 60 * 60 * 1000;
+  }
+
+  return candles;
 }
 
 function makeReport() {
@@ -306,4 +330,32 @@ function makeReport() {
   console.log("PASS: Generated timestamp validation");
 }
 
-console.log("ALL 21 HISTORICAL REPORT TESTS PASSED");
+// 22. Daily historical report
+{
+  const result = generateHistoricalReport({
+    candles: makeDailyCandles(220),
+    timeframe: "1d"
+  });
+
+  assert.equal(result.status, "OK");
+  assert.equal(result.reportInfo.timeframe, "1d");
+  assert.equal(result.reportInfo.candleCount, 220);
+
+  console.log("PASS: 1D historical report");
+}
+
+// 23. Daily data quality validation
+{
+  const result = generateHistoricalReport({
+    candles: makeDailyCandles(220),
+    timeframe: "1d"
+  });
+
+  assert.equal(result.status, "OK");
+  assert.equal(result.sections.dataQuality.quality, "VALID");
+  assert.equal(result.sections.dataQuality.issueCount, 0);
+
+  console.log("PASS: 1D data quality");
+}
+
+console.log("ALL 23 HISTORICAL REPORT TESTS PASSED");

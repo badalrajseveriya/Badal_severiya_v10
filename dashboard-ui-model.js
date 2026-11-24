@@ -18,10 +18,6 @@ const REQUIRED_CARD_IDS = [
   "candle-patterns"
 ];
 
-// ------------------------------------------------------
-// HELPERS
-// ------------------------------------------------------
-
 function isObject(value) {
   return (
     value !== null &&
@@ -33,10 +29,6 @@ function isObject(value) {
 function safeArray(value) {
   return Array.isArray(value) ? value : [];
 }
-
-// ------------------------------------------------------
-// INPUT VALIDATION
-// ------------------------------------------------------
 
 function validateDisplayData(display) {
   const errors = [];
@@ -87,10 +79,6 @@ function validateDisplayData(display) {
   };
 }
 
-// ------------------------------------------------------
-// UI CARD MODEL
-// ------------------------------------------------------
-
 function createCardModel(card, index) {
   return {
     id: card.id,
@@ -98,14 +86,13 @@ function createCardModel(card, index) {
     order: index + 1,
     visible: true,
     collapsible: true,
-    defaultExpanded: index < 3,
+
+    // सभी छह सेक्शन शुरू से खुले रहेंगे।
+    defaultExpanded: true,
+
     content: card
   };
 }
-
-// ------------------------------------------------------
-// SCREEN MODEL
-// ------------------------------------------------------
 
 function createScreenModel(screen) {
   return {
@@ -117,10 +104,6 @@ function createScreenModel(screen) {
     generatedAt: screen.generatedAt
   };
 }
-
-// ------------------------------------------------------
-// RESPONSIVE LAYOUT MODEL
-// ------------------------------------------------------
 
 function createResponsiveLayout() {
   return {
@@ -143,10 +126,6 @@ function createResponsiveLayout() {
     }
   };
 }
-
-// ------------------------------------------------------
-// MAIN UI MODEL
-// ------------------------------------------------------
 
 export function createHistoricalDashboardUIModel(display) {
   try {

@@ -17,6 +17,7 @@
     "test:comparison": "node timeframe-comparison.test.js",
     "test:candle-composition": "node historical-candle-composition.test.js",
     "test:candle-stability": "node historical-candle-stability.test.js",
+    "test:master-analysis": "node historical-master-analysis.test.js",
     "test:dashboard": "node dashboard-data.test.js",
     "test:dashboard-display": "node dashboard-display.test.js",
     "test:dashboard-ui": "node dashboard-ui-model.test.js",
@@ -29,6 +30,6 @@
     "test:import": "node historical-data-import.test.js",
     "test:worker": "node data-worker.test.js",
     "test:angelone": "node angelone-converter.test.js",
-    "test": "npm run test:decoder && npm run test:market && npm run test:structure && npm run test:support && npm run test:fibonacci && npm run test:candles && npm run test:integration && npm run test:data-quality && npm run test:report && npm run test:comparison && npm run test:candle-composition && npm run test:candle-stability && npm run test:dashboard && npm run test:dashboard-display && npm run test:dashboard-ui && npm run test:dashboard-renderer && npm run test:pipeline && npm run test:validation && npm run test:consistency && npm run test:panel-integrity && npm run test:ui-integrity && npm run test:import && npm run test:worker && npm run test:angelone"
+    "test": "npm run test:decoder && npm run test:market && npm run test:structure && npm run test:support && npm run test:fibonacci && npm run test:candles && npm run test:integration && npm run test:data-quality && npm run test:report && npm run test:comparison && npm run test:candle-composition && npm run test:candle-stability && npm run test:master-analysis && npm run test:dashboard && npm run test:dashboard-display && npm run test:dashboard-ui && npm run test:dashboard-renderer && npm run test:pipeline && npm run test:validation && npm run test:consistency && npm run test:panel-integrity && npm run test:ui-integrity && npm run test:import && npm run test:worker && npm run test:angelone"
   }
 }

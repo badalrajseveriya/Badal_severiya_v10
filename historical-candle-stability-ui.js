@@ -1,0 +1,420 @@
+
+import { parseHistoricalDataText } from "./historical-data-import.js";
+import {
+  calculateHistoricalPeriodStability
+} from "./historical-candle-stability.js";
+
+// ======================================================
+// BADAL SEVERIYA V12
+// HISTORICAL PERIOD STABILITY UI
+// Retrospective comparison only
+// ======================================================
+
+const API_BASE =
+  "https://badal-severiya-data.mrstarrdbs.workers.dev";
+
+const TIMEFRAMES = {
+  "1d": {
+    container: "stability-results-1d",
+    status: "stability-status-1d",
+    input: "historical-file",
+    storageKey: "badal-severiya-v12-historical-import-1d"
+  },
+  "15m": {
+    container: "stability-results-15m",
+    status: "stability-status-15m",
+    input: "historical-file-15m",
+    storageKey: "badal-severiya-v12-historical-import-15m"
+  }
+};
+
+function getElement(id) {
+  return document.getElementById(id);
+}
+
+function setStatus(timeframe, message) {
+  const config = TIMEFRAMES[timeframe];
+  const element = getElement(config.status);
+
+  if (element) {
+    element.textContent = message;
+  }
+}
+
+function clearResults(timeframe) {
+  const config = TIMEFRAMES[timeframe];
+  const container = getElement(config.container);
+
+  if (container) {
+    container.replaceChildren();
+  }
+}
+
+function addText(parent, tag, text, className = "") {
+  const element = document.createElement(tag);
+  element.textContent = String(text);
+
+  if (className) {
+    element.className = className;
+  }
+
+  parent.appendChild(element);
+  return element;
+}
+
+function formatDate(value) {
+  if (value === undefined || value === null) {
+    return "उपलब्ध नहीं";
+  }
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return String(value);
+  }
+
+  return date.toLocaleString("en-IN", {
+    year: "numeric",
+    month: "short",
+    day: "2-digit"
+  });
+}
+
+function renderPeriod(timeframe, result) {
+  const config = TIMEFRAMES[timeframe];
+  const container = getElement(config.container);
+
+  if (!container) return;
+
+  container.replaceChildren();
+
+  if (result.status !== "OK") {
+    setStatus(
+      timeframe,
+      `पर्याप्त डेटा नहीं है। उपलब्ध: ${result.sampleSize}, आवश्यक: ${result.requiredCandles}`
+    );
+    return;
+  }
+
+  const summary = document.createElement("section");
+  summary.className = "stability-summary";
+
+  addText(
+    summary,
+    "h4",
+    "चारों अवधियों का अंतर"
+  );
+
+  const spread = result.percentageSpread;
+
+  const spreadGrid = document.createElement("div");
+  spreadGrid.className = "stability-spread-grid";
+
+  const spreadItems = [
+    {
+      label: "बुलिश अंतर",
+      value: spread.bullish,
+      className: "stability-bullish"
+    },
+    {
+      label: "बेयरिश अंतर",
+      value: spread.bearish,
+      className: "stability-bearish"
+    },
+    {
+      label: "न्यूट्रल अंतर",
+      value: spread.neutral,
+      className: "stability-neutral"
+    }
+  ];
+
+  for (const item of spreadItems) {
+    const card = document.createElement("div");
+    card.className = "stability-spread-item";
+
+    addText(
+      card,
+      "span",
+      `${item.value}%`,
+      `stability-value ${item.className}`
+    );
+
+    addText(
+      card,
+      "span",
+      item.label,
+      "stability-label"
+    );
+
+    spreadGrid.appendChild(card);
+  }
+
+  summary.appendChild(spreadGrid);
+  container.appendChild(summary);
+
+  for (const period of result.segments) {
+    const card = document.createElement("section");
+    card.className = "stability-period-card";
+
+    addText(
+      card,
+      "h4",
+      `अवधि ${period.period}`
+    );
+
+    addText(
+      card,
+      "p",
+      `डेटा: ${period.sampleSize} कैंडल्स | ${formatDate(period.startTime)} से ${formatDate(period.endTime)}`,
+      "stability-date"
+    );
+
+    const percentages = period.percentages;
+
+    const values = document.createElement("div");
+    values.className = "stability-period-grid";
+
+    const items = [
+      {
+        label: "बुलिश",
+        value: percentages.bullish,
+        count: period.counts.bullish,
+        className: "stability-bullish"
+      },
+      {
+        label: "बेयरिश",
+        value: percentages.bearish,
+        count: period.counts.bearish,
+        className: "stability-bearish"
+      },
+      {
+        label: "न्यूट्रल",
+        value: percentages.neutral,
+        count: period.counts.neutral,
+        className: "stability-neutral"
+      }
+    ];
+
+    for (const item of items) {
+      const cell = document.createElement("div");
+      cell.className = "stability-period-item";
+
+      addText(
+        cell,
+        "span",
+        `${item.value}%`,
+        `stability-value ${item.className}`
+      );
+
+      addText(
+        cell,
+        "span",
+        `${item.label} (${item.count})`,
+        "stability-label"
+      );
+
+      values.appendChild(cell);
+    }
+
+    card.appendChild(values);
+    container.appendChild(card);
+  }
+
+  setStatus(
+    timeframe,
+    `${result.segmentCount} ऐतिहासिक अवधियों की तुलना पूरी। कुल ${result.sampleSize} कैंडल्स। यह केवल पिछला डेटा है, भविष्य का अनुमान नहीं।`
+  );
+}
+
+function parseCandles(candles, timeframe, filename) {
+  const imported = parseHistoricalDataText(
+    JSON.stringify(candles),
+    filename,
+    timeframe
+  );
+
+  if (imported.status !== "OK") {
+    throw new Error(imported.error);
+  }
+
+  return imported.candles;
+}
+
+function analyze(timeframe, candles) {
+  const result = calculateHistoricalPeriodStability(
+    candles,
+    {
+      timeframe,
+      segments: 4,
+      minCandlesPerSegment: 20
+    }
+  );
+
+  renderPeriod(timeframe, result);
+  return result;
+}
+
+function loadSavedData(timeframe) {
+  const config = TIMEFRAMES[timeframe];
+
+  try {
+    const savedText = localStorage.getItem(
+      config.storageKey
+    );
+
+    if (!savedText) return false;
+
+    const saved = JSON.parse(savedText);
+
+    if (
+      !saved ||
+      !Array.isArray(saved.candles) ||
+      saved.timeframe !== timeframe
+    ) {
+      return false;
+    }
+
+    const candles = parseCandles(
+      saved.candles,
+      timeframe,
+      "saved-historical-data.json"
+    );
+
+    analyze(timeframe, candles);
+    return true;
+  } catch (error) {
+    console.warn(
+      `${timeframe} stability saved-data error:`,
+      error
+    );
+
+    return false;
+  }
+}
+
+async function loadCloudflareData(timeframe) {
+  const url =
+    `${API_BASE}/api/data/candles` +
+    `?index=NIFTY&timeframe=${timeframe}&limit=5000`;
+
+  const response = await fetch(url, {
+    method: "GET",
+    cache: "no-store"
+  });
+
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}`);
+  }
+
+  const result = await response.json();
+
+  if (
+    !result ||
+    result.app !== "BADAL SEVERIYA DATA V11" ||
+    !Array.isArray(result.candles)
+  ) {
+    throw new Error("API response सही नहीं है।");
+  }
+
+  if (result.candles.length === 0) {
+    return false;
+  }
+
+  const candles = parseCandles(
+    result.candles,
+    timeframe,
+    `cloudflare-${timeframe}.json`
+  );
+
+  analyze(timeframe, candles);
+  return true;
+}
+
+async function initializeTimeframe(timeframe) {
+  clearResults(timeframe);
+
+  setStatus(
+    timeframe,
+    "ऐतिहासिक अवधियों की जाँच हो रही है..."
+  );
+
+  try {
+    const loaded = await loadCloudflareData(timeframe);
+
+    if (loaded) return;
+
+    if (loadSavedData(timeframe)) return;
+
+    setStatus(
+      timeframe,
+      timeframe === "15m"
+        ? "15M डेटा उपलब्ध नहीं है — WAITING_FOR_DATA"
+        : "ऐतिहासिक डेटा उपलब्ध नहीं है।"
+    );
+  } catch (error) {
+    console.warn(
+      `${timeframe} stability loading error:`,
+      error
+    );
+
+    if (loadSavedData(timeframe)) return;
+
+    setStatus(
+      timeframe,
+      timeframe === "15m"
+        ? "15M डेटा उपलब्ध नहीं है — WAITING_FOR_DATA"
+        : `ऐतिहासिक जाँच उपलब्ध नहीं: ${error.message}`
+    );
+  }
+}
+
+function setupFileImport(timeframe) {
+  const config = TIMEFRAMES[timeframe];
+  const input = getElement(config.input);
+
+  if (!input) {
+    console.warn(
+      `Stability file input missing: ${timeframe}`
+    );
+    return;
+  }
+
+  input.addEventListener("change", async event => {
+    const file = event.target.files?.[0];
+
+    if (!file) return;
+
+    setStatus(
+      timeframe,
+      "फाइल के ऐतिहासिक डेटा की जाँच हो रही है..."
+    );
+
+    try {
+      const imported = parseHistoricalDataText(
+        await file.text(),
+        file.name,
+        timeframe
+      );
+
+      if (imported.status !== "OK") {
+        throw new Error(imported.error);
+      }
+
+      analyze(timeframe, imported.candles);
+    } catch (error) {
+      clearResults(timeframe);
+
+      setStatus(
+        timeframe,
+        `ऐतिहासिक जाँच नहीं हो सकी: ${error.message}`
+      );
+    }
+  });
+}
+
+for (const timeframe of ["1d", "15m"]) {
+  setupFileImport(timeframe);
+}
+
+initializeTimeframe("1d");
+initializeTimeframe("15m");

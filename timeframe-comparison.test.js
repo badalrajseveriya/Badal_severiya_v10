@@ -216,4 +216,48 @@ function makeIntradayReport() {
   console.log("PASS 10: Historical-only safety");
 }
 
-console.log("ALL 10 TIMEFRAME COMPARISON TESTS PASSED");
+// TEST 11: Support and resistance arrays reach snapshot
+{
+  const dailyReport = makeDailyReport();
+
+  const result = compareHistoricalTimeframes(
+    dailyReport,
+    null
+  );
+
+  assert.equal(result.status, "WAITING_FOR_DATA");
+
+  assert.deepEqual(
+    result.daily.supportResistance.supports,
+    dailyReport.sections.supportResistance.supports
+  );
+
+  assert.deepEqual(
+    result.daily.supportResistance.resistances,
+    dailyReport.sections.supportResistance.resistances
+  );
+
+  console.log("PASS 11: Support and resistance details preserved");
+}
+
+// TEST 12: Support and resistance counts match details
+{
+  const result = compareHistoricalTimeframes(
+    makeDailyReport(),
+    null
+  );
+
+  assert.equal(
+    result.daily.supportResistance.supportCount,
+    result.daily.supportResistance.supports.length
+  );
+
+  assert.equal(
+    result.daily.supportResistance.resistanceCount,
+    result.daily.supportResistance.resistances.length
+  );
+
+  console.log("PASS 12: Support and resistance count consistency");
+}
+
+console.log("ALL 12 TIMEFRAME COMPARISON TESTS PASSED");

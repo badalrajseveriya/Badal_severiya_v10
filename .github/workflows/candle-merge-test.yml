@@ -1,3 +1,4 @@
+
 name: Historical Candle Merge Test
 
 on:
@@ -9,6 +10,9 @@ on:
       - "historical-candle-merge.test.js"
       - "historical-candle-batch-import.js"
       - "historical-candle-batch-import.test.js"
+      - "historical-data-import.js"
+      - "historical-data-import-controller.js"
+      - "historical-data-import-controller.test.js"
       - "package.json"
       - ".github/workflows/candle-merge-test.yml"
 
@@ -27,5 +31,11 @@ jobs:
         with:
           node-version: "22"
 
-      - name: Run Candle Merge and Batch Import Tests
-        run: npm run test:candle-merge && npm run test:candle-batch-import
+      - name: Run Historical Candle Merge Tests
+        run: npm run test:candle-merge
+
+      - name: Run Historical Candle Batch Import Tests
+        run: npm run test:candle-batch-import
+
+      - name: Run Historical Data Import Controller Tests
+        run: npm run test:import-controller

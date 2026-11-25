@@ -1,0 +1,300 @@
+
+<!DOCTYPE html>
+<html lang="hi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>BADAL SEVERIYA V12 - Historical Readback</title>
+  <style>
+    body {
+      margin: 0;
+      padding: 16px;
+      background: #10131a;
+      color: #f1f5f9;
+      font-family: Arial, sans-serif;
+    }
+    .card {
+      background: #1b2230;
+      border: 1px solid #354052;
+      border-radius: 12px;
+      padding: 16px;
+      margin-bottom: 14px;
+    }
+    h2 { color: #60a5fa; }
+    button {
+      width: 100%;
+      padding: 14px;
+      margin-top: 12px;
+      border: 0;
+      border-radius: 8px;
+      background: #2563eb;
+      color: white;
+      font-size: 16px;
+      font-weight: bold;
+    }
+    button:disabled { opacity: .5; }
+    input, select {
+      width: 100%;
+      box-sizing: border-box;
+      padding: 12px;
+      margin-top: 8px;
+      background: #0f172a;
+      color: white;
+      border: 1px solid #475569;
+      border-radius: 8px;
+    }
+    pre {
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+      font-size: 12px;
+      color: #cbd5e1;
+    }
+    .muted { color: #94a3b8; font-size: 13px; }
+    .status { font-weight: bold; color: #fbbf24; }
+  </style>
+</head>
+<body>
+  <h2>BADAL SEVERIYA V12</h2>
+  <p>Historical Candle Database Read-back Verification</p>
+
+  <div class="card">
+    <h3>1. Historical CSV / JSON Files</h3>
+    <p class="muted">
+      अपनी सभी 15-minute historical files एक साथ चुनें।
+      प्रत्येक फाइल में अधिकतम 5000 candles हो सकती हैं।
+    </p>
+    <input id="files" type="file" accept=".csv,.json,text/csv,application/json" multiple>
+    <p id="fileInfo" class="muted">अभी कोई फाइल नहीं चुनी गई।</p>
+  </div>
+
+  <div class="card">
+    <h3>2. Database Settings</h3>
+    <label>API Base URL</label>
+    <input id="apiUrl" type="url"
+      value="https://badal-severiya-data.mrstarrdbs.workers.dev">
+
+    <label>Index</label>
+    <select id="index">
+      <option value="NIFTY">NIFTY</option>
+      <option value="BANKNIFTY">BANKNIFTY</option>
+      <option value="FINNIFTY">FINNIFTY</option>
+    </select>
+
+    <label>Timeframe</label>
+    <select id="timeframe">
+      <option value="15m">15 Minutes</option>
+    </select>
+
+    <button id="verifyBtn">START DATABASE VERIFICATION</button>
+  </div>
+
+  <div class="card">
+    <h3>3. Verification Progress</h3>
+    <p id="status" class="status">WAITING</p>
+    <pre id="progress">अभी जाँच शुरू नहीं हुई है।</pre>
+  </div>
+
+  <div class="card">
+    <h3>4. Final Report</h3>
+    <pre id="report">रिपोर्ट यहाँ दिखाई देगी।</pre>
+    <button id="downloadBtn" disabled>DOWNLOAD REPORT JSON</button>
+  </div>
+
+<script type="module">
+  import {
+    parseHistoricalDataText
+  } from "./historical-data-import.js";
+
+  import {
+    mergeHistoricalCandles
+  } from "./historical-candle-merge.js";
+
+  import {
+    verifyHistoricalCandleReadBack
+  } from "./historical-candle-api-verifier.js";
+
+  const fileInput = document.getElementById("files");
+  const fileInfo = document.getElementById("fileInfo");
+  const verifyBtn = document.getElementById("verifyBtn");
+  const statusBox = document.getElementById("status");
+  const progressBox = document.getElementById("progress");
+  const reportBox = document.getElementById("report");
+  const downloadBtn = document.getElementById("downloadBtn");
+
+  let finalReport = null;
+
+  fileInput.addEventListener("change", () => {
+    const files = Array.from(fileInput.files || []);
+    fileInfo.textContent =
+      files.length + " फाइल चुनी गई हैं।";
+    finalReport = null;
+    downloadBtn.disabled = true;
+  });
+
+  verifyBtn.addEventListener("click", async () => {
+    verifyBtn.disabled = true;
+    downloadBtn.disabled = true;
+    finalReport = null;
+    reportBox.textContent = "जाँच जारी है...";
+    progressBox.textContent = "";
+    statusBox.textContent = "PROCESSING";
+
+    try {
+      const files = Array.from(fileInput.files || []);
+
+      if (files.length === 0) {
+        throw new Error("पहले CSV या JSON फाइल चुनें।");
+      }
+
+      if (files.length > 100) {
+        throw new Error("एक बार में अधिकतम 100 फाइलें चुनें।");
+      }
+
+      const allCandles = [];
+      let originalCount = 0;
+      const fileResults = [];
+
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        const content = await file.text();
+
+        const parsed = parseHistoricalDataText(
+          content,
+          file.name,
+          "1d"
+        );
+
+        if (parsed.status !== "OK") {
+          throw new Error(
+            file.name + ": " + parsed.error
+          );
+        }
+
+        originalCount += parsed.candleCount;
+        allCandles.push(...parsed.candles);
+
+        fileResults.push({
+          name: file.name,
+          candles: parsed.candleCount
+        });
+
+        progressBox.textContent =
+          "फाइलें पढ़ी जा रही हैं: " +
+          (i + 1) + "/" + files.length +
+          "\nकुल पढ़ी गई candles: " + originalCount;
+      }
+
+      const expectedCandles = mergeHistoricalCandles(
+        [],
+        allCandles
+      );
+
+      if (expectedCandles.length === 0) {
+        throw new Error("कोई valid candle नहीं मिली।");
+      }
+
+      const apiBaseUrl =
+        document.getElementById("apiUrl").value.trim();
+
+      const index =
+        document.getElementById("index").value;
+
+      const timeframe =
+        document.getElementById("timeframe").value;
+
+      if (!apiBaseUrl) {
+        throw new Error("API URL खाली है।");
+      }
+
+      statusBox.textContent = "CHECKING DATABASE";
+
+      const healthResponse = await fetch(
+        apiBaseUrl.replace(/\/+$/, "") + "/api/health"
+      );
+
+      if (!healthResponse.ok) {
+        throw new Error(
+          "Database health check failed. HTTP " +
+          healthResponse.status
+        );
+      }
+
+      const health = await healthResponse.json();
+
+      if (health.status !== "OK") {
+        throw new Error("Database health status OK नहीं है।");
+      }
+
+      progressBox.textContent =
+        "Database connected.\n" +
+        "Expected unique candles: " +
+        expectedCandles.length +
+        "\nअब सभी database pages पढ़े जा रहे हैं।";
+
+      const result = await verifyHistoricalCandleReadBack(
+        expectedCandles,
+        {
+          apiBaseUrl,
+          index,
+          timeframe,
+          pageSize: 5000,
+          onProgress(info) {
+            progressBox.textContent =
+              "Database read-back जारी है।\n" +
+              "Pages read: " + info.pagesRead +
+              "\nRows read: " + info.rowsRead +
+              "\nUnique candles: " + info.uniqueCandles +
+              "\nCurrent offset: " + info.offset;
+          }
+        }
+      );
+
+      finalReport = {
+        ...result,
+        inputFileCount: files.length,
+        inputRowCount: originalCount,
+        duplicateRowsInFiles:
+          originalCount - expectedCandles.length,
+        files: fileResults,
+        databaseHealth: health
+      };
+
+      statusBox.textContent = result.status;
+
+      reportBox.textContent =
+        JSON.stringify(finalReport, null, 2);
+
+      downloadBtn.disabled = false;
+
+      progressBox.textContent +=
+        "\n\nVerification completed.";
+
+    } catch (error) {
+      statusBox.textContent = "ERROR";
+      reportBox.textContent =
+        error?.message || String(error);
+    } finally {
+      verifyBtn.disabled = false;
+    }
+  });
+
+  downloadBtn.addEventListener("click", () => {
+    if (!finalReport) return;
+
+    const blob = new Blob(
+      [JSON.stringify(finalReport, null, 2)],
+      { type: "application/json" }
+    );
+
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+
+    anchor.href = url;
+    anchor.download = "badal-historical-verification-report.json";
+    anchor.click();
+
+    URL.revokeObjectURL(url);
+  });
+</script>
+</body>
+</html>

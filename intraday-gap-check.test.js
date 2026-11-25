@@ -238,7 +238,7 @@ runTest("Counts all gaps while limiting displayed details", () => {
     Date.UTC(2026, 0, 1)
   );
 
-  // Create 101 independent trading-date gap events.
+  // Generate 101 separate dates with gap events.
   for (let i = 0; i < 101; i++) {
     const d = new Date(startDate);
     d.setUTCDate(d.getUTCDate() + i);
@@ -258,7 +258,7 @@ runTest("Counts all gaps while limiting displayed details", () => {
   assert.equal(result.gapCount, 101);
   assert.equal(result.gapsTotal, 101);
 
-  // Only 100 details should be returned.
+  // Only 100 gap details are retained.
   assert.equal(result.gaps.length, 100);
 
   assert.equal(result.gapsTruncated, true);
@@ -266,17 +266,17 @@ runTest("Counts all gaps while limiting displayed details", () => {
 });
 
 // ------------------------------------------------------
-// TEST 13: IRREGULAR INTERVAL
+// TEST 13: IRREGULAR INTERVAL + MISSING CANDLE
 // ------------------------------------------------------
 
-runTest("Detects irregular interval", () => {
+runTest("Detects irregular interval and missing candle", () => {
   const result = analyzeIntradayGaps([
     candle(9, 15),
     candle(9, 40)
   ]);
 
   assert.equal(result.gapCount, 1);
-  assert.equal(result.missingCandleCount, 0);
+  assert.equal(result.missingCandleCount, 1);
   assert.equal(result.irregularIntervalCount, 1);
   assert.equal(result.quality, "ISSUES_FOUND");
 });

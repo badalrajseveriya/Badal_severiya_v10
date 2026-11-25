@@ -358,4 +358,88 @@ function makeReport() {
   console.log("PASS: 1D data quality");
 }
 
-console.log("ALL 23 HISTORICAL REPORT TESTS PASSED");
+// 24. Custom limit with 5500 candles
+{
+  const result = generateHistoricalReport(
+    {
+      candles: makeCandles(5500),
+      timeframe: "15m"
+    },
+    {
+      maxCandles: 6000
+    }
+  );
+
+  assert.equal(result.status, "OK");
+  assert.equal(result.reportInfo.candleCount, 5500);
+  assert.equal(result.reportInfo.maxCandlesAllowed, 6000);
+
+  console.log("PASS: Custom 5500 candle report");
+}
+
+// 25. Custom limit with 12345 candles
+{
+  const result = generateHistoricalReport(
+    {
+      candles: makeCandles(12345),
+      timeframe: "15m"
+    },
+    {
+      maxCandles: 15000
+    }
+  );
+
+  assert.equal(result.status, "OK");
+  assert.equal(result.reportInfo.candleCount, 12345);
+  assert.equal(result.reportInfo.maxCandlesAllowed, 15000);
+
+  console.log("PASS: Custom 12345 candle report");
+}
+
+// 26. Default limit rejects more than 5000 candles
+{
+  const result = generateHistoricalReport({
+    candles: makeCandles(5500),
+    timeframe: "15m"
+  });
+
+  assert.equal(result.status, "ERROR");
+
+  console.log("PASS: Default 5000 candle limit");
+}
+
+// 27. Invalid custom limit below minimum
+{
+  const result = generateHistoricalReport(
+    {
+      candles: makeCandles(300),
+      timeframe: "15m"
+    },
+    {
+      maxCandles: 199
+    }
+  );
+
+  assert.equal(result.status, "ERROR");
+
+  console.log("PASS: Custom limit below minimum");
+}
+
+// 28. Invalid custom limit above maximum
+{
+  const result = generateHistoricalReport(
+    {
+      candles: makeCandles(300),
+      timeframe: "15m"
+    },
+    {
+      maxCandles: 100001
+    }
+  );
+
+  assert.equal(result.status, "ERROR");
+
+  console.log("PASS: Custom limit above maximum");
+}
+
+console.log("ALL 28 HISTORICAL REPORT TESTS PASSED");

@@ -135,4 +135,55 @@ function makeRows(count = 220, intervalMinutes = 15) {
   assert.equal(result.candles[0].volume, null);
 }
 
+// TEST 9: Default limit rejects more than 5000 candles
+{
+  const result = parseHistoricalDataText(
+    JSON.stringify(makeRows(5500)),
+    "over-default-limit.json",
+    "15m"
+  );
+
+  assert.equal(result.status, "ERROR");
+  assert.match(result.error, /Maximum 5000 candles/);
+}
+
+// TEST 10: Custom limit accepts 5500 candles
+{
+  const result = parseHistoricalDataText(
+    JSON.stringify(makeRows(5500)),
+    "5500-candles.json",
+    "15m",
+    { maxCandles: 10000 }
+  );
+
+  assert.equal(result.status, "OK");
+  assert.equal(result.candleCount, 5500);
+}
+
+// TEST 11: Custom limit accepts 12345 candles
+{
+  const result = parseHistoricalDataText(
+    JSON.stringify(makeRows(12345)),
+    "12345-candles.json",
+    "15m",
+    { maxCandles: 20000 }
+  );
+
+  assert.equal(result.status, "OK");
+  assert.equal(result.candleCount, 12345);
+}
+
+// TEST 12: Invalid custom limit rejected
+{
+  const result = parseHistoricalDataText(
+    JSON.stringify(makeRows()),
+    "invalid-limit.json",
+    "15m",
+    { maxCandles: 0 }
+  );
+
+  assert.equal(result.status, "ERROR");
+  assert.match(result.error, /maxCandles/);
+}
+
 console.log("ALL HISTORICAL DATA IMPORT TESTS PASSED");

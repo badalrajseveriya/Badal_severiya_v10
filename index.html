@@ -181,8 +181,6 @@
       line-height: 1.5;
     }
 
-    /* Historical Period Stability */
-
     .stability-section {
       margin-top: 18px;
       padding: 14px;
@@ -191,9 +189,7 @@
       border-radius: 12px;
     }
 
-    .stability-section h3 {
-      margin-top: 0;
-    }
+    .stability-section h3 { margin-top: 0; }
 
     .stability-summary,
     .stability-period-card {
@@ -302,8 +298,6 @@
   <main>
     <div class="timeframe-grid">
 
-      <!-- 1D PANEL -->
-
       <section class="timeframe-panel" id="panel-1d">
         <h2>1D — Daily Analysis</h2>
         <p class="muted">
@@ -324,12 +318,10 @@
               <span class="percentage-value up-value" id="up-percent-1d">--%</span>
               <span class="percentage-label">ऊपर के ऐतिहासिक पैटर्न</span>
             </div>
-
             <div class="percentage-item">
               <span class="percentage-value down-value" id="down-percent-1d">--%</span>
               <span class="percentage-label">नीचे के ऐतिहासिक पैटर्न</span>
             </div>
-
             <div class="percentage-item">
               <span class="percentage-value unclear-value" id="unclear-percent-1d">--%</span>
               <span class="percentage-label">कुछ स्पष्ट नहीं</span>
@@ -355,23 +347,17 @@
           </section>
         </div>
 
-        <!-- 1D STABILITY -->
-
         <section class="stability-section" id="stability-panel-1d">
           <h3>1D — Historical Period Stability</h3>
           <p class="muted">
             पुराने दैनिक डेटा को चार बराबर अवधियों में बाँटकर तुलना।
           </p>
-
           <div id="stability-status-1d" class="status" role="status" aria-live="polite">
             ऐतिहासिक अवधियों की जाँच की प्रतीक्षा है।
           </div>
-
           <div id="stability-results-1d"></div>
         </section>
       </section>
-
-      <!-- 15M PANEL -->
 
       <section class="timeframe-panel" id="panel-15m">
         <h2>15M — Intraday Historical Analysis</h2>
@@ -393,12 +379,10 @@
               <span class="percentage-value up-value" id="up-percent-15m">--%</span>
               <span class="percentage-label">ऊपर के ऐतिहासिक पैटर्न</span>
             </div>
-
             <div class="percentage-item">
               <span class="percentage-value down-value" id="down-percent-15m">--%</span>
               <span class="percentage-label">नीचे के ऐतिहासिक पैटर्न</span>
             </div>
-
             <div class="percentage-item">
               <span class="percentage-value unclear-value" id="unclear-percent-15m">--%</span>
               <span class="percentage-label">कुछ स्पष्ट नहीं</span>
@@ -424,24 +408,18 @@
           </section>
         </div>
 
-        <!-- 15M STABILITY -->
-
         <section class="stability-section" id="stability-panel-15m">
           <h3>15M — Historical Period Stability</h3>
           <p class="muted">
             15 मिनट के पुराने डेटा की चार अवधियों में तुलना।
           </p>
-
           <div id="stability-status-15m" class="status" role="status" aria-live="polite">
             15M डेटा उपलब्ध होने की प्रतीक्षा है।
           </div>
-
           <div id="stability-results-15m"></div>
         </section>
       </section>
     </div>
-
-    <!-- COMBINED ANALYSIS -->
 
     <section id="combined-analysis">
       <h2>Combined Historical Analysis</h2>
@@ -449,7 +427,6 @@
         1D और 15M के उपलब्ध ऐतिहासिक परिणामों की तुलना।
         दोनों टाइमफ्रेम का विश्लेषण अलग-अलग रखा जाएगा।
       </p>
-
       <div id="combined-status" class="status">
         दोनों टाइमफ्रेम के विश्लेषण की प्रतीक्षा है।
       </div>
@@ -464,5 +441,6 @@
   <script type="module" src="./historical-candle-composition-ui.js?v=20261124-1"></script>
   <script type="module" src="./historical-candle-stability-ui.js?v=20261124-1"></script>
   <script type="module" src="./historical-master-eight-panel-ui.js?v=20261124-1"></script>
+  <script type="module" src="./historical-database-status.js?v=20261125-1"></script>
 </body>
 </html>

@@ -49,16 +49,20 @@ class FakeDB {
           };
         }
 
-        const [index, timeframe, limit] = this.values;
-        const rows = db.candles
+        const [index, timeframe, limit, offset = 0] = this.values;
+
+        const newestFirst = db.candles
           .filter(item =>
             item.index_name === index &&
             item.timeframe === timeframe
           )
           .sort((a, b) =>
-            a.candle_time.localeCompare(b.candle_time)
+            b.candle_time.localeCompare(a.candle_time)
           )
-          .slice(-limit)
+          .slice(offset, offset + limit);
+
+        const rows = newestFirst
+          .reverse()
           .map(item => ({
             timestamp: item.candle_time,
             open: item.open,
@@ -118,6 +122,7 @@ class FakeDB {
 }
 
 const DB = new FakeDB();
+
 const env = {
   DB,
   INGEST_TOKEN: "test-token"
@@ -215,6 +220,21 @@ async function ingest(payload, headers = {}) {
     "/api/data/candles?index=NIFTY&timeframe=15m&limit=1.5"
   );
   assert.equal(decimalLimit.status, 400);
+
+  const negativeOffset = await call(
+    "/api/data/candles?index=NIFTY&timeframe=15m&offset=-1"
+  );
+  assert.equal(negativeOffset.status, 400);
+
+  const decimalOffset = await call(
+    "/api/data/candles?index=NIFTY&timeframe=15m&offset=1.5"
+  );
+  assert.equal(decimalOffset.status, 400);
+
+  const excessiveOffset = await call(
+    "/api/data/candles?index=NIFTY&timeframe=15m&offset=10000001"
+  );
+  assert.equal(excessiveOffset.status, 400);
 }
 
 // Unknown route
@@ -347,7 +367,7 @@ async function ingest(payload, headers = {}) {
   assert.equal(body.source, "HISTORICAL_UPLOAD");
 }
 
-// OHLC-only historical upload keeps volume unavailable (not fabricated)
+// OHLC-only historical upload keeps volume unavailable
 {
   const candle = validCandle("2026-02-01T00:00:00.000Z");
   delete candle.volume;
@@ -418,6 +438,56 @@ async function ingest(payload, headers = {}) {
   assert.equal(
     body.candles[1].timestamp,
     "2026-01-01T09:45:00.000Z"
+  );
+}
+
+// Pagination: latest page followed by the next older page
+{
+  const page1Response = await call(
+    "/api/data/candles?index=NIFTY&timeframe=15m&limit=2&offset=0"
+  );
+  const page1 = await readJson(page1Response);
+
+  const page2Response = await call(
+    "/api/data/candles?index=NIFTY&timeframe=15m&limit=2&offset=2"
+  );
+  const page2 = await readJson(page2Response);
+
+  assert.equal(page1Response.status, 200);
+  assert.equal(page2Response.status, 200);
+
+  assert.equal(page1.limit, 2);
+  assert.equal(page1.offset, 0);
+  assert.equal(page1.count, 2);
+  assert.equal(page1.hasMore, true);
+
+  assert.equal(page2.limit, 2);
+  assert.equal(page2.offset, 2);
+  assert.equal(page2.count, 1);
+  assert.equal(page2.hasMore, false);
+
+  // Page 1 contains the latest two candles in ascending order.
+  assert.deepEqual(
+    page1.candles.map(candle => candle.timestamp),
+    [
+      "2026-01-01T09:30:00.000Z",
+      "2026-01-01T09:45:00.000Z"
+    ]
+  );
+
+  // Page 2 contains the older candle, with no duplication.
+  assert.deepEqual(
+    page2.candles.map(candle => candle.timestamp),
+    ["2026-01-01T09:15:00.000Z"]
+  );
+
+  const page1Times = new Set(
+    page1.candles.map(candle => candle.timestamp)
+  );
+
+  assert.ok(
+    page2.candles.every(candle => !page1Times.has(candle.timestamp)),
+    "Pagination pages must not contain duplicate timestamps"
   );
 }
 

@@ -40,7 +40,7 @@ assert.ok(Number.isFinite(result.indicators.atr14));
 
 console.log("PASS: Historical indicator calculations");
 
-// Test 2: Volume baseline excludes current candle
+// Test 2: Volume baseline
 assert.equal(result.indicators.volume.baselineCandles, 20);
 assert.equal(result.indicators.volume.available, true);
 
@@ -102,7 +102,7 @@ assert.equal(custom12345.dataInfo.maxCandlesAllowed, 15000);
 
 console.log("PASS: Custom 12345 candle analysis");
 
-// Test 9: Custom limit rejects data above selected limit
+// Test 9: Custom limit enforcement
 const rejectedCustomLimit = analyzeMarket(
   makeHistoricalCandles(6001),
   { maxCandles: 6000 }
@@ -112,18 +112,19 @@ assert.equal(rejectedCustomLimit.status, "ERROR");
 
 console.log("PASS: Custom limit enforcement");
 
-// Test 10: Minimum allowed maxCandles
+// Test 10: Exactly 200 candles with minimum custom limit
 const minimumLimit = analyzeMarket(
-  makeHistoricalCandles(250),
+  makeHistoricalCandles(200),
   { maxCandles: 200 }
 );
 
 assert.equal(minimumLimit.status, "OK");
+assert.equal(minimumLimit.dataInfo.candleCount, 200);
 assert.equal(minimumLimit.dataInfo.maxCandlesAllowed, 200);
 
 console.log("PASS: Minimum custom limit");
 
-// Test 11: Reject maxCandles below minimum
+// Test 11: Reject limit below minimum
 const belowMinimum = analyzeMarket(
   makeHistoricalCandles(250),
   { maxCandles: 199 }

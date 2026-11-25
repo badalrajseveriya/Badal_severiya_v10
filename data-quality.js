@@ -2,6 +2,7 @@
  // ======================================================
 // BADAL SEVERIYA V12
 // HISTORICAL DATA QUALITY ENGINE
+// Configurable historical candle limit
 // Educational historical data validation only
 // ======================================================
 
@@ -9,6 +10,8 @@ const DEFAULTS = {
   minCandles: 30,
   maxCandles: 5000
 };
+
+const ABSOLUTE_MAX_CANDLES = 10000000;
 
 // Verified special trading date.
 // This is an exception to the normal weekend calendar.
@@ -70,12 +73,15 @@ export function analyzeDataQuality(input, options = {}) {
     };
 
     if (
-      !Number.isInteger(settings.minCandles) ||
-      !Number.isInteger(settings.maxCandles) ||
+      !Number.isSafeInteger(settings.minCandles) ||
+      !Number.isSafeInteger(settings.maxCandles) ||
       settings.minCandles < 1 ||
-      settings.maxCandles < settings.minCandles
+      settings.maxCandles < settings.minCandles ||
+      settings.maxCandles > ABSOLUTE_MAX_CANDLES
     ) {
-      throw new Error("Invalid data quality configuration.");
+      throw new Error(
+        `Invalid data quality configuration. maxCandles must be between minCandles and ${ABSOLUTE_MAX_CANDLES}.`
+      );
     }
 
     const source = getSource(input);
@@ -248,7 +254,7 @@ export function analyzeDataQuality(input, options = {}) {
 
     return {
       status: "OK",
-      version: "12.1",
+      version: "12.2",
       module: "HISTORICAL_DATA_QUALITY",
       dataType: "HISTORICAL_ONLY",
       quality,
@@ -267,7 +273,7 @@ export function analyzeDataQuality(input, options = {}) {
   } catch (error) {
     return {
       status: "ERROR",
-      version: "12.1",
+      version: "12.2",
       module: "HISTORICAL_DATA_QUALITY",
       dataType: "HISTORICAL_ONLY",
       error: error.message

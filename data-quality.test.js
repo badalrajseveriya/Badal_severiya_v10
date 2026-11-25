@@ -1,282 +1,225 @@
 
- // ======================================================
-// BADAL SEVERIYA V12
-// HISTORICAL DATA QUALITY ENGINE
-// Configurable historical candle limit
-// Educational historical data validation only
-// ======================================================
+import assert from "node:assert/strict";
+import { analyzeDataQuality } from "./data-quality.js";
 
-const DEFAULTS = {
-  minCandles: 30,
-  maxCandles: 5000
-};
-
-const ABSOLUTE_MAX_CANDLES = 10000000;
-
-// Verified special trading date.
-// This is an exception to the normal weekend calendar.
-const SPECIAL_TRADING_DATES = [
-  "2026-11-08"
-];
-
-function parseTimestamp(value) {
-  if (
-    value === null ||
-    value === undefined ||
-    value === ""
-  ) return null;
-
-  let timestamp;
-
-  if (
-    typeof value === "number" ||
-    /^\d+$/.test(String(value))
-  ) {
-    const numeric = Number(value);
-    timestamp = numeric < 1e12
-      ? numeric * 1000
-      : numeric;
-  } else {
-    timestamp = Date.parse(String(value));
-  }
-
-  return Number.isFinite(timestamp)
-    ? timestamp
-    : null;
+function makeCandles(count, startTime = Date.UTC(2026, 10, 9, 3, 45)) {
+  return Array.from({ length: count }, (_, index) => ({
+    timestamp: startTime + index * 60 * 1000,
+    open: 100 + index,
+    high: 105 + index,
+    low: 98 + index,
+    close: 103 + index,
+    volume: 1000 + index
+  }));
 }
 
-function getSource(input) {
-  if (Array.isArray(input)) return input;
-  if (Array.isArray(input?.candles)) return input.candles;
-  if (Array.isArray(input?.data)) return input.data;
-
-  throw new Error("Candle data must be an array.");
+function runTest(name, callback) {
+  callback();
+  console.log(`PASS: ${name}`);
 }
 
-function getUTCDate(timestamp) {
-  return new Date(timestamp).toISOString().slice(0, 10);
-}
+// 1. Valid historical candles
+runTest("Valid candle data", () => {
+  const result = analyzeDataQuality(makeCandles(200));
 
-export function analyzeDataQuality(input, options = {}) {
-  try {
-    if (
-      options === null ||
-      typeof options !== "object" ||
-      Array.isArray(options)
-    ) {
-      throw new Error("Invalid data quality configuration.");
-    }
+  assert.equal(result.status, "OK");
+  assert.equal(result.version, "12.2");
+  assert.equal(result.quality, "VALID");
+  assert.equal(result.checks.candleCount, 200);
+});
 
-    const settings = {
-      ...DEFAULTS,
-      ...options
-    };
+// 2. Minimum candle requirement
+runTest("Minimum candle limit", () => {
+  const result = analyzeDataQuality(makeCandles(29));
 
-    if (
-      !Number.isSafeInteger(settings.minCandles) ||
-      !Number.isSafeInteger(settings.maxCandles) ||
-      settings.minCandles < 1 ||
-      settings.maxCandles < settings.minCandles ||
-      settings.maxCandles > ABSOLUTE_MAX_CANDLES
-    ) {
-      throw new Error(
-        `Invalid data quality configuration. maxCandles must be between minCandles and ${ABSOLUTE_MAX_CANDLES}.`
-      );
-    }
+  assert.equal(result.status, "ERROR");
+  assert.match(result.error, /At least 30 candles/);
+});
 
-    const source = getSource(input);
+// 3. Default maximum candle limit
+runTest("Default maximum 5000 candles", () => {
+  const result = analyzeDataQuality(makeCandles(5001));
 
-    if (source.length < settings.minCandles) {
-      throw new Error(
-        `At least ${settings.minCandles} candles are required.`
-      );
-    }
+  assert.equal(result.status, "ERROR");
+  assert.match(result.error, /Maximum 5000 candles/);
+});
 
-    if (source.length > settings.maxCandles) {
-      throw new Error(
-        `Maximum ${settings.maxCandles} candles are allowed.`
-      );
-    }
+// 4. Custom limit accepts 5500 candles
+runTest("Custom limit accepts 5500 candles", () => {
+  const result = analyzeDataQuality(
+    makeCandles(5500),
+    { maxCandles: 6000 }
+  );
 
-    let invalidOHLC = 0;
-    let invalidVolume = 0;
-    let missingVolumes = 0;
-    let invalidTimestamps = 0;
-    let missingTimestamps = 0;
-    let duplicateTimestamps = 0;
-    let unorderedTimestamps = 0;
+  assert.equal(result.status, "OK");
+  assert.equal(result.checks.candleCount, 5500);
+});
 
-    let weekendDates = 0;
-    let specialTradingDates = 0;
-    let unexpectedWeekendDates = 0;
+// 5. Custom limit accepts 12345 candles
+runTest("Custom limit accepts 12345 candles", () => {
+  const result = analyzeDataQuality(
+    makeCandles(12345),
+    { maxCandles: 15000 }
+  );
 
-    const unexpectedWeekendList = [];
-    const specialTradingDateList = [];
-    const timestamps = [];
+  assert.equal(result.status, "OK");
+  assert.equal(result.checks.candleCount, 12345);
+});
 
-    for (const item of source) {
-      if (
-        !item ||
-        typeof item !== "object" ||
-        Array.isArray(item)
-      ) {
-        invalidOHLC++;
-        timestamps.push(null);
-        continue;
-      }
+// 6. Invalid custom maximum
+runTest("Rejects invalid custom maximum", () => {
+  const result = analyzeDataQuality(
+    makeCandles(30),
+    { maxCandles: 0 }
+  );
 
-      const open = Number(item.open ?? item.Open);
-      const high = Number(item.high ?? item.High);
-      const low = Number(item.low ?? item.Low);
-      const close = Number(item.close ?? item.Close);
+  assert.equal(result.status, "ERROR");
+});
 
-      if (
-        ![open, high, low, close].every(Number.isFinite) ||
-        open <= 0 ||
-        high <= 0 ||
-        low <= 0 ||
-        close <= 0 ||
-        high < low ||
-        high < open ||
-        high < close ||
-        low > open ||
-        low > close
-      ) {
-        invalidOHLC++;
-      }
+// 7. Maximum cannot exceed absolute limit
+runTest("Rejects limit above absolute maximum", () => {
+  const result = analyzeDataQuality(
+    makeCandles(30),
+    { maxCandles: 10000001 }
+  );
 
-      const rawVolume = item.volume ?? item.Volume;
+  assert.equal(result.status, "ERROR");
+});
 
-      if (
-        rawVolume === null ||
-        rawVolume === undefined ||
-        rawVolume === ""
-      ) {
-        missingVolumes++;
-      } else {
-        const volume = Number(rawVolume);
+// 8. Invalid OHLC values
+runTest("Detects invalid OHLC", () => {
+  const candles = makeCandles(30);
+  candles[5].high = 1;
 
-        if (!Number.isFinite(volume) || volume < 0) {
-          invalidVolume++;
-        }
-      }
+  const result = analyzeDataQuality(candles);
 
-      const rawTimestamp =
-        item.timestamp ??
-        item.time ??
-        item.date ??
-        item.datetime;
+  assert.equal(result.status, "OK");
+  assert.equal(result.quality, "ISSUES_FOUND");
+  assert.equal(result.checks.invalidOHLC, 1);
+});
 
-      if (
-        rawTimestamp === null ||
-        rawTimestamp === undefined ||
-        rawTimestamp === ""
-      ) {
-        missingTimestamps++;
-        timestamps.push(null);
-        continue;
-      }
+// 9. Invalid volume
+runTest("Detects invalid volume", () => {
+  const candles = makeCandles(30);
+  candles[4].volume = -100;
 
-      const timestamp = parseTimestamp(rawTimestamp);
+  const result = analyzeDataQuality(candles);
 
-      if (timestamp === null) {
-        invalidTimestamps++;
-        timestamps.push(null);
-        continue;
-      }
+  assert.equal(result.checks.invalidVolume, 1);
+  assert.equal(result.quality, "ISSUES_FOUND");
+});
 
-      timestamps.push(timestamp);
+// 10. Missing volume is reported separately
+runTest("Allows missing volume but reports it", () => {
+  const candles = makeCandles(30);
+  delete candles[2].volume;
 
-      const date = getUTCDate(timestamp);
-      const day = new Date(timestamp).getUTCDay();
+  const result = analyzeDataQuality(candles);
 
-      if (SPECIAL_TRADING_DATES.includes(date)) {
-        specialTradingDates++;
-        specialTradingDateList.push(date);
-      } else if (day === 0 || day === 6) {
-        weekendDates++;
-        unexpectedWeekendDates++;
-        unexpectedWeekendList.push(date);
-      }
-    }
+  assert.equal(result.status, "OK");
+  assert.equal(result.checks.missingVolumes, 1);
+  assert.equal(result.quality, "VALID");
+});
 
-    // Duplicate and chronological checks
-    const seen = new Set();
-    let previousTimestamp = null;
+// 11. Missing timestamp
+runTest("Detects missing timestamp", () => {
+  const candles = makeCandles(30);
+  delete candles[3].timestamp;
 
-    for (const timestamp of timestamps) {
-      if (timestamp === null) continue;
+  const result = analyzeDataQuality(candles);
 
-      if (seen.has(timestamp)) {
-        duplicateTimestamps++;
-      }
+  assert.equal(result.checks.missingTimestamps, 1);
+  assert.equal(result.quality, "ISSUES_FOUND");
+});
 
-      seen.add(timestamp);
+// 12. Invalid timestamp
+runTest("Detects invalid timestamp", () => {
+  const candles = makeCandles(30);
+  candles[3].timestamp = "invalid-date";
 
-      if (
-        previousTimestamp !== null &&
-        timestamp < previousTimestamp
-      ) {
-        unorderedTimestamps++;
-      }
+  const result = analyzeDataQuality(candles);
 
-      previousTimestamp = timestamp;
-    }
+  assert.equal(result.checks.invalidTimestamps, 1);
+});
 
-    const checks = {
-      candleCount: source.length,
-      invalidOHLC,
-      invalidVolume,
-      missingVolumes,
-      invalidTimestamps,
-      missingTimestamps,
-      duplicateTimestamps,
-      unorderedTimestamps,
-      weekendDates,
-      specialTradingDates,
-      unexpectedWeekendDates
-    };
+// 13. Duplicate timestamps
+runTest("Detects duplicate timestamps", () => {
+  const candles = makeCandles(30);
+  candles[10].timestamp = candles[9].timestamp;
 
-    // Missing volume is reported separately because
-    // the NIFTY index OHLC source may not provide volume.
-    // Weekend dates are flagged for review, not deleted.
-    const issueCount =
-      invalidOHLC +
-      invalidVolume +
-      invalidTimestamps +
-      missingTimestamps +
-      duplicateTimestamps +
-      unorderedTimestamps;
+  const result = analyzeDataQuality(candles);
 
-    const quality = issueCount === 0
-      ? "VALID"
-      : "ISSUES_FOUND";
+  assert.equal(result.checks.duplicateTimestamps, 1);
+  assert.equal(result.quality, "ISSUES_FOUND");
+});
 
-    return {
-      status: "OK",
-      version: "12.2",
-      module: "HISTORICAL_DATA_QUALITY",
-      dataType: "HISTORICAL_ONLY",
-      quality,
-      issueCount,
-      checks,
-      dateReview: {
-        specialTradingDateList,
-        unexpectedWeekendList,
-        note: "Weekend dates are flagged for review only. No candle is automatically deleted."
-      },
-      settings,
-      note:
-        "Historical data validation only. No forecasts or trading recommendations."
-    };
+// 14. Unordered timestamps
+runTest("Detects unordered timestamps", () => {
+  const candles = makeCandles(30);
+  const temp = candles[10].timestamp;
+  candles[10].timestamp = candles[11].timestamp;
+  candles[11].timestamp = temp;
 
-  } catch (error) {
-    return {
-      status: "ERROR",
-      version: "12.2",
-      module: "HISTORICAL_DATA_QUALITY",
-      dataType: "HISTORICAL_ONLY",
-      error: error.message
-    };
-  }
-}
+  const result = analyzeDataQuality(candles);
+
+  assert.ok(result.checks.unorderedTimestamps > 0);
+});
+
+// 15. Weekend date review
+runTest("Flags weekend dates for review", () => {
+  const candles = makeCandles(30);
+  candles[0].timestamp = Date.UTC(2026, 10, 7, 3, 45);
+
+  const result = analyzeDataQuality(candles);
+
+  assert.ok(result.checks.weekendDates > 0);
+  assert.ok(result.dateReview.unexpectedWeekendList.length > 0);
+});
+
+// 16. Special trading date
+runTest("Recognizes configured special trading date", () => {
+  const candles = makeCandles(30);
+  candles[0].timestamp = Date.UTC(2026, 10, 8, 3, 45);
+
+  const result = analyzeDataQuality(candles);
+
+  assert.equal(result.checks.specialTradingDates, 1);
+  assert.ok(
+    result.dateReview.specialTradingDateList.includes("2026-11-08")
+  );
+});
+
+// 17. Supports object input with candles
+runTest("Supports candles object input", () => {
+  const result = analyzeDataQuality({
+    candles: makeCandles(30)
+  });
+
+  assert.equal(result.status, "OK");
+  assert.equal(result.checks.candleCount, 30);
+});
+
+// 18. Rejects invalid input
+runTest("Rejects invalid input", () => {
+  const result = analyzeDataQuality("invalid");
+
+  assert.equal(result.status, "ERROR");
+});
+
+// 19. Rejects invalid options object
+runTest("Rejects invalid options", () => {
+  const result = analyzeDataQuality(makeCandles(30), null);
+
+  assert.equal(result.status, "ERROR");
+});
+
+// 20. Confirms historical-only output
+runTest("Confirms historical-only data type", () => {
+  const result = analyzeDataQuality(makeCandles(30));
+
+  assert.equal(result.dataType, "HISTORICAL_ONLY");
+  assert.equal(result.module, "HISTORICAL_DATA_QUALITY");
+  assert.match(result.note, /No forecasts or trading recommendations/);
+});
+
+console.log("\nALL DATA QUALITY TESTS PASSED");

@@ -1,4 +1,3 @@
-
 // ======================================================
 // BADAL SEVERIYA V12
 // DUAL TIMEFRAME HISTORICAL DASHBOARD
@@ -13,8 +12,10 @@ import { createHistoricalDashboardUIModel } from "./dashboard-ui-model.js";
 import { renderHistoricalDashboard } from "./dashboard-renderer.js";
 import { buildHistoricalCandlestickChart } from "./historical-candlestick-chart.js";
 import { compareHistoricalTimeframes } from "./timeframe-comparison.js";
+import { fetchHistoricalCandlePages } from "./historical-candle-pagination.js";
 
 const API_BASE = "https://badal-severiya-data.mrstarrdbs.workers.dev";
+const MAX_DASHBOARD_CANDLES = 25000;
 
 const CONFIG = {
   "1d": {
@@ -35,12 +36,14 @@ const state = {
   "1d": {
     status: "LOADING",
     candleCount: 0,
-    report: null
+    report: null,
+    truncated: false
   },
   "15m": {
     status: "WAITING_FOR_DATA",
     candleCount: 0,
-    report: null
+    report: null,
+    truncated: false
   }
 };
 
@@ -80,95 +83,39 @@ function renderComparisonSnapshot(parent, heading, snapshot) {
   section.appendChild(title);
 
   if (!snapshot) {
-    addComparisonLine(
-      section,
-      "स्थिति",
-      "डेटा उपलब्ध नहीं"
-    );
-
+    addComparisonLine(section, "स्थिति", "डेटा उपलब्ध नहीं");
     parent.appendChild(section);
     return;
   }
 
   addComparisonLine(section, "स्थिति", snapshot.status);
-  addComparisonLine(
-    section,
-    "ऐतिहासिक कैंडल",
-    snapshot.candleCount
-  );
+  addComparisonLine(section, "ऐतिहासिक कैंडल", snapshot.candleCount);
+  addComparisonLine(section, "डेटा गुणवत्ता", snapshot.dataQuality?.quality);
+  addComparisonLine(section, "डेटा समस्याएँ", snapshot.dataQuality?.issueCount);
+  addComparisonLine(section, "ऐतिहासिक ट्रेंड वर्गीकरण", snapshot.historicalTrend);
+  addComparisonLine(section, "Pivot High", snapshot.marketStructure?.pivotHighCount);
+  addComparisonLine(section, "Pivot Low", snapshot.marketStructure?.pivotLowCount);
+  addComparisonLine(section, "Structure Events", snapshot.marketStructure?.structureEventCount);
+  addComparisonLine(section, "Support Levels", snapshot.supportResistance?.supportCount);
 
-  addComparisonLine(
-    section,
-    "डेटा गुणवत्ता",
-    snapshot.dataQuality?.quality
-  );
-
-  addComparisonLine(
-    section,
-    "डेटा समस्याएँ",
-    snapshot.dataQuality?.issueCount
-  );
-
-  addComparisonLine(
-    section,
-    "ऐतिहासिक ट्रेंड वर्गीकरण",
-    snapshot.historicalTrend
-  );
-
-  addComparisonLine(
-    section,
-    "Pivot High",
-    snapshot.marketStructure?.pivotHighCount
-  );
-
-  addComparisonLine(
-    section,
-    "Pivot Low",
-    snapshot.marketStructure?.pivotLowCount
-  );
-
-  addComparisonLine(
-    section,
-    "Structure Events",
-    snapshot.marketStructure?.structureEventCount
-  );
-
-  addComparisonLine(
-    section,
-    "Support Levels",
-    snapshot.supportResistance?.supportCount
-  );
-
-  // Actual historical support zone details
   renderReadableValue(
     section,
     "Support Details",
     snapshot.supportResistance?.supports ?? []
   );
 
-  addComparisonLine(
-    section,
-    "Resistance Levels",
-    snapshot.supportResistance?.resistanceCount
-  );
+  addComparisonLine(section, "Resistance Levels", snapshot.supportResistance?.resistanceCount);
 
-  // Actual historical resistance zone details
   renderReadableValue(
     section,
     "Resistance Details",
     snapshot.supportResistance?.resistances ?? []
   );
 
-  addComparisonLine(
-    section,
-    "Candle Patterns",
-    snapshot.candlePatterns?.totalPatterns
-  );
+  addComparisonLine(section, "Candle Patterns", snapshot.candlePatterns?.totalPatterns);
 
-  // Fibonacci Swing — readable historical details
   if (snapshot.fibonacci?.swing) {
     const swing = snapshot.fibonacci.swing;
-
     const fibonacciSection = document.createElement("div");
 
     fibonacciSection.style.margin = "12px 0 0";
@@ -178,64 +125,23 @@ function renderComparisonSnapshot(parent, heading, snapshot) {
     fibonacciSection.style.borderRadius = "8px";
 
     const fibonacciTitle = document.createElement("h4");
-
-    fibonacciTitle.textContent =
-      "Fibonacci Swing — Historical Details";
-
+    fibonacciTitle.textContent = "Fibonacci Swing — Historical Details";
     fibonacciTitle.style.margin = "0 0 10px";
     fibonacciTitle.style.color = "#93c5fd";
 
     fibonacciSection.appendChild(fibonacciTitle);
 
-    addComparisonLine(
-      fibonacciSection,
-      "Direction",
-      swing.direction
-    );
-
-    addComparisonLine(
-      fibonacciSection,
-      "Start Price",
-      formatLevelNumber(swing.startPrice)
-    );
-
-    addComparisonLine(
-      fibonacciSection,
-      "End Price",
-      formatLevelNumber(swing.endPrice)
-    );
-
-    addComparisonLine(
-      fibonacciSection,
-      "Start Candle Index",
-      swing.startIndex
-    );
-
-    addComparisonLine(
-      fibonacciSection,
-      "End Candle Index",
-      swing.endIndex
-    );
-
-    addComparisonLine(
-      fibonacciSection,
-      "Start Confirmed At",
-      swing.startConfirmedAt
-    );
-
-    addComparisonLine(
-      fibonacciSection,
-      "End Confirmed At",
-      swing.endConfirmedAt
-    );
+    addComparisonLine(fibonacciSection, "Direction", swing.direction);
+    addComparisonLine(fibonacciSection, "Start Price", formatLevelNumber(swing.startPrice));
+    addComparisonLine(fibonacciSection, "End Price", formatLevelNumber(swing.endPrice));
+    addComparisonLine(fibonacciSection, "Start Candle Index", swing.startIndex);
+    addComparisonLine(fibonacciSection, "End Candle Index", swing.endIndex);
+    addComparisonLine(fibonacciSection, "Start Confirmed At", swing.startConfirmedAt);
+    addComparisonLine(fibonacciSection, "End Confirmed At", swing.endConfirmedAt);
 
     section.appendChild(fibonacciSection);
   } else {
-    addComparisonLine(
-      section,
-      "Fibonacci Swing",
-      "ऐतिहासिक Swing डेटा उपलब्ध नहीं"
-    );
+    addComparisonLine(section, "Fibonacci Swing", "ऐतिहासिक Swing डेटा उपलब्ध नहीं");
   }
 
   parent.appendChild(section);
@@ -253,8 +159,10 @@ function updateCombinedStatus() {
   const summary = document.createElement("p");
 
   summary.textContent =
-    `1D: ${daily.status} (${daily.candleCount} candles) | ` +
-    `15M: ${intraday.status} (${intraday.candleCount} candles)`;
+    `1D: ${daily.status} (${daily.candleCount} candles)` +
+    `${daily.truncated ? " [और पुराना डेटा उपलब्ध है]" : ""} | ` +
+    `15M: ${intraday.status} (${intraday.candleCount} candles)` +
+    `${intraday.truncated ? " [और पुराना डेटा उपलब्ध है]" : ""}`;
 
   summary.style.fontWeight = "bold";
   summary.style.color = "#7dd3fc";
@@ -442,15 +350,12 @@ function renderHistoricalCandlestickChart(candles, timeframe) {
   const top = model.padding;
   const bottom = model.height - model.padding;
 
-  const range =
-    model.priceRange.high - model.priceRange.low || 1;
+  const range = model.priceRange.high - model.priceRange.low || 1;
 
   for (let i = 0; i <= 4; i++) {
     const ratio = i / 4;
     const y = top + (bottom - top) * ratio;
-
-    const price =
-      model.priceRange.high - range * ratio;
+    const price = model.priceRange.high - range * ratio;
 
     svg.appendChild(createSvgElement("line", {
       x1: left,
@@ -728,11 +633,23 @@ function renderCards(timeframe, rendered, uiModel, chartPanel) {
 // BUILD DASHBOARD
 // ------------------------------------------------------
 
-function buildDashboard(timeframe, candles) {
-  const report = generateHistoricalReport({
-    candles,
-    timeframe
-  });
+function buildDashboard(
+  timeframe,
+  candles,
+  {
+    maxCandlesAllowed = MAX_DASHBOARD_CANDLES,
+    truncated = false
+  } = {}
+) {
+  const report = generateHistoricalReport(
+    {
+      candles,
+      timeframe
+    },
+    {
+      maxCandles: maxCandlesAllowed
+    }
+  );
 
   if (report.status !== "OK") {
     throw new Error(report.error);
@@ -777,10 +694,29 @@ function buildDashboard(timeframe, candles) {
 
   renderCards(timeframe, rendered, uiModel, chartPanel);
 
+  if (truncated) {
+    const warning = document.createElement("p");
+
+    warning.textContent =
+      `ध्यान दें: डैशबोर्ड की ${maxCandlesAllowed} कैंडल सीमा तक डेटा लोड हुआ है। ` +
+      "डेटाबेस में इससे पुरानी कैंडल भी मौजूद हो सकती हैं।";
+
+    warning.style.padding = "12px";
+    warning.style.margin = "12px 0";
+    warning.style.background = "#292313";
+    warning.style.border = "1px solid #a16207";
+    warning.style.borderRadius = "8px";
+    warning.style.color = "#fde68a";
+    warning.style.fontSize = "13px";
+
+    CONFIG[timeframe].dashboard.appendChild(warning);
+  }
+
   state[timeframe] = {
     status: "VALID",
     candleCount: candles.length,
-    report
+    report,
+    truncated
   };
 
   updateCombinedStatus();
@@ -790,7 +726,15 @@ function buildDashboard(timeframe, candles) {
 // LOCAL STORAGE
 // ------------------------------------------------------
 
-function saveHistoricalData(timeframe, candles, filename) {
+function saveHistoricalData(
+  timeframe,
+  candles,
+  filename,
+  {
+    truncated = false,
+    maxCandlesAllowed = MAX_DASHBOARD_CANDLES
+  } = {}
+) {
   try {
     localStorage.setItem(
       CONFIG[timeframe].storageKey,
@@ -798,6 +742,8 @@ function saveHistoricalData(timeframe, candles, filename) {
         filename,
         timeframe,
         candles,
+        truncated,
+        maxCandlesAllowed,
         savedAt: new Date().toISOString()
       })
     );
@@ -826,21 +772,34 @@ function restoreSavedData(timeframe) {
       throw new Error("Saved timeframe data is invalid.");
     }
 
+    const savedLimit = Math.max(
+      MAX_DASHBOARD_CANDLES,
+      saved.candles.length
+    );
+
     const imported = parseHistoricalDataText(
       JSON.stringify(saved.candles),
       "saved-historical-data.json",
-      timeframe
+      timeframe,
+      {
+        maxCandles: savedLimit
+      }
     );
 
     if (imported.status !== "OK") {
       throw new Error(imported.error);
     }
 
-    buildDashboard(timeframe, imported.candles);
+    buildDashboard(timeframe, imported.candles, {
+      maxCandlesAllowed: savedLimit,
+      truncated: saved.truncated === true
+    });
 
     showStatus(
       timeframe,
-      `मोबाइल का सेव डेटा लोड हुआ: ${timeframe.toUpperCase()} | ${imported.candleCount} candles`
+      `मोबाइल का सेव डेटा लोड हुआ: ${timeframe.toUpperCase()} | ` +
+      `${imported.candleCount} candles` +
+      `${saved.truncated ? " | पुराने डेटा की और कैंडल उपलब्ध हैं" : ""}`
     );
 
     return true;
@@ -856,44 +815,38 @@ function restoreSavedData(timeframe) {
 }
 
 // ------------------------------------------------------
-// CLOUDFLARE DATA
+// CLOUDFLARE PAGINATED HISTORICAL DATA
 // ------------------------------------------------------
 
 async function loadFromCloudflare(timeframe) {
   showStatus(
     timeframe,
-    `Cloudflare से ${timeframe.toUpperCase()} ऐतिहासिक डेटा लोड हो रहा है...`
+    `Cloudflare से ${timeframe.toUpperCase()} ऐतिहासिक डेटा के सभी पेज लोड हो रहे हैं...`
   );
 
-  const url =
-    `${API_BASE}/api/data/candles?index=NIFTY&timeframe=${timeframe}&limit=5000`;
-
-  const response = await fetch(url, {
-    method: "GET",
-    cache: "no-store"
+  const fetched = await fetchHistoricalCandlePages({
+    apiBase: API_BASE,
+    timeframe,
+    index: "NIFTY",
+    maxCandles: MAX_DASHBOARD_CANDLES
   });
 
-  if (!response.ok) {
+  if (!fetched || fetched.status !== "OK") {
     throw new Error(
-      `Cloudflare API error: HTTP ${response.status}`
+      fetched?.error || "Historical pagination failed."
     );
   }
 
-  const result = await response.json();
-
-  if (
-    !result ||
-    result.app !== "BADAL SEVERIYA DATA V11" ||
-    !Array.isArray(result.candles)
-  ) {
-    throw new Error("API response का फॉर्मेट सही नहीं है।");
+  if (!Array.isArray(fetched.candles)) {
+    throw new Error("Historical pagination returned invalid candles.");
   }
 
-  if (result.candles.length === 0) {
+  if (fetched.candles.length === 0) {
     state[timeframe] = {
       status: "WAITING_FOR_DATA",
       candleCount: 0,
-      report: null
+      report: null,
+      truncated: false
     };
 
     updateCombinedStatus();
@@ -907,27 +860,46 @@ async function loadFromCloudflare(timeframe) {
   }
 
   const imported = parseHistoricalDataText(
-    JSON.stringify(result.candles),
+    JSON.stringify(fetched.candles),
     `cloudflare-nifty-${timeframe}.json`,
-    timeframe
+    timeframe,
+    {
+      maxCandles: fetched.maxCandlesAllowed
+    }
   );
 
   if (imported.status !== "OK") {
     throw new Error(imported.error);
   }
 
-  buildDashboard(timeframe, imported.candles);
+  buildDashboard(timeframe, imported.candles, {
+    maxCandlesAllowed: fetched.maxCandlesAllowed,
+    truncated: fetched.truncated
+  });
 
   saveHistoricalData(
     timeframe,
     imported.candles,
-    `Cloudflare NIFTY ${timeframe.toUpperCase()} historical data`
+    `Cloudflare NIFTY ${timeframe.toUpperCase()} historical data`,
+    {
+      truncated: fetched.truncated,
+      maxCandlesAllowed: fetched.maxCandlesAllowed
+    }
   );
 
-  showStatus(
-    timeframe,
-    `सफलता: Cloudflare से ${timeframe.toUpperCase()} की ${imported.candleCount} ऐतिहासिक candles लोड हुईं।`
-  );
+  if (fetched.truncated) {
+    showStatus(
+      timeframe,
+      `सफलता: ${imported.candleCount} ${timeframe.toUpperCase()} ऐतिहासिक candles लोड हुईं। ` +
+      "डैशबोर्ड की अधिकतम सीमा पूरी हुई; डेटाबेस में और पुराना डेटा उपलब्ध हो सकता है।"
+    );
+  } else {
+    showStatus(
+      timeframe,
+      `सफलता: Cloudflare से ${timeframe.toUpperCase()} की ` +
+      `${imported.candleCount} ऐतिहासिक candles लोड हुईं। सभी उपलब्ध पेज प्राप्त हुए।`
+    );
+  }
 
   return true;
 }
@@ -961,7 +933,8 @@ async function loadTimeframe(timeframe) {
       state[timeframe] = {
         status: "WAITING_FOR_DATA",
         candleCount: 0,
-        report: null
+        report: null,
+        truncated: false
       };
 
       showStatus(
@@ -972,7 +945,8 @@ async function loadTimeframe(timeframe) {
       state[timeframe] = {
         status: "ERROR",
         candleCount: 0,
-        report: null
+        report: null,
+        truncated: false
       };
 
       showStatus(
@@ -1009,17 +983,31 @@ async function importHistoricalFile(timeframe, file) {
       throw new Error(imported.error);
     }
 
-    buildDashboard(timeframe, imported.candles);
+    buildDashboard(timeframe, imported.candles, {
+      maxCandlesAllowed: Math.max(
+        5000,
+        imported.candleCount
+      ),
+      truncated: false
+    });
 
     const saved = saveHistoricalData(
       timeframe,
       imported.candles,
-      file.name
+      file.name,
+      {
+        truncated: false,
+        maxCandlesAllowed: Math.max(
+          5000,
+          imported.candleCount
+        )
+      }
     );
 
     showStatus(
       timeframe,
-      `सफलता: ${imported.candleCount} ${timeframe.toUpperCase()} candles इम्पोर्ट हुईं। Mobile save: ${saved ? "OK" : "Unavailable"}`
+      `सफलता: ${imported.candleCount} ${timeframe.toUpperCase()} candles इम्पोर्ट हुईं। ` +
+      `Mobile save: ${saved ? "OK" : "Unavailable"}`
     );
   } catch (error) {
     showStatus(

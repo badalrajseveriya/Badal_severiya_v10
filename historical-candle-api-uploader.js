@@ -1,3 +1,4 @@
+
 /**
  * BADAL SEVERIYA V12
  * Historical Candle API Uploader
@@ -63,8 +64,8 @@ function validateOptions({
   return {
     apiBaseUrl: apiBaseUrl.replace(/\/+$/, ""),
     token,
-    index: index.toUpperCase(),
-    timeframe
+    index: index.trim().toUpperCase(),
+    timeframe: timeframe.trim()
   };
 }
 
@@ -88,7 +89,13 @@ function validatePreparedImport(preparedImport) {
     );
   }
 
-  for (const batch of preparedImport.batches) {
+  for (
+    let i = 0;
+    i < preparedImport.batches.length;
+    i++
+  ) {
+    const batch = preparedImport.batches[i];
+
     if (
       !batch ||
       !Array.isArray(batch.candles) ||
@@ -102,10 +109,19 @@ function validatePreparedImport(preparedImport) {
 
     if (
       !Number.isInteger(batch.batchNumber) ||
-      batch.batchNumber < 1
+      batch.batchNumber !== i + 1
     ) {
       throw new Error(
-        "Invalid batch number."
+        "Invalid batch numbering."
+      );
+    }
+
+    if (
+      !Number.isInteger(batch.candleCount) ||
+      batch.candleCount !== batch.candles.length
+    ) {
+      throw new Error(
+        "Batch candle count does not match."
       );
     }
   }
@@ -232,7 +248,7 @@ export async function runHistoricalCandleApiUpload(
     failedBatchNumber: null,
     remainingBatchCount: 0,
     index: validated.index,
-    timeframe,
+    timeframe: validated.timeframe,
     dataType: "HISTORICAL_ONLY"
   };
 }

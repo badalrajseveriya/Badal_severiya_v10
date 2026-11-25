@@ -128,10 +128,10 @@ const validOptions = {
   );
 }
 
-// 3. Read more than 5000 candles using pagination
+// 3. Read 5500 candles using automatic pagination
 {
   const expected = Array.from(
-    { length: 5400 },
+    { length: 5500 },
     (_, index) => candle(index)
   );
 
@@ -144,23 +144,23 @@ const validOptions = {
   });
 
   assert(
-    result.rowsRead === 5400,
-    "Pagination total row count error"
+    result.rowsRead === 5500,
+    "5500 candle total row count error"
   );
 
   assert(
-    result.uniqueCandles === 5400,
-    "Pagination unique candle count error"
+    result.uniqueCandles === 5500,
+    "5500 unique candle count error"
   );
 
   assert(
     result.pagesRead === 2,
-    "Expected exactly 2 pagination pages"
+    "5500 candles should require 2 pages"
   );
 
   assert(
     mock.requests.length === 2,
-    "Expected exactly 2 API requests"
+    "5500 candles should require 2 API requests"
   );
 
   assert(
@@ -174,10 +174,10 @@ const validOptions = {
   );
 }
 
-// 4. Verify all 5400 candles successfully
+// 4. Verify all 5500 candles successfully
 {
   const expected = Array.from(
-    { length: 5400 },
+    { length: 5500 },
     (_, index) => candle(index)
   );
 
@@ -193,16 +193,16 @@ const validOptions = {
 
   assert(
     report.status === "VERIFIED",
-    "Expected VERIFIED status"
+    "Expected VERIFIED status for 5500 candles"
   );
 
   assert(
-    report.summary.expectedCount === 5400,
+    report.summary.expectedCount === 5500,
     "Expected candle count error"
   );
 
   assert(
-    report.summary.verifiedCount === 5400,
+    report.summary.verifiedCount === 5500,
     "Verified candle count error"
   );
 
@@ -218,11 +218,104 @@ const validOptions = {
 
   assert(
     report.summary.pagesRead === 2,
-    "Verification pagination count error"
+    "5500 verification pagination count error"
   );
 }
 
-// 5. Detect missing candle
+// 5. Verify more than 10000 candles using 3 pages
+{
+  const expected = Array.from(
+    { length: 12345 },
+    (_, index) => candle(index)
+  );
+
+  const mock = createPagedFetch(expected);
+
+  const result = await readAllServerCandles({
+    ...validOptions,
+    pageSize: 5000,
+    fetchImpl: mock.fetchImpl
+  });
+
+  assert(
+    result.rowsRead === 12345,
+    "12345 total row count error"
+  );
+
+  assert(
+    result.uniqueCandles === 12345,
+    "12345 unique candle count error"
+  );
+
+  assert(
+    result.pagesRead === 3,
+    "12345 candles should require 3 pages"
+  );
+
+  assert(
+    mock.requests.length === 3,
+    "12345 candles should require 3 API requests"
+  );
+
+  const offsets = mock.requests.map(
+    url => Number(new URL(url).searchParams.get("offset"))
+  );
+
+  assert(
+    offsets.join(",") === "0,5000,10000",
+    "Three-page offset sequence error"
+  );
+}
+
+// 6. Verify all 12345 candles successfully
+{
+  const expected = Array.from(
+    { length: 12345 },
+    (_, index) => candle(index)
+  );
+
+  const mock = createPagedFetch(expected);
+
+  const report = await verifyHistoricalCandleReadBack(
+    expected,
+    {
+      ...validOptions,
+      fetchImpl: mock.fetchImpl
+    }
+  );
+
+  assert(
+    report.status === "VERIFIED",
+    "Expected VERIFIED status for 12345 candles"
+  );
+
+  assert(
+    report.summary.expectedCount === 12345,
+    "12345 expected count error"
+  );
+
+  assert(
+    report.summary.verifiedCount === 12345,
+    "12345 verified count error"
+  );
+
+  assert(
+    report.summary.missingCount === 0,
+    "12345 unexpected missing candles"
+  );
+
+  assert(
+    report.summary.mismatchCount === 0,
+    "12345 unexpected mismatches"
+  );
+
+  assert(
+    report.summary.pagesRead === 3,
+    "12345 verification should read 3 pages"
+  );
+}
+
+// 7. Detect missing candle
 {
   const expected = [
     candle(0),
@@ -261,7 +354,7 @@ const validOptions = {
   );
 }
 
-// 6. Detect OHLC mismatch
+// 8. Detect OHLC mismatch
 {
   const expected = [candle(0)];
 
@@ -298,7 +391,7 @@ const validOptions = {
   );
 }
 
-// 7. Detect volume mismatch
+// 9. Detect volume mismatch
 {
   const expected = [candle(0)];
 
@@ -330,7 +423,7 @@ const validOptions = {
   );
 }
 
-// 8. Skip volume comparison when expected volume is unavailable
+// 10. Skip volume comparison when expected volume is unavailable
 {
   const expected = [{
     ...candle(0),
@@ -358,7 +451,7 @@ const validOptions = {
   );
 }
 
-// 9. Detect duplicate timestamps from server
+// 11. Detect duplicate timestamps from server
 {
   const expected = [
     candle(0),
@@ -391,7 +484,7 @@ const validOptions = {
   );
 }
 
-// 10. Detect duplicate expected timestamps
+// 12. Detect duplicate expected timestamps
 {
   const expected = [
     candle(0),
@@ -419,7 +512,7 @@ const validOptions = {
   );
 }
 
-// 11. Reject invalid API URL configuration
+// 13. Reject invalid API URL configuration
 {
   await assertRejects(
     () => readAllServerCandles({
@@ -434,7 +527,7 @@ const validOptions = {
   );
 }
 
-// 12. Reject invalid page size
+// 14. Reject invalid page size
 {
   await assertRejects(
     () => readAllServerCandles({
@@ -449,7 +542,7 @@ const validOptions = {
   );
 }
 
-// 13. Reject server HTTP error
+// 15. Reject server HTTP error
 {
   await assertRejects(
     () => readAllServerCandles({
@@ -462,7 +555,7 @@ const validOptions = {
   );
 }
 
-// 14. Reject invalid API response shape
+// 16. Reject invalid API response shape
 {
   await assertRejects(
     () => readAllServerCandles({
@@ -475,7 +568,7 @@ const validOptions = {
   );
 }
 
-// 15. Reject empty expected data
+// 17. Reject empty expected data
 {
   await assertRejects(
     () => verifyHistoricalCandleReadBack(
@@ -486,7 +579,7 @@ const validOptions = {
   );
 }
 
-// 16. Verify progress callback
+// 18. Verify progress callback
 {
   const expected = [
     candle(0),

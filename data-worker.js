@@ -13,6 +13,8 @@ const ALLOWED_TIMEFRAMES = [
 ];
 
 const MAX_CANDLES = 5000;
+const MAX_OFFSET = 10000000;
+
 let schemaReady = null;
 
 function json(data, status = 200) {
@@ -46,8 +48,6 @@ async function ensureSchema(DB) {
         )
       `).run();
 
-      // Additive migration: preserve existing volume values.
-      // OHLC-only rows will be marked as volume unavailable.
       try {
         await DB.prepare(`
           ALTER TABLE badal_v11_candles
@@ -91,11 +91,13 @@ function validateCandle(item, index) {
   }
 
   const rawTime = item.timestamp ?? item.time;
+
   if (typeof rawTime !== "string" || !rawTime.trim()) {
     throw new Error(`Missing timestamp at row ${index}`);
   }
 
   const timeMs = Date.parse(rawTime);
+
   if (!Number.isFinite(timeMs)) {
     throw new Error(`Invalid timestamp at row ${index}`);
   }
@@ -106,16 +108,23 @@ function validateCandle(item, index) {
     high: Number(item.high),
     low: Number(item.low),
     close: Number(item.close),
-    volumeAvailable: item.volume !== undefined &&
-      item.volume !== null && item.volume !== "",
-    volume: item.volume === undefined ||
-      item.volume === null || item.volume === ""
-      ? null
-      : Number(item.volume)
+    volumeAvailable:
+      item.volume !== undefined &&
+      item.volume !== null &&
+      item.volume !== "",
+    volume:
+      item.volume === undefined ||
+      item.volume === null ||
+      item.volume === ""
+        ? null
+        : Number(item.volume)
   };
 
   const ohlcValues = [
-    candle.open, candle.high, candle.low, candle.close
+    candle.open,
+    candle.high,
+    candle.low,
+    candle.close
   ];
 
   if (!ohlcValues.every(Number.isFinite)) {
@@ -123,14 +132,18 @@ function validateCandle(item, index) {
   }
 
   if (
-    candle.open <= 0 || candle.high <= 0 ||
-    candle.low <= 0 || candle.close <= 0
+    candle.open <= 0 ||
+    candle.high <= 0 ||
+    candle.low <= 0 ||
+    candle.close <= 0
   ) {
     throw new Error(`Invalid OHLC range at row ${index}`);
   }
 
-  if (candle.volumeAvailable &&
-      (!Number.isFinite(candle.volume) || candle.volume < 0)) {
+  if (
+    candle.volumeAvailable &&
+    (!Number.isFinite(candle.volume) || candle.volume < 0)
+  ) {
     throw new Error(`Invalid volume value at row ${index}`);
   }
 
@@ -146,6 +159,7 @@ function validateCandle(item, index) {
 
 async function health(DB) {
   await ensureSchema(DB);
+
   return json({
     app: APP_NAME,
     status: "OK",
@@ -180,11 +194,30 @@ function getIndices() {
   });
 }
 
+/**
+ * Historical candle read endpoint with pagination.
+ *
+ * offset=0      -> latest page
+ * offset=5000   -> next older page
+ *
+ * Each page is returned in ascending timestamp order.
+ */
 async function getCandles(request, DB) {
   const url = new URL(request.url);
+
   const index = (url.searchParams.get("index") || "NIFTY").toUpperCase();
   const timeframe = url.searchParams.get("timeframe") || "15m";
-  const requestedLimit = Number(url.searchParams.get("limit") || 500);
+
+  const rawLimit = url.searchParams.get("limit");
+  const rawOffset = url.searchParams.get("offset");
+
+  const requestedLimit = rawLimit === null
+    ? 500
+    : Number(rawLimit);
+
+  const requestedOffset = rawOffset === null
+    ? 0
+    : Number(rawOffset);
 
   if (!ALLOWED_INDICES.includes(index)) {
     return json({ error: "Unsupported index" }, 400);
@@ -194,31 +227,55 @@ async function getCandles(request, DB) {
     return json({ error: "Unsupported timeframe" }, 400);
   }
 
-  if (!Number.isInteger(requestedLimit) || requestedLimit < 1) {
+  if (
+    !Number.isInteger(requestedLimit) ||
+    requestedLimit < 1
+  ) {
     return json({ error: "Invalid limit" }, 400);
   }
 
+  if (
+    !Number.isInteger(requestedOffset) ||
+    requestedOffset < 0 ||
+    requestedOffset > MAX_OFFSET
+  ) {
+    return json({ error: "Invalid offset" }, 400);
+  }
+
   const limit = Math.min(requestedLimit, MAX_CANDLES);
+  const offset = requestedOffset;
 
   const result = await DB.prepare(`
     SELECT
-      candle_time AS timestamp, open, high, low, close,
-      CASE WHEN volume_available = 1 THEN volume ELSE NULL END AS volume
+      candle_time AS timestamp,
+      open,
+      high,
+      low,
+      close,
+      CASE
+        WHEN volume_available = 1 THEN volume
+        ELSE NULL
+      END AS volume
     FROM (
       SELECT *
       FROM badal_v11_candles
       WHERE index_name = ? AND timeframe = ?
       ORDER BY candle_time DESC
-      LIMIT ?
+      LIMIT ? OFFSET ?
     )
     ORDER BY candle_time ASC
-  `).bind(index, timeframe, limit).all();
+  `)
+    .bind(index, timeframe, limit, offset)
+    .all();
 
   return json({
     app: APP_NAME,
     index,
     timeframe,
     count: result.results.length,
+    limit,
+    offset,
+    hasMore: result.results.length === limit,
     source: "D1_HISTORICAL_STORAGE",
     dataType: "HISTORICAL",
     candles: result.results
@@ -227,7 +284,13 @@ async function getCandles(request, DB) {
 
 async function getQuality(DB) {
   const result = await DB.prepare(`
-    SELECT id, index_name, timeframe, event_type, message, created_at
+    SELECT
+      id,
+      index_name,
+      timeframe,
+      event_type,
+      message,
+      created_at
     FROM badal_v11_quality_events
     ORDER BY id DESC
     LIMIT 100
@@ -245,20 +308,25 @@ async function recordQuality(DB, index, timeframe, message) {
     INSERT INTO badal_v11_quality_events
       (index_name, timeframe, event_type, message)
     VALUES (?, ?, ?, ?)
-  `).bind(
-    index || null,
-    timeframe || null,
-    "INGEST_REJECTED",
-    String(message).slice(0, 500)
-  ).run();
+  `)
+    .bind(
+      index || null,
+      timeframe || null,
+      "INGEST_REJECTED",
+      String(message).slice(0, 500)
+    )
+    .run();
 }
 
 async function ingest(request, env) {
   if (!env.INGEST_TOKEN) {
-    return json({ error: "Server ingest token is not configured" }, 503);
+    return json({
+      error: "Server ingest token is not configured"
+    }, 503);
   }
 
   const suppliedToken = request.headers.get("x-ingest-token");
+
   if (suppliedToken !== env.INGEST_TOKEN) {
     return json({ error: "Unauthorized" }, 401);
   }
@@ -271,8 +339,14 @@ async function ingest(request, env) {
     return json({ error: "Invalid JSON body" }, 400);
   }
 
-  if (!body || typeof body !== "object" || Array.isArray(body)) {
-    return json({ error: "Request body must be a JSON object" }, 400);
+  if (
+    !body ||
+    typeof body !== "object" ||
+    Array.isArray(body)
+  ) {
+    return json({
+      error: "Request body must be a JSON object"
+    }, 400);
   }
 
   const index = String(body.index || "").toUpperCase();
@@ -301,7 +375,12 @@ async function ingest(request, env) {
   try {
     candles = body.candles.map(validateCandle);
   } catch (error) {
-    await recordQuality(env.DB, index, timeframe, error.message);
+    await recordQuality(
+      env.DB,
+      index,
+      timeframe,
+      error.message
+    );
 
     return json({
       error: "Candle validation failed",
@@ -330,8 +409,16 @@ async function ingest(request, env) {
   const statements = candles.map(candle =>
     env.DB.prepare(`
       INSERT INTO badal_v11_candles (
-        index_name, timeframe, candle_time,
-        open, high, low, close, volume, volume_available, source
+        index_name,
+        timeframe,
+        candle_time,
+        open,
+        high,
+        low,
+        close,
+        volume,
+        volume_available,
+        source
       )
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(index_name, timeframe, candle_time)
@@ -345,9 +432,14 @@ async function ingest(request, env) {
         source = excluded.source,
         inserted_at = CURRENT_TIMESTAMP
     `).bind(
-      index, timeframe, candle.timestamp,
-      candle.open, candle.high, candle.low,
-      candle.close, candle.volume ?? 0,
+      index,
+      timeframe,
+      candle.timestamp,
+      candle.open,
+      candle.high,
+      candle.low,
+      candle.close,
+      candle.volume ?? 0,
       candle.volumeAvailable ? 1 : 0,
       "HISTORICAL_UPLOAD"
     )
@@ -359,11 +451,15 @@ async function ingest(request, env) {
     }
   } catch (error) {
     await recordQuality(
-      env.DB, index, timeframe,
+      env.DB,
+      index,
+      timeframe,
       `Database insert failed: ${error.message}`
     );
 
-    return json({ error: "Database insert failed" }, 500);
+    return json({
+      error: "Database insert failed"
+    }, 500);
   }
 
   return json({

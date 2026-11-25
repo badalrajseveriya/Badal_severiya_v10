@@ -58,10 +58,20 @@ function validateModules(modules) {
   };
 }
 
-export function generateHistoricalReport(input) {
+// ------------------------------------------------------
+// MAIN REPORT GENERATOR
+// ------------------------------------------------------
+
+export function generateHistoricalReport(
+  input,
+  options = {}
+) {
   try {
+    // STEP 1: INTEGRATED HISTORICAL ANALYSIS
+    // Pass custom candle limit to the integration engine.
+
     const integrated =
-      analyzeHistoricalIntegrated(input);
+      analyzeHistoricalIntegrated(input, options);
 
     if (!integrated || integrated.status !== "OK") {
       throw new Error(
@@ -69,6 +79,8 @@ export function generateHistoricalReport(input) {
         "Integrated Historical Analysis failed."
       );
     }
+
+    // STEP 2: MODULE VALIDATION
 
     const modules = integrated.modules;
     const validation = validateModules(modules);
@@ -86,7 +98,8 @@ export function generateHistoricalReport(input) {
     const fibonacci = modules.fibonacci;
     const candlePatterns = modules.candlePatterns;
 
-    // DATA QUALITY
+    // STEP 3: DATA QUALITY
+
     const qualitySummary = {
       status: dataQuality.status,
       quality: dataQuality.quality,
@@ -94,7 +107,8 @@ export function generateHistoricalReport(input) {
       checks: dataQuality.checks
     };
 
-    // MARKET INDICATORS
+    // STEP 4: MARKET INDICATORS
+
     const indicators = marketData.indicators || {};
     const indicatorSummary = {};
 
@@ -109,7 +123,8 @@ export function generateHistoricalReport(input) {
       }
     }
 
-    // MARKET STRUCTURE
+    // STEP 5: MARKET STRUCTURE
+
     const rawTrend =
       structure.summary?.historicalTrendClassification ??
       structure.trend ??
@@ -133,7 +148,8 @@ export function generateHistoricalReport(input) {
         structure.orderBlocks?.length ?? 0
     };
 
-    // SUPPORT AND RESISTANCE
+    // STEP 6: SUPPORT AND RESISTANCE
+
     const supportResistanceSummary = {
       supportCount:
         supportResistance.supports?.length ?? 0,
@@ -143,14 +159,16 @@ export function generateHistoricalReport(input) {
       resistances: supportResistance.resistances ?? []
     };
 
-    // FIBONACCI
+    // STEP 7: FIBONACCI
+
     const fibonacciSummary = {
       swing: fibonacci.swing ?? null,
       retracement: fibonacci.retracement ?? [],
       extensions: fibonacci.extensions ?? []
     };
 
-    // CANDLE PATTERNS
+    // STEP 8: CANDLE PATTERNS
+
     const candlePatternCounts =
       candlePatterns.summary?.patternCounts ??
       candlePatterns.summary?.counts ??
@@ -163,7 +181,8 @@ export function generateHistoricalReport(input) {
       patterns: candlePatterns.patterns ?? []
     };
 
-    // REPORT SECTIONS
+    // STEP 9: REPORT SECTIONS
+
     const sections = {
       dataQuality: qualitySummary,
       marketIndicators: indicatorSummary,
@@ -173,7 +192,8 @@ export function generateHistoricalReport(input) {
       candlePatterns: candlePatternSummary
     };
 
-    // FINAL REPORT
+    // STEP 10: FINAL REPORT
+
     return {
       status: "OK",
       version: "12.0",
@@ -183,6 +203,8 @@ export function generateHistoricalReport(input) {
       reportInfo: {
         timeframe: integrated.timeframe,
         candleCount: integrated.candleCount,
+        maxCandlesAllowed:
+          integrated.maxCandlesAllowed,
         generatedAt: new Date().toISOString(),
         sectionCount: Object.keys(sections).length
       },

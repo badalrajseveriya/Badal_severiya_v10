@@ -7,7 +7,11 @@
 
 const MIN_CANDLES_15M = 200;
 const MIN_CANDLES_1D = 1;
-const MAX_CANDLES = 5000;
+
+// Normal file imports remain limited to 5000.
+// Cloud/API modules may explicitly request a higher limit.
+const DEFAULT_MAX_CANDLES = 5000;
+const ABSOLUTE_MAX_CANDLES = 10000000;
 
 function parseCSV(text) {
   const rows = [];
@@ -234,7 +238,8 @@ function readJSON(text) {
 export function parseHistoricalDataText(
   text,
   filename = "historical.csv",
-  timeframe = "15m"
+  timeframe = "15m",
+  options = {}
 ) {
   try {
     if (typeof text !== "string" || !text.trim()) {
@@ -243,6 +248,19 @@ export function parseHistoricalDataText(
 
     if (!["15m", "1d"].includes(timeframe)) {
       throw new Error("Unsupported historical timeframe.");
+    }
+
+    const maxCandles =
+      options.maxCandles ?? DEFAULT_MAX_CANDLES;
+
+    if (
+      !Number.isSafeInteger(maxCandles) ||
+      maxCandles < 1 ||
+      maxCandles > ABSOLUTE_MAX_CANDLES
+    ) {
+      throw new Error(
+        `maxCandles must be an integer between 1 and ${ABSOLUTE_MAX_CANDLES}.`
+      );
     }
 
     const isJSON =
@@ -264,9 +282,9 @@ export function parseHistoricalDataText(
       );
     }
 
-    if (candles.length > MAX_CANDLES) {
+    if (candles.length > maxCandles) {
       throw new Error(
-        `Maximum ${MAX_CANDLES} candles allowed.`
+        `Maximum ${maxCandles} candles allowed for this import.`
       );
     }
 

@@ -31,6 +31,10 @@ import {
 const NOTE =
   "Historical educational analysis only. No forecasts, probabilities or trading recommendations.";
 
+const MIN_CANDLES = 200;
+const DEFAULT_MAX_CANDLES = 5000;
+const ABSOLUTE_MAX_CANDLES = 100000;
+
 const REQUIRED_MODULES = [
   "dataQuality",
   "marketData",
@@ -39,6 +43,35 @@ const REQUIRED_MODULES = [
   "fibonacci",
   "candlePatterns"
 ];
+
+// ------------------------------------------------------
+// CONFIGURATION
+// ------------------------------------------------------
+
+function resolveOptions(options) {
+  if (
+    !options ||
+    typeof options !== "object" ||
+    Array.isArray(options)
+  ) {
+    throw new Error("Invalid historical analysis options.");
+  }
+
+  const maxCandles =
+    options.maxCandles ?? DEFAULT_MAX_CANDLES;
+
+  if (
+    !Number.isSafeInteger(maxCandles) ||
+    maxCandles < MIN_CANDLES ||
+    maxCandles > ABSOLUTE_MAX_CANDLES
+  ) {
+    throw new Error(
+      `maxCandles must be an integer between ${MIN_CANDLES} and ${ABSOLUTE_MAX_CANDLES}.`
+    );
+  }
+
+  return { maxCandles };
+}
 
 // ------------------------------------------------------
 // CANONICAL HISTORICAL CANDLES
@@ -252,17 +285,28 @@ function validateModuleOutputs(modules) {
 // MAIN INTEGRATION
 // ------------------------------------------------------
 
-export function analyzeHistoricalIntegrated(input) {
+export function analyzeHistoricalIntegrated(
+  input,
+  options = {}
+) {
   try {
+    const settings = resolveOptions(options);
+
     if (!input) {
       throw new Error("Historical input is required.");
     }
 
     const candles = prepareTimestampCandles(input);
 
-    if (candles.length < 200) {
+    if (candles.length < MIN_CANDLES) {
       throw new Error(
-        "At least 200 historical candles are required for full integration."
+        `At least ${MIN_CANDLES} historical candles are required for full integration.`
+      );
+    }
+
+    if (candles.length > settings.maxCandles) {
+      throw new Error(
+        `Maximum ${settings.maxCandles} candles are allowed.`
       );
     }
 
@@ -275,7 +319,9 @@ export function analyzeHistoricalIntegrated(input) {
     // STEP 1: DATA QUALITY CHECK
 
     const dataQualityResult =
-      analyzeDataQuality(candles);
+      analyzeDataQuality(candles, {
+        maxCandles: settings.maxCandles
+      });
 
     if (
       !dataQualityResult ||
@@ -292,10 +338,15 @@ export function analyzeHistoricalIntegrated(input) {
 
     // STEP 2: MARKET DATA ENGINE
 
-    const marketResult = analyzeMarket({
-      candles,
-      timeframe
-    });
+    const marketResult = analyzeMarket(
+      {
+        candles,
+        timeframe
+      },
+      {
+        maxCandles: settings.maxCandles
+      }
+    );
 
     if (
       !marketResult ||
@@ -358,6 +409,7 @@ export function analyzeHistoricalIntegrated(input) {
 
       timeframe,
       candleCount: candles.length,
+      maxCandlesAllowed: settings.maxCandles,
 
       validation: {
         status: "OK",

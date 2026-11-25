@@ -3,18 +3,15 @@
  * BADAL SEVERIYA V12
  * Historical Candle API Read-back Verifier
  *
- * Purpose:
- * - Read all API candles using offset pagination
- * - Compare uploaded/expected candles against server records
- * - Detect missing timestamps, mismatches and duplicate timestamps
- * - Verify OHLC and volume (when expected volume exists)
+ * Reads all historical candles from API with pagination.
+ * Compares expected data with server data.
+ * Detects missing timestamps, OHLCV mismatches and duplicates.
  *
  * No live trading or order execution.
  */
 
 const DEFAULT_PAGE_SIZE = 5000;
 const MAX_OFFSET = 10000000;
-const MAX_PAGES = Math.ceil(MAX_OFFSET / DEFAULT_PAGE_SIZE) + 1;
 const MAX_REPORT_ITEMS = 1000;
 
 function normalizeTimestamp(value) {
@@ -180,6 +177,7 @@ async function readAllServerCandles(options = {}) {
     );
   }
 
+  const maxPages = Math.floor(MAX_OFFSET / pageSize) + 1;
   const candlesByTimestamp = new Map();
   const duplicateTimestamps = [];
 
@@ -189,7 +187,7 @@ async function readAllServerCandles(options = {}) {
   let hasMore = true;
 
   while (hasMore) {
-    if (pagesRead >= MAX_PAGES) {
+    if (pagesRead >= maxPages) {
       throw new Error("Maximum pagination page count exceeded.");
     }
 
@@ -222,10 +220,7 @@ async function readAllServerCandles(options = {}) {
 
     const payload = await response.json();
 
-    if (
-      !payload ||
-      !Array.isArray(payload.candles)
-    ) {
+    if (!payload || !Array.isArray(payload.candles)) {
       throw new Error(
         "Invalid API response: candles array is missing."
       );
@@ -364,21 +359,9 @@ async function verifyHistoricalCandleReadBack(
       pagesRead: serverResult.pagesRead
     },
 
-    missingTimestamps: missingTimestamps.slice(
-      0,
-      MAX_REPORT_ITEMS
-    ),
-
-    mismatches: mismatches.slice(
-      0,
-      MAX_REPORT_ITEMS
-    ),
-
-    expectedDuplicates: expectedDuplicates.slice(
-      0,
-      MAX_REPORT_ITEMS
-    ),
-
+    missingTimestamps: missingTimestamps.slice(0, MAX_REPORT_ITEMS),
+    mismatches: mismatches.slice(0, MAX_REPORT_ITEMS),
+    expectedDuplicates: expectedDuplicates.slice(0, MAX_REPORT_ITEMS),
     serverDuplicates: serverResult.duplicateTimestamps.slice(
       0,
       MAX_REPORT_ITEMS

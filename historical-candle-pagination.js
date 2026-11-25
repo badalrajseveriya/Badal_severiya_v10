@@ -1,6 +1,69 @@
+
 const DEFAULT_PAGE_SIZE = 5000;
 const DEFAULT_MAX_CANDLES = 25000;
 const ABSOLUTE_MAX_CANDLES = 10000000;
+
+async function requestCandlePage({
+  apiBase,
+  timeframe,
+  index,
+  limit,
+  offset,
+  fetchImpl
+}) {
+  const url = new URL("/api/data/candles", apiBase);
+
+  url.searchParams.set("index", index);
+  url.searchParams.set("timeframe", timeframe);
+  url.searchParams.set("limit", String(limit));
+  url.searchParams.set("offset", String(offset));
+
+  const response = await fetchImpl(url.toString(), {
+    method: "GET",
+    cache: "no-store"
+  });
+
+  if (!response.ok) {
+    throw new Error(`Historical API error: HTTP ${response.status}`);
+  }
+
+  const result = await response.json();
+
+  if (
+    !result ||
+    result.app !== "BADAL SEVERIYA DATA V11" ||
+    !Array.isArray(result.candles)
+  ) {
+    throw new Error("Invalid historical API response.");
+  }
+
+  if (result.candles.length > limit) {
+    throw new Error("API returned more candles than requested.");
+  }
+
+  return result;
+}
+
+function validateChronologicalCandles(candles) {
+  let previousTime = -Infinity;
+
+  for (let i = 0; i < candles.length; i++) {
+    const candle = candles[i];
+    const timestamp = Date.parse(candle?.timestamp);
+
+    if (!Number.isFinite(timestamp)) {
+      throw new Error(`Invalid candle timestamp at position ${i}.`);
+    }
+
+    if (timestamp <= previousTime) {
+      throw new Error(
+        "Duplicate or out-of-order candles detected in historical pages."
+      );
+    }
+
+    previousTime = timestamp;
+  }
+}
 
 export async function fetchHistoricalCandlePages({
   apiBase,
@@ -20,6 +83,13 @@ export async function fetchHistoricalCandlePages({
 
     if (!["1d", "15m"].includes(timeframe)) {
       throw new Error("Unsupported timeframe.");
+    }
+
+    if (
+      typeof index !== "string" ||
+      !index.trim()
+    ) {
+      throw new Error("Invalid index.");
     }
 
     if (
@@ -44,47 +114,21 @@ export async function fetchHistoricalCandlePages({
 
     const pages = [];
     let offset = 0;
-    let hasMore = false;
     let totalFetched = 0;
+    let hasMore = false;
 
     while (totalFetched < maxCandles) {
       const remaining = maxCandles - totalFetched;
       const limit = Math.min(pageSize, remaining);
 
-      const url = new URL(
-        "/api/data/candles",
-        apiBase
-      );
-
-      url.searchParams.set("index", index);
-      url.searchParams.set("timeframe", timeframe);
-      url.searchParams.set("limit", String(limit));
-      url.searchParams.set("offset", String(offset));
-
-      const response = await fetchImpl(url.toString(), {
-        method: "GET",
-        cache: "no-store"
+      const result = await requestCandlePage({
+        apiBase,
+        timeframe,
+        index,
+        limit,
+        offset,
+        fetchImpl
       });
-
-      if (!response.ok) {
-        throw new Error(
-          `Historical API error: HTTP ${response.status}`
-        );
-      }
-
-      const result = await response.json();
-
-      if (
-        !result ||
-        result.app !== "BADAL SEVERIYA DATA V11" ||
-        !Array.isArray(result.candles)
-      ) {
-        throw new Error("Invalid historical API response.");
-      }
-
-      if (result.candles.length > limit) {
-        throw new Error("API returned more candles than requested.");
-      }
 
       if (result.candles.length === 0) {
         hasMore = false;
@@ -106,13 +150,30 @@ export async function fetchHistoricalCandlePages({
       offset += result.candles.length;
     }
 
-    // API pages arrive newest-first.
-    // Each individual page is already chronological.
-    // Reverse page order to restore complete chronology.
+    // If the dashboard limit is reached, verify whether
+    // another database candle actually exists.
+    if (totalFetched >= maxCandles && hasMore) {
+      const probe = await requestCandlePage({
+        apiBase,
+        timeframe,
+        index,
+        limit: 1,
+        offset: totalFetched,
+        fetchImpl
+      });
 
+      hasMore = probe.candles.length > 0;
+    }
+
+    // API returns the newest page first.
+    // Each page itself is already in ascending order.
+    // Reverse only the page order to restore chronology.
     const candles = pages
       .reverse()
       .flat();
+
+    // Never silently accept duplicate or unordered candles.
+    validateChronologicalCandles(candles);
 
     return {
       status: "OK",

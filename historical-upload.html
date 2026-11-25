@@ -1,0 +1,509 @@
+
+<!DOCTYPE html>
+<html lang="hi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BADAL SEVERIYA - Historical Data Upload</title>
+
+<style>
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  padding: 16px;
+  background: #10141c;
+  color: #f1f5f9;
+  font-family: Arial, sans-serif;
+}
+
+.container {
+  max-width: 600px;
+  margin: auto;
+}
+
+h1 {
+  color: #38bdf8;
+  font-size: 23px;
+}
+
+.card {
+  background: #1b2330;
+  border: 1px solid #344155;
+  border-radius: 12px;
+  padding: 16px;
+  margin: 14px 0;
+}
+
+label {
+  display: block;
+  margin: 12px 0 6px;
+  font-weight: bold;
+}
+
+input, select, button {
+  width: 100%;
+  padding: 12px;
+  border-radius: 8px;
+  margin-top: 5px;
+  font-size: 15px;
+}
+
+input, select {
+  background: #0e1622;
+  color: white;
+  border: 1px solid #475569;
+}
+
+button {
+  background: #0284c7;
+  color: white;
+  font-weight: bold;
+  border: none;
+  margin-top: 14px;
+}
+
+button:disabled {
+  opacity: 0.5;
+}
+
+.status {
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: #0b1220;
+  padding: 12px;
+  border-radius: 8px;
+  margin-top: 12px;
+  line-height: 1.6;
+}
+
+.warning {
+  color: #fbbf24;
+  line-height: 1.6;
+}
+
+.success {
+  color: #4ade80;
+}
+
+.error {
+  color: #f87171;
+}
+</style>
+</head>
+
+<body>
+<div class="container">
+
+<h1>BADAL SEVERIYA</h1>
+<p>Historical Data Secure Upload</p>
+
+<div class="card">
+
+<p class="warning">
+⚠️ यह अपलोड पेज केवल ऐतिहासिक डेटा के लिए है।
+अपना INGEST_TOKEN किसी अन्य व्यक्ति को न दें।
+</p>
+
+<label>Cloudflare INGEST_TOKEN</label>
+
+<input
+  id="token"
+  type="password"
+  autocomplete="off"
+  placeholder="अपना टोकन यहाँ डालें"
+/>
+
+<label>Index</label>
+
+<select id="index">
+  <option value="NIFTY">NIFTY</option>
+</select>
+
+<label>Timeframe</label>
+
+<select id="timeframe">
+  <option value="15m">15 मिनट</option>
+  <option value="1d">Daily</option>
+</select>
+
+<label>पहली डेटा फाइल</label>
+
+<input
+  id="file1"
+  type="file"
+  accept=".csv,.json"
+/>
+
+<label>दूसरी डेटा फाइल (वैकल्पिक)</label>
+
+<input
+  id="file2"
+  type="file"
+  accept=".csv,.json"
+/>
+
+<button id="uploadBtn" onclick="uploadFiles()">
+  डेटा Cloudflare में अपलोड करें
+</button>
+
+<button
+  type="button"
+  onclick="clearToken()"
+  style="background:#475569"
+>
+  टोकन साफ करें
+</button>
+
+<div id="status" class="status">
+अपलोड के लिए तैयार।
+</div>
+
+</div>
+
+</div>
+
+<script>
+const API =
+  "https://badal-severiya-data.mrstarrdbs.workers.dev";
+
+function setStatus(message, type = "") {
+  const box = document.getElementById("status");
+  box.textContent = message;
+  box.className = "status " + type;
+}
+
+function clearToken() {
+  document.getElementById("token").value = "";
+  setStatus("टोकन साफ कर दिया गया।");
+}
+
+function parseCSV(text) {
+  const rows = [];
+  let row = [];
+  let field = "";
+  let quoted = false;
+
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+
+    if (ch === '"') {
+      if (quoted && text[i + 1] === '"') {
+        field += '"';
+        i++;
+      } else {
+        quoted = !quoted;
+      }
+    } else if (ch === "," && !quoted) {
+      row.push(field.trim());
+      field = "";
+    } else if (
+      (ch === "\n" || ch === "\r") &&
+      !quoted
+    ) {
+      if (ch === "\r" && text[i + 1] === "\n") i++;
+      row.push(field.trim());
+
+      if (row.some(v => v !== "")) rows.push(row);
+
+      row = [];
+      field = "";
+    } else {
+      field += ch;
+    }
+  }
+
+  row.push(field.trim());
+
+  if (row.some(v => v !== "")) {
+    rows.push(row);
+  }
+
+  if (quoted) {
+    throw new Error("CSV में quotation की गलती है।");
+  }
+
+  return rows;
+}
+
+function keyName(value) {
+  return String(value || "")
+    .replace(/^\uFEFF/, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "");
+}
+
+function parseTimestamp(value) {
+  const s = String(value ?? "").trim();
+
+  if (!s) {
+    throw new Error("Timestamp खाली है।");
+  }
+
+  if (/^\d+$/.test(s)) {
+    const n = Number(s);
+    return new Date(n < 1e12 ? n * 1000 : n).toISOString();
+  }
+
+  const d = new Date(s);
+
+  if (Number.isNaN(d.getTime())) {
+    throw new Error("गलत तारीख: " + s);
+  }
+
+  return d.toISOString();
+}
+
+function normalizeCandle(item, rowNumber) {
+  let timestamp, open, high, low, close, volume;
+
+  if (Array.isArray(item)) {
+    [timestamp, open, high, low, close, volume] = item;
+  } else {
+    const obj = {};
+
+    for (const [key, value] of Object.entries(item)) {
+      obj[keyName(key)] = value;
+    }
+
+    const get = (...names) => {
+      for (const name of names) {
+        if (obj[name] !== undefined) return obj[name];
+      }
+      return undefined;
+    };
+
+    timestamp = get("timestamp", "time", "date", "datetime", "tradedate");
+    open = get("open", "into");
+    high = get("high", "inth");
+    low = get("low", "intl");
+    close = get("close", "intc");
+    volume = get("volume", "vol", "intv");
+  }
+
+  const candle = {
+    timestamp: parseTimestamp(timestamp),
+    open: Number(open),
+    high: Number(high),
+    low: Number(low),
+    close: Number(close),
+    volume:
+      volume === undefined || volume === null || volume === ""
+        ? null
+        : Number(volume)
+  };
+
+  if (
+    ![candle.open, candle.high, candle.low, candle.close]
+      .every(Number.isFinite)
+  ) {
+    throw new Error("OHLC नंबर गलत हैं, row " + rowNumber);
+  }
+
+  if (
+    candle.open <= 0 ||
+    candle.high <= 0 ||
+    candle.low <= 0 ||
+    candle.close <= 0 ||
+    candle.high < Math.max(candle.open, candle.close, candle.low) ||
+    candle.low > Math.min(candle.open, candle.close, candle.high)
+  ) {
+    throw new Error("OHLC validation error, row " + rowNumber);
+  }
+
+  if (
+    candle.volume !== null &&
+    (!Number.isFinite(candle.volume) || candle.volume < 0)
+  ) {
+    throw new Error("Volume गलत है, row " + rowNumber);
+  }
+
+  return candle;
+}
+
+function parseCSVFile(text) {
+  const rows = parseCSV(text);
+
+  if (rows.length < 2) {
+    throw new Error("CSV में डेटा नहीं मिला।");
+  }
+
+  const headers = rows[0].map(keyName);
+
+  const find = (...names) =>
+    headers.findIndex(h => names.includes(h));
+
+  const indexes = {
+    timestamp: find("timestamp", "time", "date", "datetime", "tradedate"),
+    open: find("open", "into"),
+    high: find("high", "inth"),
+    low: find("low", "intl"),
+    close: find("close", "intc"),
+    volume: find("volume", "vol", "intv")
+  };
+
+  for (const field of ["timestamp", "open", "high", "low", "close"]) {
+    if (indexes[field] < 0) {
+      throw new Error("CSV में " + field + " कॉलम नहीं मिला।");
+    }
+  }
+
+  return rows.slice(1).map((values, i) => {
+    const item = {};
+
+    for (const field of Object.keys(indexes)) {
+      const index = indexes[field];
+      item[field] = index < 0 ? null : values[index];
+    }
+
+    return normalizeCandle(item, i + 2);
+  });
+}
+
+async function readFile(file) {
+  const text = await file.text();
+
+  let candles;
+
+  if (
+    file.name.toLowerCase().endsWith(".json") ||
+    /^[\s]*[\[{]/.test(text)
+  ) {
+    const parsed = JSON.parse(text);
+
+    const source = Array.isArray(parsed)
+      ? parsed
+      : parsed.candles || parsed.data;
+
+    if (!Array.isArray(source)) {
+      throw new Error(file.name + ": JSON candles/data array नहीं मिला।");
+    }
+
+    candles = source.map((item, i) =>
+      normalizeCandle(item, i + 1)
+    );
+  } else {
+    candles = parseCSVFile(text);
+  }
+
+  if (!candles.length) {
+    throw new Error(file.name + ": कोई candle नहीं मिली।");
+  }
+
+  for (let i = 1; i < candles.length; i++) {
+    if (
+      Date.parse(candles[i].timestamp) <=
+      Date.parse(candles[i - 1].timestamp)
+    ) {
+      throw new Error(
+        file.name + ": डेटा chronological नहीं है, row " + (i + 1)
+      );
+    }
+  }
+
+  return candles;
+}
+
+async function uploadOne(file, token, index, timeframe) {
+  setStatus("फाइल पढ़ी जा रही है: " + file.name);
+
+  const candles = await readFile(file);
+
+  if (candles.length > 5000) {
+    throw new Error(
+      file.name + ": 5000 से ज्यादा candles हैं।"
+    );
+  }
+
+  setStatus(
+    file.name + "\n" +
+    "कैंडल: " + candles.length +
+    "\nCloudflare में भेजी जा रही हैं..."
+  );
+
+  const response = await fetch(API + "/api/data/ingest", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-ingest-token": token
+    },
+    body: JSON.stringify({
+      index,
+      timeframe,
+      candles
+    })
+  });
+
+  const result = await response.json();
+
+  if (!response.ok || result.status !== "OK") {
+    throw new Error(
+      file.name + "\nUpload error: " +
+      (result.error || response.status)
+    );
+  }
+
+  return result;
+}
+
+async function uploadFiles() {
+  const button = document.getElementById("uploadBtn");
+  const token = document.getElementById("token").value.trim();
+  const index = document.getElementById("index").value;
+  const timeframe = document.getElementById("timeframe").value;
+
+  const file1 = document.getElementById("file1").files[0];
+  const file2 = document.getElementById("file2").files[0];
+
+  if (!token) {
+    setStatus("पहले INGEST_TOKEN डालें।", "error");
+    return;
+  }
+
+  if (!file1) {
+    setStatus("पहली डेटा फाइल चुनें।", "error");
+    return;
+  }
+
+  button.disabled = true;
+
+  try {
+    const results = [];
+
+    results.push(
+      await uploadOne(file1, token, index, timeframe)
+    );
+
+    if (file2) {
+      results.push(
+        await uploadOne(file2, token, index, timeframe)
+      );
+    }
+
+    const total = results.reduce(
+      (sum, item) => sum + item.received,
+      0
+    );
+
+    setStatus(
+      "✅ अपलोड पूरा!\n\n" +
+      "फाइलों की संख्या: " + results.length +
+      "\nकुल भेजी गई candles: " + total +
+      "\nIndex: " + index +
+      "\nTimeframe: " + timeframe +
+      "\n\nअब डेटाबेस की जाँच करें।",
+      "success"
+    );
+
+  } catch (error) {
+    setStatus("❌ अपलोड असफल:\n" + error.message, "error");
+  } finally {
+    button.disabled = false;
+  }
+}
+</script>
+
+</body>
+</html>

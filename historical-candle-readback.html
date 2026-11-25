@@ -4,7 +4,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>BADAL SEVERIYA V12 - Historical Readback</title>
+  <title>BADAL SEVERIYA V12 - Historical Verification</title>
   <style>
     body {
       margin: 0;
@@ -23,16 +23,23 @@
     h2 { color: #60a5fa; }
     button {
       width: 100%;
-      padding: 14px;
-      margin-top: 12px;
+      padding: 13px;
+      margin-top: 10px;
       border: 0;
       border-radius: 8px;
       background: #2563eb;
       color: white;
-      font-size: 16px;
+      font-size: 15px;
       font-weight: bold;
     }
     button:disabled { opacity: .5; }
+    button.danger { background: #b91c1c; }
+    button.small {
+      width: auto;
+      padding: 8px 12px;
+      margin: 5px 0;
+      font-size: 12px;
+    }
     input, select {
       width: 100%;
       box-sizing: border-box;
@@ -51,6 +58,15 @@
     }
     .muted { color: #94a3b8; font-size: 13px; }
     .status { font-weight: bold; color: #fbbf24; }
+    .file-row {
+      border-bottom: 1px solid #354052;
+      padding: 10px 0;
+      overflow-wrap: anywhere;
+    }
+    .file-name { font-weight: bold; }
+    .file-meta { color: #94a3b8; font-size: 12px; margin-top: 4px; }
+    .file-actions { display: flex; gap: 8px; }
+    .file-actions button { flex: 1; }
   </style>
 </head>
 <body>
@@ -58,17 +74,26 @@
   <p>Historical Candle Database Read-back Verification</p>
 
   <div class="card">
-    <h3>1. Historical CSV / JSON Files</h3>
+    <h3>1. CSV / JSON फाइलें चुनें</h3>
     <p class="muted">
-      अपनी सभी 15-minute historical files एक साथ चुनें।
-      प्रत्येक फाइल में अधिकतम 5000 candles हो सकती हैं।
+      फाइल चुनने के बाद उसकी सामग्री इस मोबाइल के ब्राउज़र में
+      IndexedDB में सेव होगी। रिफ्रेश करने पर भी सेव फाइलें रहेंगी।
     </p>
-    <input id="files" type="file" accept=".csv,.json,text/csv,application/json" multiple>
-    <p id="fileInfo" class="muted">अभी कोई फाइल नहीं चुनी गई।</p>
+    <input id="files" type="file"
+      accept=".csv,.json,text/csv,application/json" multiple>
+    <p id="saveStatus" class="status">लोड हो रहा है...</p>
   </div>
 
   <div class="card">
-    <h3>2. Database Settings</h3>
+    <h3>2. सेव की गई फाइलें</h3>
+    <p id="fileInfo" class="muted">फाइलें लोड हो रही हैं...</p>
+    <div id="savedFiles"></div>
+    <button id="refreshListBtn">SAVED FILES REFRESH करें</button>
+    <button id="clearBtn" class="danger">सभी सेव फाइलें हटाएँ</button>
+  </div>
+
+  <div class="card">
+    <h3>3. Database Settings</h3>
     <label>API Base URL</label>
     <input id="apiUrl" type="url"
       value="https://badal-severiya-data.mrstarrdbs.workers.dev">
@@ -89,13 +114,13 @@
   </div>
 
   <div class="card">
-    <h3>3. Verification Progress</h3>
+    <h3>4. Verification Progress</h3>
     <p id="status" class="status">WAITING</p>
     <pre id="progress">अभी जाँच शुरू नहीं हुई है।</pre>
   </div>
 
   <div class="card">
-    <h3>4. Final Report</h3>
+    <h3>5. Final Report</h3>
     <pre id="report">रिपोर्ट यहाँ दिखाई देगी।</pre>
     <button id="downloadBtn" disabled>DOWNLOAD REPORT JSON</button>
   </div>
@@ -113,41 +138,268 @@
     verifyHistoricalCandleReadBack
   } from "./historical-candle-api-verifier.js";
 
+  const DB_NAME = "BADAL_SEVERIYA_HISTORICAL_FILES";
+  const DB_VERSION = 1;
+  const STORE_NAME = "saved_csv_files";
+
   const fileInput = document.getElementById("files");
+  const saveStatus = document.getElementById("saveStatus");
   const fileInfo = document.getElementById("fileInfo");
+  const savedFilesBox = document.getElementById("savedFiles");
   const verifyBtn = document.getElementById("verifyBtn");
   const statusBox = document.getElementById("status");
   const progressBox = document.getElementById("progress");
   const reportBox = document.getElementById("report");
   const downloadBtn = document.getElementById("downloadBtn");
+  const clearBtn = document.getElementById("clearBtn");
+  const refreshListBtn = document.getElementById("refreshListBtn");
 
+  let db = null;
   let finalReport = null;
+  let busy = false;
 
-  fileInput.addEventListener("change", () => {
-    const files = Array.from(fileInput.files || []);
+  function openDatabase() {
+    return new Promise((resolve, reject) => {
+      if (!("indexedDB" in window)) {
+        reject(new Error("इस ब्राउज़र में IndexedDB उपलब्ध नहीं है।"));
+        return;
+      }
+
+      const request = indexedDB.open(DB_NAME, DB_VERSION);
+
+      request.onupgradeneeded = () => {
+        const database = request.result;
+
+        if (!database.objectStoreNames.contains(STORE_NAME)) {
+          database.createObjectStore(STORE_NAME, {
+            keyPath: "id"
+          });
+        }
+      };
+
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(
+        request.error || new Error("Local database open नहीं हुआ।")
+      );
+    });
+  }
+
+  function storeTransaction(mode, action) {
+    return new Promise((resolve, reject) => {
+      const transaction = db.transaction(STORE_NAME, mode);
+      const store = transaction.objectStore(STORE_NAME);
+
+      let request;
+
+      try {
+        request = action(store);
+      } catch (error) {
+        reject(error);
+        return;
+      }
+
+      transaction.oncomplete = () => {
+        resolve(request ? request.result : undefined);
+      };
+
+      transaction.onerror = () => reject(
+        transaction.error || new Error("Local database transaction failed.")
+      );
+
+      transaction.onabort = () => reject(
+        transaction.error || new Error("Local database transaction aborted.")
+      );
+    });
+  }
+
+  function getAllSavedFiles() {
+    return storeTransaction("readonly", store => store.getAll());
+  }
+
+  function saveOneFile(record) {
+    return storeTransaction("readwrite", store => store.put(record));
+  }
+
+  function deleteOneFile(id) {
+    return storeTransaction("readwrite", store => store.delete(id));
+  }
+
+  function clearSavedFiles() {
+    return storeTransaction("readwrite", store => store.clear());
+  }
+
+  function makeFileId(file) {
+    return [
+      file.name,
+      file.size,
+      file.lastModified
+    ].join("::");
+  }
+
+  function formatBytes(bytes) {
+    if (bytes < 1024) return bytes + " B";
+    if (bytes < 1024 * 1024) {
+      return (bytes / 1024).toFixed(1) + " KB";
+    }
+    return (bytes / (1024 * 1024)).toFixed(2) + " MB";
+  }
+
+  async function renderSavedFiles() {
+    const files = await getAllSavedFiles();
+
+    files.sort((a, b) => a.name.localeCompare(b.name));
+
+    savedFilesBox.replaceChildren();
+
     fileInfo.textContent =
-      files.length + " फाइल चुनी गई हैं।";
-    finalReport = null;
-    downloadBtn.disabled = true;
+      files.length + " फाइलें सेव हैं।";
+
+    if (files.length === 0) {
+      savedFilesBox.textContent = "अभी कोई फाइल सेव नहीं है।";
+      return;
+    }
+
+    for (const file of files) {
+      const row = document.createElement("div");
+      row.className = "file-row";
+
+      const name = document.createElement("div");
+      name.className = "file-name";
+      name.textContent = file.name;
+
+      const meta = document.createElement("div");
+      meta.className = "file-meta";
+      meta.textContent =
+        formatBytes(file.size) +
+        " | सेव: " +
+        new Date(file.savedAt).toLocaleString("hi-IN");
+
+      const actions = document.createElement("div");
+      actions.className = "file-actions";
+
+      const remove = document.createElement("button");
+      remove.className = "small danger";
+      remove.textContent = "यह फाइल हटाएँ";
+      remove.addEventListener("click", async () => {
+        if (busy) return;
+
+        await deleteOneFile(file.id);
+        await renderSavedFiles();
+        saveStatus.textContent = "फाइल हटाई गई: " + file.name;
+        finalReport = null;
+        downloadBtn.disabled = true;
+      });
+
+      actions.appendChild(remove);
+      row.append(name, meta, actions);
+      savedFilesBox.appendChild(row);
+    }
+  }
+
+  async function saveSelectedFiles() {
+    const files = Array.from(fileInput.files || []);
+
+    if (files.length === 0) return;
+
+    if (files.length > 100) {
+      throw new Error("एक बार में अधिकतम 100 फाइलें चुनें।");
+    }
+
+    saveStatus.textContent = "फाइलें लोकल स्टोरेज में सेव हो रही हैं...";
+
+    let saved = 0;
+
+    for (const file of files) {
+      const name = file.name.toLowerCase();
+
+      if (!name.endsWith(".csv") && !name.endsWith(".json")) {
+        throw new Error("केवल CSV और JSON फाइलें स्वीकार हैं: " + file.name);
+      }
+
+      const content = await file.text();
+
+      const record = {
+        id: makeFileId(file),
+        name: file.name,
+        size: file.size,
+        type: file.type || "",
+        lastModified: file.lastModified,
+        savedAt: Date.now(),
+        content
+      };
+
+      await saveOneFile(record);
+      saved++;
+    }
+
+    await renderSavedFiles();
+
+    saveStatus.textContent =
+      saved + " फाइलें IndexedDB में सेव हो गईं।";
+
+    fileInput.value = "";
+  }
+
+  fileInput.addEventListener("change", async () => {
+    try {
+      await saveSelectedFiles();
+    } catch (error) {
+      saveStatus.textContent =
+        "SAVE ERROR: " + (error.message || String(error));
+    }
+  });
+
+  refreshListBtn.addEventListener("click", async () => {
+    try {
+      await renderSavedFiles();
+      saveStatus.textContent = "सेव फाइलों की सूची अपडेट हो गई।";
+    } catch (error) {
+      saveStatus.textContent = error.message || String(error);
+    }
+  });
+
+  clearBtn.addEventListener("click", async () => {
+    if (busy) return;
+
+    const confirmed = confirm(
+      "क्या आप इस ब्राउज़र में सेव की गई सभी CSV/JSON फाइलें हटाना चाहते हैं?"
+    );
+
+    if (!confirmed) return;
+
+    try {
+      await clearSavedFiles();
+      await renderSavedFiles();
+      saveStatus.textContent = "सभी लोकल सेव फाइलें हटा दी गई हैं।";
+      finalReport = null;
+      downloadBtn.disabled = true;
+    } catch (error) {
+      saveStatus.textContent = error.message || String(error);
+    }
   });
 
   verifyBtn.addEventListener("click", async () => {
+    if (busy) return;
+
+    busy = true;
     verifyBtn.disabled = true;
+    clearBtn.disabled = true;
     downloadBtn.disabled = true;
     finalReport = null;
+
     reportBox.textContent = "जाँच जारी है...";
     progressBox.textContent = "";
     statusBox.textContent = "PROCESSING";
 
     try {
-      const files = Array.from(fileInput.files || []);
+      const files = await getAllSavedFiles();
 
       if (files.length === 0) {
-        throw new Error("पहले CSV या JSON फाइल चुनें।");
+        throw new Error("पहले CSV या JSON फाइलें चुनकर सेव करें।");
       }
 
       if (files.length > 100) {
-        throw new Error("एक बार में अधिकतम 100 फाइलें चुनें।");
+        throw new Error("अधिकतम 100 सेव फाइलें एक बार में जाँचें।");
       }
 
       const allCandles = [];
@@ -156,18 +408,15 @@
 
       for (let i = 0; i < files.length; i++) {
         const file = files[i];
-        const content = await file.text();
 
         const parsed = parseHistoricalDataText(
-          content,
+          file.content,
           file.name,
           "1d"
         );
 
         if (parsed.status !== "OK") {
-          throw new Error(
-            file.name + ": " + parsed.error
-          );
+          throw new Error(file.name + ": " + parsed.error);
         }
 
         originalCount += parsed.candleCount;
@@ -179,15 +428,12 @@
         });
 
         progressBox.textContent =
-          "फाइलें पढ़ी जा रही हैं: " +
+          "सेव फाइलें पढ़ी जा रही हैं: " +
           (i + 1) + "/" + files.length +
           "\nकुल पढ़ी गई candles: " + originalCount;
       }
 
-      const expectedCandles = mergeHistoricalCandles(
-        [],
-        allCandles
-      );
+      const expectedCandles = mergeHistoricalCandles([], allCandles);
 
       if (expectedCandles.length === 0) {
         throw new Error("कोई valid candle नहीं मिली।");
@@ -196,11 +442,8 @@
       const apiBaseUrl =
         document.getElementById("apiUrl").value.trim();
 
-      const index =
-        document.getElementById("index").value;
-
-      const timeframe =
-        document.getElementById("timeframe").value;
+      const index = document.getElementById("index").value;
+      const timeframe = document.getElementById("timeframe").value;
 
       if (!apiBaseUrl) {
         throw new Error("API URL खाली है।");
@@ -227,9 +470,8 @@
 
       progressBox.textContent =
         "Database connected.\n" +
-        "Expected unique candles: " +
-        expectedCandles.length +
-        "\nअब सभी database pages पढ़े जा रहे हैं।";
+        "Expected unique candles: " + expectedCandles.length +
+        "\nDatabase pages पढ़े जा रहे हैं।";
 
       const result = await verifyHistoricalCandleReadBack(
         expectedCandles,
@@ -260,21 +502,18 @@
       };
 
       statusBox.textContent = result.status;
-
-      reportBox.textContent =
-        JSON.stringify(finalReport, null, 2);
-
+      reportBox.textContent = JSON.stringify(finalReport, null, 2);
       downloadBtn.disabled = false;
 
-      progressBox.textContent +=
-        "\n\nVerification completed.";
+      progressBox.textContent += "\n\nVerification completed.";
 
     } catch (error) {
       statusBox.textContent = "ERROR";
-      reportBox.textContent =
-        error?.message || String(error);
+      reportBox.textContent = error?.message || String(error);
     } finally {
+      busy = false;
       verifyBtn.disabled = false;
+      clearBtn.disabled = false;
     }
   });
 
@@ -293,8 +532,22 @@
     anchor.download = "badal-historical-verification-report.json";
     anchor.click();
 
-    URL.revokeObjectURL(url);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
   });
+
+  async function start() {
+    try {
+      db = await openDatabase();
+      await renderSavedFiles();
+      saveStatus.textContent =
+        "लोकल स्टोरेज तैयार है। सेव फाइलें रिफ्रेश के बाद भी रहेंगी।";
+    } catch (error) {
+      saveStatus.textContent =
+        "LOCAL STORAGE ERROR: " + (error.message || String(error));
+    }
+  }
+
+  await start();
 </script>
 </body>
 </html>

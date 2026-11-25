@@ -8,7 +8,8 @@
 // ==================================================
 
 const MIN_CANDLES = 200;
-const MAX_CANDLES = 5000;
+const DEFAULT_MAX_CANDLES = 5000;
+const ABSOLUTE_MAX_CANDLES = 100000;
 
 const NOTE =
   "Historical educational analysis only. Scores are descriptive classifications, not probabilities, forecasts, or trading recommendations.";
@@ -48,7 +49,27 @@ function getIndiaTradingDate(timestamp) {
 // NORMALIZE AND VALIDATE CANDLES
 // --------------------------------------------------
 
-function normalizeCandles(input) {
+function normalizeCandles(input, options = {}) {
+  if (
+    options === null ||
+    typeof options !== "object" ||
+    Array.isArray(options)
+  ) {
+    throw new Error("Analysis options must be an object.");
+  }
+
+  const maxCandles = options.maxCandles ?? DEFAULT_MAX_CANDLES;
+
+  if (
+    !Number.isSafeInteger(maxCandles) ||
+    maxCandles < MIN_CANDLES ||
+    maxCandles > ABSOLUTE_MAX_CANDLES
+  ) {
+    throw new Error(
+      `maxCandles must be an integer between ${MIN_CANDLES} and ${ABSOLUTE_MAX_CANDLES}.`
+    );
+  }
+
   let source = input;
 
   if (!Array.isArray(source)) {
@@ -67,8 +88,8 @@ function normalizeCandles(input) {
     );
   }
 
-  if (source.length > MAX_CANDLES) {
-    throw new Error(`Maximum ${MAX_CANDLES} candles are allowed.`);
+  if (source.length > maxCandles) {
+    throw new Error(`Maximum ${maxCandles} candles are allowed.`);
   }
 
   const candles = source.map((item, index) => {
@@ -623,9 +644,9 @@ function round(value, digits = 2) {
 // MAIN ANALYSIS
 // --------------------------------------------------
 
-export function analyzeMarket(input) {
+export function analyzeMarket(input, options = {}) {
   try {
-    const normalized = normalizeCandles(input);
+    const normalized = normalizeCandles(input, options);
     const candles = normalized.candles;
 
     const closes = candles.map(c => c.close);
@@ -759,6 +780,7 @@ export function analyzeMarket(input) {
 
     const dataInfo = {
       candleCount: candles.length,
+      maxCandlesAllowed: options.maxCandles ?? DEFAULT_MAX_CANDLES,
 
       timestampAvailable:
         candles.every(c => c.timestamp !== null),

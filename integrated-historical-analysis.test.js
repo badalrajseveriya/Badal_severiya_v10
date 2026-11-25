@@ -43,6 +43,7 @@ function makeResult() {
   assert.equal(result.dataType, "HISTORICAL_ONLY");
   assert.equal(result.timeframe, "15m");
   assert.equal(result.candleCount, 300);
+  assert.equal(result.maxCandlesAllowed, 5000);
 
   console.log("PASS: Complete integration");
 }
@@ -324,4 +325,113 @@ function makeResult() {
   console.log("PASS: Cross-module pivot consistency");
 }
 
-console.log("ALL 19 INTEGRATION TESTS PASSED");
+// 20. Default limit rejects more than 5000 candles
+{
+  const result = analyzeHistoricalIntegrated({
+    candles: makeCandles(5500),
+    timeframe: "15m"
+  });
+
+  assert.equal(result.status, "ERROR");
+  assert.match(result.error, /Maximum 5000 candles/);
+
+  console.log("PASS: Default candle limit enforcement");
+}
+
+// 21. Custom limit accepts 5500 candles
+{
+  const result = analyzeHistoricalIntegrated(
+    {
+      candles: makeCandles(5500),
+      timeframe: "15m"
+    },
+    {
+      maxCandles: 5500
+    }
+  );
+
+  assert.equal(result.status, "OK");
+  assert.equal(result.candleCount, 5500);
+  assert.equal(result.maxCandlesAllowed, 5500);
+  assert.equal(result.modules.dataQuality.status, "OK");
+  assert.equal(result.modules.marketData.status, "OK");
+
+  console.log("PASS: Custom 5500 candle integration");
+}
+
+// 22. Custom limit accepts 12345 candles
+{
+  const result = analyzeHistoricalIntegrated(
+    {
+      candles: makeCandles(12345),
+      timeframe: "15m"
+    },
+    {
+      maxCandles: 12345
+    }
+  );
+
+  assert.equal(result.status, "OK");
+  assert.equal(result.candleCount, 12345);
+  assert.equal(result.maxCandlesAllowed, 12345);
+  assert.equal(result.modules.dataQuality.status, "OK");
+  assert.equal(result.modules.marketData.status, "OK");
+
+  console.log("PASS: Custom 12345 candle integration");
+}
+
+// 23. Custom limit rejects candle count above configured limit
+{
+  const result = analyzeHistoricalIntegrated(
+    {
+      candles: makeCandles(5500),
+      timeframe: "15m"
+    },
+    {
+      maxCandles: 5000
+    }
+  );
+
+  assert.equal(result.status, "ERROR");
+  assert.match(result.error, /Maximum 5000 candles/);
+
+  console.log("PASS: Custom limit enforcement");
+}
+
+// 24. Invalid custom limit rejected
+{
+  const result = analyzeHistoricalIntegrated(
+    {
+      candles: makeCandles(300),
+      timeframe: "15m"
+    },
+    {
+      maxCandles: 123.5
+    }
+  );
+
+  assert.equal(result.status, "ERROR");
+  assert.match(result.error, /maxCandles must be an integer/);
+
+  console.log("PASS: Invalid custom limit validation");
+}
+
+// 25. Maximum allowed limit validation
+{
+  const result = analyzeHistoricalIntegrated(
+    {
+      candles: makeCandles(300),
+      timeframe: "15m"
+    },
+    {
+      maxCandles: 100001
+    }
+  );
+
+  assert.equal(result.status, "ERROR");
+  assert.match(result.error, /maxCandles must be an integer/);
+
+  console.log("PASS: Absolute maximum limit validation");
+}
+
+console.log("ALL 25 INTEGRATION TESTS PASSED");

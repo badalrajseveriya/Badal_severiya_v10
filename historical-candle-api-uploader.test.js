@@ -9,16 +9,16 @@ function assert(condition, message) {
   }
 }
 
-function assertThrows(fn, message) {
-  let thrown = false;
+async function assertRejects(fn, message) {
+  let rejected = false;
 
   try {
-    fn();
+    await fn();
   } catch {
-    thrown = true;
+    rejected = true;
   }
 
-  assert(thrown, message);
+  assert(rejected, message);
 }
 
 function candle(index) {
@@ -63,10 +63,7 @@ function makePreparedImport(batchSizes) {
   };
 }
 
-function mockResponse(
-  status,
-  body
-) {
+function mockResponse(status, body) {
   return {
     ok: status >= 200 && status < 300,
     status,
@@ -96,17 +93,11 @@ const validOptions = {
         ...validOptions,
 
         fetchImpl: async (url, options) => {
-          requests.push({
-            url,
-            options
-          });
+          requests.push({ url, options });
 
-          return mockResponse(
-            200,
-            {
-              status: "OK"
-            }
-          );
+          return mockResponse(200, {
+            status: "OK"
+          });
         },
 
         onProgress: event => {
@@ -219,21 +210,15 @@ const validOptions = {
           requestCount++;
 
           if (requestCount === 2) {
-            return mockResponse(
-              401,
-              {
-                status: "ERROR",
-                error: "Unauthorized"
-              }
-            );
+            return mockResponse(401, {
+              status: "ERROR",
+              error: "Unauthorized"
+            });
           }
 
-          return mockResponse(
-            200,
-            {
-              status: "OK"
-            }
-          );
+          return mockResponse(200, {
+            status: "OK"
+          });
         }
       }
     );
@@ -294,12 +279,9 @@ const validOptions = {
             );
           }
 
-          return mockResponse(
-            200,
-            {
-              status: "OK"
-            }
-          );
+          return mockResponse(200, {
+            status: "OK"
+          });
         }
       }
     );
@@ -334,7 +316,7 @@ const validOptions = {
 {
   const prepared = makePreparedImport([1]);
 
-  assertThrows(
+  await assertRejects(
     () =>
       runHistoricalCandleApiUpload(
         prepared,
@@ -351,7 +333,7 @@ const validOptions = {
 {
   const prepared = makePreparedImport([1]);
 
-  assertThrows(
+  await assertRejects(
     () =>
       runHistoricalCandleApiUpload(
         prepared,
@@ -368,7 +350,7 @@ const validOptions = {
 {
   const prepared = makePreparedImport([1]);
 
-  assertThrows(
+  await assertRejects(
     () =>
       runHistoricalCandleApiUpload(
         prepared,
@@ -384,10 +366,9 @@ const validOptions = {
 // 7. Invalid batch count rejected
 {
   const prepared = makePreparedImport([1]);
-
   prepared.batchCount = 99;
 
-  assertThrows(
+  await assertRejects(
     () =>
       runHistoricalCandleApiUpload(
         prepared,
@@ -400,10 +381,9 @@ const validOptions = {
 // 8. Invalid batch numbering rejected
 {
   const prepared = makePreparedImport([1, 1]);
-
   prepared.batches[1].batchNumber = 5;
 
-  assertThrows(
+  await assertRejects(
     () =>
       runHistoricalCandleApiUpload(
         prepared,
@@ -416,10 +396,9 @@ const validOptions = {
 // 9. Invalid candle count rejected
 {
   const prepared = makePreparedImport([2]);
-
   prepared.batches[0].candleCount = 99;
 
-  assertThrows(
+  await assertRejects(
     () =>
       runHistoricalCandleApiUpload(
         prepared,

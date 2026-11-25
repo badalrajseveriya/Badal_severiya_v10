@@ -1,4 +1,3 @@
-
 const DEFAULT_PAGE_SIZE = 5000;
 const DEFAULT_MAX_CANDLES = 25000;
 const ABSOLUTE_MAX_CANDLES = 10000000;
@@ -96,14 +95,15 @@ export async function fetchHistoricalCandlePages({
       totalFetched += result.candles.length;
 
       hasMore =
-        result.hasMore === true ||
-        result.candles.length === limit;
+        typeof result.hasMore === "boolean"
+          ? result.hasMore
+          : result.candles.length === limit;
 
       if (!hasMore) {
         break;
       }
 
-      offset += limit;
+      offset += result.candles.length;
     }
 
     // API pages arrive newest-first.

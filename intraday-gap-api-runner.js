@@ -2,8 +2,8 @@
 /* ======================================================
    BADAL SEVERIYA V12
    INTRADAY GAP API RUNNER
-   AUTOMATIC SESSION BOUNDARY CHECK
-   FIX: GLOBAL CHRONOLOGICAL SORT ACROSS API PAGES
+   GLOBAL CHRONOLOGICAL SORT
+   QUALITY STATUS SEPARATE FROM EXECUTION STATUS
 ====================================================== */
 
 import {
@@ -16,11 +16,10 @@ const DEFAULT_API_BASE =
 const DEFAULT_PAGE_SIZE = 5000;
 const MAX_PAGE_SIZE = 5000;
 const MAX_PAGES = 1000;
-
 const IST_OFFSET_MS = 330 * 60 * 1000;
 
 // ------------------------------------------------------
-// IST DATE HELPERS
+// IST DATE
 // ------------------------------------------------------
 
 function getISTDateKey(timestampMs) {
@@ -57,7 +56,6 @@ export function getAutomaticCompletedSessionDates(
 
     const dateKey = getISTDateKey(timestamp);
 
-    // Current IST date is excluded.
     if (dateKey < todayIST) {
       dates.add(dateKey);
     }
@@ -93,7 +91,7 @@ function buildCandleApiUrl({
 }
 
 // ------------------------------------------------------
-// API PAGE VALIDATION
+// VALIDATE API PAGE
 // ------------------------------------------------------
 
 function validateApiPage(payload, {
@@ -138,11 +136,11 @@ function validateApiPage(payload, {
   ) {
     const candle = payload.candles[i];
 
-    const timestamp = Date.parse(
-      candle?.timestamp
-    );
-
-    if (!Number.isFinite(timestamp)) {
+    if (
+      !Number.isFinite(
+        Date.parse(candle?.timestamp)
+      )
+    ) {
       throw new Error(
         `Invalid timestamp in API page at row ${i}.`
       );
@@ -170,7 +168,7 @@ function validateApiPage(payload, {
 }
 
 // ------------------------------------------------------
-// GLOBAL CHRONOLOGICAL SORT + DUPLICATE VALIDATION
+// GLOBAL SORT
 // ------------------------------------------------------
 
 function sortCandlesChronologically(candles) {
@@ -222,7 +220,7 @@ function validateChronologicalCandles(candles) {
 }
 
 // ------------------------------------------------------
-// FETCH HISTORICAL DATA
+// FETCH ALL PAGES
 // ------------------------------------------------------
 
 export async function fetchAllHistoricalCandles({
@@ -323,7 +321,8 @@ export async function fetchAllHistoricalCandles({
         limit: pageSize
       });
 
-      const pageCandles = payload.candles;
+      const pageCandles =
+        payload.candles;
 
       pagesRead++;
       rowsRead += pageCandles.length;
@@ -351,27 +350,17 @@ export async function fetchAllHistoricalCandles({
       }
     }
 
-    /*
-      IMPORTANT:
-      API pages may be returned in reverse page order.
-      Each page may itself contain ascending timestamps.
+    // Combine all API pages before sorting.
+    const combinedCandles =
+      pages.flat();
 
-      Therefore:
-      1. Combine every page.
-      2. Globally sort all candles by timestamp.
-      3. Validate chronological order.
-      4. Reject duplicate timestamps.
-
-      Do not assume API offset order is chronological.
-    */
-
-    const combinedCandles = pages.flat();
-
+    // Sort the complete dataset globally.
     const candles =
       sortCandlesChronologically(
         combinedCandles
       );
 
+    // Reject duplicates after global sorting.
     validateChronologicalCandles(candles);
 
     return {
@@ -382,6 +371,7 @@ export async function fetchAllHistoricalCandles({
       timeframe,
       candleCount: candles.length,
       pagesRead,
+      rowsRead,
       candles
     };
 
@@ -394,6 +384,7 @@ export async function fetchAllHistoricalCandles({
       timeframe,
       candleCount: 0,
       pagesRead: 0,
+      rowsRead: 0,
       candles: [],
       error:
         error?.message ||
@@ -403,7 +394,7 @@ export async function fetchAllHistoricalCandles({
 }
 
 // ------------------------------------------------------
-// AUTOMATIC BOUNDARY GAP CHECK
+// RUN GAP CHECK
 // ------------------------------------------------------
 
 export async function runIntradayGapApiCheck({
@@ -430,12 +421,14 @@ export async function runIntradayGapApiCheck({
     return {
       status: "ERROR",
       module: "INTRADAY_GAP_API_RUNNER",
-      version: "1.3",
+      version: "1.4",
       index,
       timeframe,
       dataSource:
         "D1_HISTORICAL_STORAGE",
       fetch: fetched,
+      quality: "ERROR",
+      issuesFound: true,
       completedSessionDates: [],
       automaticCompletedSessionDates: [],
       gapCheck: null,
@@ -447,12 +440,14 @@ export async function runIntradayGapApiCheck({
     return {
       status: "NO_DATA",
       module: "INTRADAY_GAP_API_RUNNER",
-      version: "1.3",
+      version: "1.4",
       index,
       timeframe,
       dataSource:
         "D1_HISTORICAL_STORAGE",
       fetch: fetched,
+      quality: "NO_DATA",
+      issuesFound: false,
       completedSessionDates: [],
       automaticCompletedSessionDates: [],
       gapCheck: null,
@@ -460,14 +455,12 @@ export async function runIntradayGapApiCheck({
     };
   }
 
-  // Automatically detect historical dates.
   const automaticDates =
     getAutomaticCompletedSessionDates(
       fetched.candles,
       now
     );
 
-  // Optional user dates, if provided.
   const manualDates =
     Array.isArray(completedSessionDates)
       ? completedSessionDates.filter(
@@ -496,16 +489,27 @@ export async function runIntradayGapApiCheck({
       }
     );
 
+  // Execution status is separate from data quality.
+  const executionSucceeded =
+    gapCheck.status === "OK";
+
+  const quality =
+    gapCheck.quality ??
+    "UNKNOWN";
+
+  const issuesFound =
+    quality === "ISSUES_FOUND";
+
   return {
     status:
-      gapCheck.status === "OK"
+      executionSucceeded
         ? "OK"
         : "ERROR",
 
     module:
       "INTRADAY_GAP_API_RUNNER",
 
-    version: "1.3",
+    version: "1.4",
 
     index,
     timeframe,
@@ -525,16 +529,43 @@ export async function runIntradayGapApiCheck({
         fetched.candleCount,
       pagesRead:
         fetched.pagesRead,
+      rowsRead:
+        fetched.rowsRead,
       source:
         fetched.source
     },
 
+    // Separate execution and quality status.
+    executionSucceeded,
+    quality,
+    issuesFound,
+
+    // Convenience summary values.
+    boundaryGapCount:
+      gapCheck.boundaryGapCount ?? 0,
+
+    boundaryMissingCandleCount:
+      gapCheck.boundaryMissingCandleCount ?? 0,
+
+    duplicateCount:
+      gapCheck.duplicateCount ?? 0,
+
+    missingCandleCount:
+      gapCheck.missingCandleCount ?? 0,
+
+    irregularIntervalCount:
+      gapCheck.irregularIntervalCount ?? 0,
+
+    offSessionCount:
+      gapCheck.offSessionCount ?? 0,
+
     gapCheck,
 
     error:
-      gapCheck.status === "OK"
+      executionSucceeded
         ? null
-        : gapCheck.error
+        : gapCheck.error ||
+          "Gap analysis execution failed."
   };
 }
 
@@ -552,5 +583,6 @@ export const INTRADAY_GAP_API_RUNNER_CONFIG = {
   timezone: "Asia/Kolkata",
   source: "D1_HISTORICAL_STORAGE",
   automaticSessionBoundaryCheck: true,
-  globalChronologicalSorting: true
+  globalChronologicalSorting: true,
+  separateExecutionAndQualityStatus: true
 };

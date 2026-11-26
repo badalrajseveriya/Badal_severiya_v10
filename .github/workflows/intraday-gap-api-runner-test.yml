@@ -1,0 +1,29 @@
+
+name: BADAL SEVERIYA V12 - Intraday Gap API Runner Test
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - "intraday-gap-api-runner.js"
+      - "intraday-gap-api-runner.test.js"
+      - "package.json"
+      - ".github/workflows/intraday-gap-api-runner-test.yml"
+
+jobs:
+  intraday-gap-api-runner-test:
+    name: Run only Intraday Gap API Runner tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Run Intraday Gap API Runner tests
+        run: npm run test:intraday-gap-api-runner

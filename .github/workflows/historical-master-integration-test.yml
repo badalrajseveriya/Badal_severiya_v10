@@ -7,6 +7,8 @@ on:
     branches:
       - main
     paths:
+      - "historical-candle-pagination.js"
+      - "historical-candle-pagination-cache.test.js"
       - "historical-master-api-integration.js"
       - "historical-master-api-integration.test.js"
       - "historical-master-dashboard-integration.js"
@@ -39,6 +41,9 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "22"
+
+      - name: Test Shared Historical Candle Request Cache
+        run: node historical-candle-pagination-cache.test.js
 
       - name: Test Master API Integration
         run: npm run test:historical-master-api-integration

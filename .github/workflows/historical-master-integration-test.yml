@@ -1,0 +1,68 @@
+
+name: BADAL SEVERIYA V12 - Historical Master Integration Tests
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - "historical-master-api-integration.js"
+      - "historical-master-api-integration.test.js"
+      - "historical-master-dashboard-integration.js"
+      - "historical-master-dashboard-integration.test.js"
+      - "historical-master-analysis.js"
+      - "historical-master-analysis.test.js"
+      - "dashboard-data.js"
+      - "dashboard-data.test.js"
+      - "dashboard-display.js"
+      - "dashboard-display.test.js"
+      - "dashboard-ui-model.js"
+      - "dashboard-ui-model.test.js"
+      - "dashboard-renderer.js"
+      - "dashboard-renderer.test.js"
+      - "dashboard-panel-integrity.test.js"
+      - "dashboard-ui-integrity.test.js"
+      - "package.json"
+      - ".github/workflows/historical-master-integration-test.yml"
+
+jobs:
+  historical-master-tests:
+    name: Test Historical Master Dashboard Integration
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Test Master API Integration
+        run: npm run test:historical-master-api-integration
+
+      - name: Test Master Dashboard Integration
+        run: npm run test:historical-master-dashboard-integration
+
+      - name: Test Master Analysis
+        run: npm run test:master-analysis
+
+      - name: Test Dashboard Data
+        run: npm run test:dashboard
+
+      - name: Test Dashboard Display
+        run: npm run test:dashboard-display
+
+      - name: Test Dashboard UI Model
+        run: npm run test:dashboard-ui
+
+      - name: Test Dashboard Renderer
+        run: npm run test:dashboard-renderer
+
+      - name: Test Dashboard Panel Integrity
+        run: npm run test:panel-integrity
+
+      - name: Test Dashboard UI Integrity
+        run: npm run test:ui-integrity

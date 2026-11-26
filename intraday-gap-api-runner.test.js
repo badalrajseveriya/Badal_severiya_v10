@@ -1,4 +1,3 @@
-
 import assert from "node:assert/strict";
 
 import {
@@ -8,12 +7,17 @@ import {
 } from "./intraday-gap-api-runner.js";
 
 // ======================================================
-// HELPERS
+// BADAL SEVERIYA V12
+// INTRADAY GAP API RUNNER TESTS
 // ======================================================
 
 const FIXED_NOW = Date.parse(
   "2026-11-26T12:00:00.000Z"
 );
+
+// ======================================================
+// HELPERS
+// ======================================================
 
 function istTimestamp(date, hour, minute) {
   return Date.UTC(
@@ -58,13 +62,16 @@ function fullSession(date) {
   return candles;
 }
 
-function makeApiPayload(candles, {
-  offset = 0,
-  limit = 5000,
-  hasMore = false,
-  index = "NIFTY",
-  timeframe = "15m"
-} = {}) {
+function makeApiPayload(
+  candles,
+  {
+    offset = 0,
+    limit = 5000,
+    hasMore = false,
+    index = "NIFTY",
+    timeframe = "15m"
+  } = {}
+) {
   return {
     app: "BADAL SEVERIYA DATA V11",
     index,
@@ -127,20 +134,23 @@ async function runAsyncTest(name, fn) {
 // ======================================================
 
 runTest(
-  "Detects past dates and excludes current IST date",
+  "Detects completed dates and excludes current IST date",
   () => {
     const candles = [
       candle(
         { year: 2026, month: 11, day: 24 },
-        9, 15
+        9,
+        15
       ),
       candle(
         { year: 2026, month: 11, day: 25 },
-        9, 15
+        9,
+        15
       ),
       candle(
         { year: 2026, month: 11, day: 26 },
-        9, 15
+        9,
+        15
       )
     ];
 
@@ -149,7 +159,10 @@ runTest(
         candles,
         FIXED_NOW
       ),
-      ["2026-11-24", "2026-11-25"]
+      [
+        "2026-11-24",
+        "2026-11-25"
+      ]
     );
   }
 );
@@ -159,7 +172,7 @@ runTest(
 // ======================================================
 
 await runAsyncTest(
-  "Fetches multiple pages with correct offsets",
+  "Fetches multiple API pages with correct offsets",
   async () => {
     const date = {
       year: 2026,
@@ -196,8 +209,10 @@ await runAsyncTest(
       ]
     ]);
 
-    const { fetchImpl, requests } =
-      mockFetchFromPages(pages);
+    const {
+      fetchImpl,
+      requests
+    } = mockFetchFromPages(pages);
 
     const result =
       await fetchAllHistoricalCandles({
@@ -209,6 +224,7 @@ await runAsyncTest(
     assert.equal(result.status, "OK");
     assert.equal(result.candleCount, 4);
     assert.equal(result.pagesRead, 2);
+    assert.equal(result.rowsRead, 4);
 
     assert.deepEqual(
       requests,
@@ -270,6 +286,7 @@ await runAsyncTest(
       });
 
     assert.equal(result.status, "OK");
+    assert.equal(result.candleCount, 4);
 
     assert.deepEqual(
       result.candles.map(
@@ -286,11 +303,11 @@ await runAsyncTest(
 );
 
 // ======================================================
-// TEST 4: SORT ROWS INSIDE PAGE
+// TEST 4: SORT ROWS WITHIN A PAGE
 // ======================================================
 
 await runAsyncTest(
-  "Sorts out-of-order rows within a page",
+  "Sorts out-of-order candles within one API page",
   async () => {
     const date = {
       year: 2026,
@@ -345,7 +362,7 @@ await runAsyncTest(
 // ======================================================
 
 await runAsyncTest(
-  "Rejects duplicate timestamps across pages",
+  "Rejects duplicate timestamps across API pages",
   async () => {
     const date = {
       year: 2026,
@@ -445,14 +462,25 @@ await runAsyncTest(
         now: FIXED_NOW
       });
 
-    // The analysis itself completed.
+    // Analysis execution must succeed.
     assert.equal(result.status, "OK");
-    assert.equal(result.executionSucceeded, true);
+    assert.equal(
+      result.executionSucceeded,
+      true
+    );
 
-    // The historical data has quality issues.
-    assert.equal(result.quality, "ISSUES_FOUND");
-    assert.equal(result.issuesFound, true);
+    // Data quality must independently report issues.
+    assert.equal(
+      result.quality,
+      "ISSUES_FOUND"
+    );
 
+    assert.equal(
+      result.issuesFound,
+      true
+    );
+
+    // Missing session start and session end.
     assert.equal(
       result.boundaryGapCount,
       2
@@ -471,7 +499,7 @@ await runAsyncTest(
 );
 
 // ======================================================
-// TEST 7: COMPLETE SESSION
+// TEST 7: COMPLETE SESSIONS
 // ======================================================
 
 await runAsyncTest(
@@ -517,9 +545,20 @@ await runAsyncTest(
       });
 
     assert.equal(result.status, "OK");
-    assert.equal(result.executionSucceeded, true);
-    assert.equal(result.quality, "VALID");
-    assert.equal(result.issuesFound, false);
+    assert.equal(
+      result.executionSucceeded,
+      true
+    );
+
+    assert.equal(
+      result.quality,
+      "VALID"
+    );
+
+    assert.equal(
+      result.issuesFound,
+      false
+    );
 
     assert.equal(
       result.boundaryGapCount,
@@ -530,15 +569,20 @@ await runAsyncTest(
       result.boundaryMissingCandleCount,
       0
     );
+
+    assert.equal(
+      result.gapCheck.candleCount,
+      50
+    );
   }
 );
 
 // ======================================================
-// TEST 8: CURRENT DATE EXCLUDED
+// TEST 8: CURRENT IST DATE EXCLUDED
 // ======================================================
 
 await runAsyncTest(
-  "Current IST date is excluded from boundary checks",
+  "Current IST date is excluded from automatic boundary checks",
   async () => {
     const today = {
       year: 2026,
@@ -580,9 +624,16 @@ await runAsyncTest(
       []
     );
 
+    assert.deepEqual(
+      result.completedSessionDates,
+      []
+    );
+
+    // Runner does not request boundary analysis
+    // when there are no completed session dates.
     assert.equal(
       result.gapCheck.boundaryCheckStatus,
-      "NO_COMPLETED_DATES"
+      "NOT_REQUESTED"
     );
   }
 );
@@ -591,8 +642,8 @@ await runAsyncTest(
 // TEST 9: API ERROR
 // ======================================================
 
-await asyncTest(
-  "API failure returns ERROR status",
+await runAsyncTest(
+  "API HTTP failure returns ERROR",
   async () => {
     const fetchImpl = async () => ({
       ok: false,
@@ -607,9 +658,20 @@ await asyncTest(
         now: FIXED_NOW
       });
 
-    assert.equal(result.status, "ERROR");
-    assert.equal(result.quality, "ERROR");
-    assert.equal(result.gapCheck, null);
+    assert.equal(
+      result.status,
+      "ERROR"
+    );
+
+    assert.equal(
+      result.quality,
+      "ERROR"
+    );
+
+    assert.equal(
+      result.gapCheck,
+      null
+    );
 
     assert.match(
       result.error,
@@ -622,8 +684,8 @@ await asyncTest(
 // TEST 10: EMPTY DATABASE
 // ======================================================
 
-await asyncTest(
-  "Empty database safely returns NO_DATA",
+await runAsyncTest(
+  "Empty historical database safely returns NO_DATA",
   async () => {
     const pages = new Map([
       [
@@ -647,15 +709,35 @@ await asyncTest(
         now: FIXED_NOW
       });
 
-    assert.equal(result.status, "NO_DATA");
-    assert.equal(result.quality, "NO_DATA");
-    assert.equal(result.issuesFound, false);
-    assert.equal(result.gapCheck, null);
+    assert.equal(
+      result.status,
+      "NO_DATA"
+    );
+
+    assert.equal(
+      result.quality,
+      "NO_DATA"
+    );
+
+    assert.equal(
+      result.issuesFound,
+      false
+    );
+
+    assert.equal(
+      result.gapCheck,
+      null
+    );
+
+    assert.equal(
+      result.fetch.candleCount,
+      0
+    );
   }
 );
 
 // ======================================================
-// ALL TESTS
+// ALL TESTS COMPLETED
 // ======================================================
 
 console.log("\n========================================");

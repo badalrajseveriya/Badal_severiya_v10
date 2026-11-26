@@ -75,7 +75,9 @@ export function convertAngelOneCandles(
 ) {
   const normalizedIndex = String(index).trim().toUpperCase();
 
-  const symbolToken = getAngelOneIndexToken(normalizedIndex);
+  // Compatibility: unknown index is returned with null token.
+  const symbolToken =
+    ANGEL_ONE_INDEX_TOKENS[normalizedIndex] || null;
 
   if (!response || response.status !== true) {
     throw new Error("Angel One response is not successful");
@@ -114,8 +116,12 @@ export function convertAngelOneCandles(
       volume: numericValue(rawVolume, "volume", i, true)
     };
 
-    // Index volume of zero means unavailable volume.
-    if (candle.volume === 0) {
+    // NIFTY index aliases: zero volume means unavailable.
+    if (
+      (normalizedIndex === "NIFTY" ||
+        normalizedIndex === "NIFTY50") &&
+      candle.volume === 0
+    ) {
       candle.volume = null;
     }
 
@@ -169,7 +175,7 @@ export function convertAngelOneCandles(
     dataType: "REAL_HISTORICAL",
     candles,
     note:
-      "Index volume reported as zero is stored as null."
+      "NIFTY and NIFTY50 zero volume is stored as null."
   };
 }
 

@@ -1,0 +1,642 @@
+
+<!DOCTYPE html>
+<html lang="hi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#101827">
+<title>BADAL SEVERIYA V12 - Intraday Gap API Check</title>
+
+<style>
+*{box-sizing:border-box}
+body{
+  margin:0;padding:14px;
+  background:#0b1220;color:#f1f5f9;
+  font-family:Arial,sans-serif
+}
+header,.panel{
+  background:#172338;
+  border:1px solid #334155;
+  border-radius:12px;
+  padding:16px;margin-bottom:14px
+}
+h1{font-size:21px;color:#38bdf8;margin:0 0 8px}
+h2{font-size:17px;color:#7dd3fc}
+h3{font-size:15px;color:#7dd3fc}
+p{font-size:13px;line-height:1.5;color:#cbd5e1}
+label{
+  display:block;margin:12px 0 6px;
+  font-weight:bold;color:#7dd3fc;font-size:13px
+}
+input,select{
+  width:100%;padding:12px;
+  border-radius:8px;border:1px solid #475569;
+  background:#0b1220;color:#f1f5f9;font-size:14px
+}
+button{
+  width:100%;padding:13px;margin-top:12px;
+  border:0;border-radius:8px;
+  background:#2563eb;color:white;
+  font-weight:bold;font-size:14px
+}
+button:disabled{opacity:.5}
+button.secondary{background:#475569}
+button.download{background:#047857}
+.status{
+  padding:12px;border-radius:8px;
+  background:#0b1220;border:1px solid #334155;
+  color:#cbd5e1;overflow-wrap:anywhere;
+  font-size:13px;line-height:1.5
+}
+.status.success{color:#86efac;border-color:#166534}
+.status.error{color:#fca5a5;border-color:#991b1b}
+.grid{
+  display:grid;grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:8px
+}
+.metric{
+  padding:12px 8px;text-align:center;
+  background:#0b1220;border:1px solid #334155;
+  border-radius:9px;overflow-wrap:anywhere
+}
+.metric-value{
+  font-size:22px;font-weight:bold;
+  display:block;margin-bottom:5px
+}
+.metric-label{font-size:11px;color:#cbd5e1}
+.green{color:#4ade80}
+.red{color:#f87171}
+.yellow{color:#facc15}
+.blue{color:#38bdf8}
+.muted{color:#94a3b8;font-size:12px}
+details{
+  background:#0b1220;border:1px solid #334155;
+  border-radius:8px;padding:10px;margin:8px 0
+}
+summary{font-weight:bold;color:#7dd3fc;cursor:pointer}
+.item{
+  padding:10px;margin-top:8px;
+  background:#172338;border-radius:7px;
+  font-size:12px;line-height:1.6;
+  overflow-wrap:anywhere
+}
+pre{
+  white-space:pre-wrap;overflow-wrap:anywhere;
+  font-size:12px;color:#cbd5e1
+}
+a{color:#38bdf8}
+#reportSection{display:none}
+</style>
+</head>
+
+<body>
+
+<header>
+  <h1>BADAL SEVERIYA V12</h1>
+  <p>Historical Database — Automatic Intraday Gap Checker</p>
+  <p class="muted">
+    यह सिस्टम Historical Database से 15 मिनट के candles पढ़कर
+    डेटा की गुणवत्ता और Missing Candles की जाँच करता है।
+  </p>
+</header>
+
+<section class="panel">
+  <h2>1. API Settings</h2>
+
+  <label for="apiBase">Historical API Base URL</label>
+  <input id="apiBase" type="url"
+    value="https://badal-severiya-data.mrstarrdbs.workers.dev">
+
+  <label for="index">Index</label>
+  <select id="index">
+    <option value="NIFTY">NIFTY</option>
+    <option value="BANKNIFTY">BANKNIFTY</option>
+    <option value="FINNIFTY">FINNIFTY</option>
+    <option value="MIDCPNIFTY">MIDCPNIFTY</option>
+    <option value="NIFTYIT">NIFTYIT</option>
+  </select>
+
+  <label for="timeframe">Timeframe</label>
+  <select id="timeframe">
+    <option value="15m">15 Minutes</option>
+  </select>
+
+  <label for="pageSize">API Page Size</label>
+  <select id="pageSize">
+    <option value="5000">5000 Candles</option>
+    <option value="1000">1000 Candles</option>
+    <option value="500">500 Candles</option>
+  </select>
+
+  <label for="completedDates">
+    Completed Session Dates (Optional)
+  </label>
+  <input id="completedDates" type="text"
+    placeholder="2026-11-24, 2026-11-25">
+
+  <p class="muted">
+    Boundary checking के लिए केवल पूरी तरह समाप्त हो चुकी
+    trading dates डालें। तारीख YYYY-MM-DD प्रारूप में दें।
+  </p>
+
+  <button id="startBtn">START HISTORICAL GAP CHECK</button>
+</section>
+
+<section class="panel">
+  <h2>2. Progress</h2>
+  <div id="status" class="status">
+    जाँच शुरू करने के लिए बटन दबाएँ।
+  </div>
+  <p id="progress" class="muted"></p>
+</section>
+
+<section class="panel" id="reportSection">
+  <h2>3. Summary Report</h2>
+  <div id="summaryGrid" class="grid"></div>
+
+  <h3>Data Quality</h3>
+  <div id="qualityStatus" class="status"></div>
+
+  <h3>Checks</h3>
+  <div id="checksGrid" class="grid"></div>
+
+  <h3>Gap Details</h3>
+  <div id="gapDetails"></div>
+
+  <h3>Session Boundary Details</h3>
+  <div id="boundaryDetails"></div>
+
+  <h3>Other Issues</h3>
+  <div id="otherDetails"></div>
+
+  <button id="downloadBtn" class="download">
+    DOWNLOAD REPORT JSON
+  </button>
+
+  <button id="resetBtn" class="secondary">
+    RESET REPORT
+  </button>
+</section>
+
+<script type="module">
+import {
+  runIntradayGapApiCheck
+} from "./intraday-gap-api-runner.js";
+
+const apiBaseInput =
+  document.getElementById("apiBase");
+
+const indexInput =
+  document.getElementById("index");
+
+const timeframeInput =
+  document.getElementById("timeframe");
+
+const pageSizeInput =
+  document.getElementById("pageSize");
+
+const completedDatesInput =
+  document.getElementById("completedDates");
+
+const startBtn =
+  document.getElementById("startBtn");
+
+const statusBox =
+  document.getElementById("status");
+
+const progressBox =
+  document.getElementById("progress");
+
+const reportSection =
+  document.getElementById("reportSection");
+
+const summaryGrid =
+  document.getElementById("summaryGrid");
+
+const qualityStatus =
+  document.getElementById("qualityStatus");
+
+const checksGrid =
+  document.getElementById("checksGrid");
+
+const gapDetails =
+  document.getElementById("gapDetails");
+
+const boundaryDetails =
+  document.getElementById("boundaryDetails");
+
+const otherDetails =
+  document.getElementById("otherDetails");
+
+const downloadBtn =
+  document.getElementById("downloadBtn");
+
+const resetBtn =
+  document.getElementById("resetBtn");
+
+let finalReport = null;
+let busy = false;
+
+// ------------------------------------------------------
+// SAFE HTML HELPERS
+// ------------------------------------------------------
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
+function formatNumber(value) {
+  return Number(value || 0).toLocaleString("en-IN");
+}
+
+function metric(label, value, color = "blue") {
+  return `
+    <div class="metric">
+      <span class="metric-value ${color}">
+        ${escapeHtml(formatNumber(value))}
+      </span>
+      <span class="metric-label">
+        ${escapeHtml(label)}
+      </span>
+    </div>
+  `;
+}
+
+function detailItem(title, content) {
+  return `
+    <details>
+      <summary>${escapeHtml(title)}</summary>
+      <div class="item">${content}</div>
+    </details>
+  `;
+}
+
+// ------------------------------------------------------
+// DATE INPUT
+// ------------------------------------------------------
+
+function parseCompletedDates() {
+  const raw = completedDatesInput.value.trim();
+
+  if (!raw) {
+    return [];
+  }
+
+  const dates = raw
+    .split(",")
+    .map(value => value.trim())
+    .filter(Boolean);
+
+  const validPattern =
+    /^\d{4}-\d{2}-\d{2}$/;
+
+  for (const date of dates) {
+    if (!validPattern.test(date)) {
+      throw new Error(
+        `Invalid date format: ${date}. Use YYYY-MM-DD.`
+      );
+    }
+
+    const parsed = new Date(
+      `${date}T00:00:00Z`
+    );
+
+    if (
+      Number.isNaN(parsed.getTime()) ||
+      parsed.toISOString().slice(0, 10) !== date
+    ) {
+      throw new Error(
+        `Invalid calendar date: ${date}`
+      );
+    }
+  }
+
+  return [...new Set(dates)];
+}
+
+// ------------------------------------------------------
+// RENDER REPORT
+// ------------------------------------------------------
+
+function renderReport(report) {
+  finalReport = report;
+
+  reportSection.style.display = "block";
+
+  if (
+    report.status !== "OK" ||
+    !report.gapCheck
+  ) {
+    summaryGrid.innerHTML = metric(
+      "Fetched Candles",
+      report.fetch?.candleCount || 0
+    );
+
+    qualityStatus.className =
+      "status error";
+
+    qualityStatus.textContent =
+      report.error ||
+      "Gap analysis report is unavailable.";
+
+    checksGrid.innerHTML = "";
+    gapDetails.innerHTML = "";
+    boundaryDetails.innerHTML = "";
+    otherDetails.innerHTML = "";
+
+    return;
+  }
+
+  const fetch = report.fetch;
+  const gap = report.gapCheck;
+
+  summaryGrid.innerHTML = [
+    metric("Historical Candles", fetch.candleCount),
+    metric("API Pages", fetch.pagesRead),
+    metric("Missing Candles", gap.missingCandleCount,
+      gap.missingCandleCount ? "red" : "green"),
+    metric("Gap Events", gap.gapCount,
+      gap.gapCount ? "red" : "green"),
+    metric("Duplicates", gap.duplicateCount,
+      gap.duplicateCount ? "red" : "green"),
+    metric("Irregular Intervals",
+      gap.irregularIntervalCount,
+      gap.irregularIntervalCount ? "yellow" : "green"),
+    metric("Off-Session Candles",
+      gap.offSessionCount,
+      gap.offSessionCount ? "yellow" : "green"),
+    metric("Boundary Missing Candles",
+      gap.boundaryMissingCandleCount,
+      gap.boundaryMissingCandleCount ? "red" : "green")
+  ].join("");
+
+  qualityStatus.className =
+    "status " +
+    (gap.quality === "VALID"
+      ? "success"
+      : "error");
+
+  qualityStatus.textContent =
+    `Quality: ${gap.quality} | ` +
+    `Data Source: ${report.dataSource} | ` +
+    `Time Zone: ${gap.timezone || "Asia/Kolkata"}`;
+
+  const checks = gap.checks || {};
+
+  checksGrid.innerHTML = Object.entries(checks)
+    .map(([name, value]) => {
+      const color =
+        value === "PASS"
+          ? "green"
+          : value === "FAIL"
+            ? "red"
+            : "yellow";
+
+      return `
+        <div class="metric">
+          <span class="metric-value ${color}">
+            ${escapeHtml(value)}
+          </span>
+          <span class="metric-label">
+            ${escapeHtml(name)}
+          </span>
+        </div>
+      `;
+    })
+    .join("");
+
+  // Gap details
+  if (gap.gaps?.length) {
+    gapDetails.innerHTML =
+      gap.gaps.map((item, i) =>
+        detailItem(
+          `Gap ${i + 1} — ${item.date || ""}`,
+          `
+            <b>Date:</b> ${escapeHtml(item.date)}<br>
+            <b>From:</b> ${escapeHtml(item.from || item.expectedFrom || "")}<br>
+            <b>To:</b> ${escapeHtml(item.to || item.expectedTo || "")}<br>
+            <b>Missing Candles:</b>
+            ${escapeHtml(item.missingCandles ?? item.missing ?? "")}
+          `
+        )
+      ).join("");
+  } else {
+    gapDetails.innerHTML =
+      `<p class="green">कोई Intraday Gap नहीं मिला।</p>`;
+  }
+
+  // Session boundary details
+  if (gap.boundaryGaps?.length) {
+    boundaryDetails.innerHTML =
+      gap.boundaryGaps.map((item, i) =>
+        detailItem(
+          `Boundary ${i + 1} — ${item.date}`,
+          `
+            <b>Type:</b> ${escapeHtml(item.boundaryType)}<br>
+            <b>Date:</b> ${escapeHtml(item.date)}<br>
+            <b>Missing:</b> ${escapeHtml(item.missingCandles)}<br>
+            <b>Expected Start:</b> ${escapeHtml(item.expectedFrom || "")}<br>
+            <b>First Observed:</b> ${escapeHtml(item.firstObserved || "")}<br>
+            <b>Last Observed:</b> ${escapeHtml(item.lastObserved || "")}<br>
+            <b>Expected End:</b> ${escapeHtml(item.expectedTo || "")}
+          `
+        )
+      ).join("");
+  } else {
+    boundaryDetails.innerHTML =
+      `<p class="muted">Session Boundary Gaps नहीं मिले या Boundary Check नहीं किया गया।</p>`;
+  }
+
+  // Other issues
+  const otherSections = [];
+
+  if (gap.duplicates?.length) {
+    otherSections.push(
+      detailItem(
+        `Duplicates (${gap.duplicateCount})`,
+        gap.duplicates.map(item =>
+          escapeHtml(JSON.stringify(item))
+        ).join("<br>")
+      )
+    );
+  }
+
+  if (gap.offSessionCandles?.length) {
+    otherSections.push(
+      detailItem(
+        `Off-Session Candles (${gap.offSessionCount})`,
+        gap.offSessionCandles.map(item =>
+          escapeHtml(JSON.stringify(item))
+        ).join("<br>")
+      )
+    );
+  }
+
+  if (gap.invalidTimestampIndexes?.length) {
+    otherSections.push(
+      detailItem(
+        `Invalid Timestamp Rows (${gap.invalidTimestampCount})`,
+        escapeHtml(
+          gap.invalidTimestampIndexes.join(", ")
+        )
+      )
+    );
+  }
+
+  otherDetails.innerHTML =
+    otherSections.length
+      ? otherSections.join("")
+      : `<p class="green">कोई अन्य डेटा समस्या नहीं मिली।</p>`;
+}
+
+// ------------------------------------------------------
+// RUN CHECK
+// ------------------------------------------------------
+
+startBtn.addEventListener("click", async () => {
+  if (busy) return;
+
+  busy = true;
+  startBtn.disabled = true;
+  downloadBtn.disabled = true;
+
+  reportSection.style.display = "none";
+
+  statusBox.className = "status";
+  statusBox.textContent =
+    "Historical Database से डेटा प्राप्त हो रहा है...";
+
+  progressBox.textContent = "";
+
+  try {
+    const apiBaseUrl =
+      apiBaseInput.value.trim();
+
+    const index =
+      indexInput.value;
+
+    const timeframe =
+      timeframeInput.value;
+
+    const pageSize =
+      Number(pageSizeInput.value);
+
+    const completedSessionDates =
+      parseCompletedDates();
+
+    const report =
+      await runIntradayGapApiCheck({
+        apiBaseUrl,
+        index,
+        timeframe,
+        pageSize,
+        completedSessionDates,
+
+        onProgress(progress) {
+          progressBox.textContent =
+            `Pages Read: ${progress.pagesRead}\n` +
+            `Candles Received: ${progress.rowsRead}\n` +
+            `Current Offset: ${progress.currentOffset}\n` +
+            `Current Page Candles: ${progress.currentPageCount}`;
+        }
+      });
+
+    renderReport(report);
+
+    if (report.status === "OK") {
+      statusBox.className = "status success";
+      statusBox.textContent =
+        "Historical API Fetch और Gap Analysis पूरा हुआ।";
+
+      downloadBtn.disabled = false;
+    } else {
+      statusBox.className = "status error";
+      statusBox.textContent =
+        report.error ||
+        "Historical Gap Check असफल हुआ।";
+    }
+
+  } catch (error) {
+    statusBox.className = "status error";
+    statusBox.textContent =
+      error?.message ||
+      "Unknown error.";
+
+    finalReport = {
+      status: "ERROR",
+      error:
+        error?.message ||
+        "Unknown error"
+    };
+
+    renderReport(finalReport);
+  } finally {
+    busy = false;
+    startBtn.disabled = false;
+  }
+});
+
+// ------------------------------------------------------
+// DOWNLOAD REPORT
+// ------------------------------------------------------
+
+downloadBtn.addEventListener("click", () => {
+  if (!finalReport) return;
+
+  const blob = new Blob(
+    [
+      JSON.stringify(
+        finalReport,
+        null,
+        2
+      )
+    ],
+    {
+      type: "application/json"
+    }
+  );
+
+  const url = URL.createObjectURL(blob);
+
+  const anchor =
+    document.createElement("a");
+
+  anchor.href = url;
+
+  anchor.download =
+    `BADAL_SEVERIYA_GAP_REPORT_${
+      new Date().toISOString().replaceAll(":", "-")
+    }.json`;
+
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+
+  URL.revokeObjectURL(url);
+});
+
+// ------------------------------------------------------
+// RESET
+// ------------------------------------------------------
+
+resetBtn.addEventListener("click", () => {
+  finalReport = null;
+
+  reportSection.style.display = "none";
+
+  statusBox.className = "status";
+  statusBox.textContent =
+    "जाँच शुरू करने के लिए बटन दबाएँ।";
+
+  progressBox.textContent = "";
+  downloadBtn.disabled = true;
+});
+</script>
+
+</body>
+</html>

@@ -1,8 +1,9 @@
-// ======================================================
-// BADAL SEVERIYA V12
-// DUAL TIMEFRAME HISTORICAL DASHBOARD
-// 1D + 15M | Educational historical analysis only
-// ======================================================
+
+ // ======================================================
+ // BADAL SEVERIYA V12
+ // DUAL TIMEFRAME HISTORICAL DASHBOARD
+ // 1D + 15M | Educational historical analysis only
+ // ======================================================
 
 import { parseHistoricalDataText } from "./historical-data-import.js";
 import { generateHistoricalReport } from "./historical-analysis-report.js";
@@ -13,6 +14,8 @@ import { renderHistoricalDashboard } from "./dashboard-renderer.js";
 import { buildHistoricalCandlestickChart } from "./historical-candlestick-chart.js";
 import { compareHistoricalTimeframes } from "./timeframe-comparison.js";
 import { fetchHistoricalCandlePages } from "./historical-candle-pagination.js";
+import { analyzeMarketStructure } from "./market-structure.js";
+import { calculateHistoricalMasterAnalysis } from "./historical-master-analysis.js";
 
 const API_BASE = "https://badal-severiya-data.mrstarrdbs.workers.dev";
 const MAX_DASHBOARD_CANDLES = 25000;
@@ -669,6 +672,56 @@ function buildDashboard(
     throw new Error(display.error);
   }
 
+  // ----------------------------------------------------
+  // MASTER HISTORICAL ANALYSIS — 15M ONLY
+  // ----------------------------------------------------
+
+  let masterAnalysisWarning = null;
+
+  if (timeframe === "15m" && candles.length >= 200) {
+    try {
+      const structure = analyzeMarketStructure(candles);
+
+      const masterAnalysis =
+        calculateHistoricalMasterAnalysis({
+          report,
+          structure,
+          candles,
+          timeframe
+        });
+
+      if (
+        masterAnalysis.status === "OK" &&
+        masterAnalysis.dataType === "HISTORICAL_ONLY" &&
+        masterAnalysis.timeframe === "15m" &&
+        masterAnalysis.candleCount === candles.length &&
+        masterAnalysis.validation?.percentagesTotal100 === true
+      ) {
+        display.layout.cards.push({
+          id: "historical-master-analysis",
+          title: "Master Historical Analysis",
+          timeframe: "15m",
+          candleCount: masterAnalysis.candleCount,
+          composition: masterAnalysis.composition,
+          historicalLevels: masterAnalysis.historicalLevels,
+          smc: masterAnalysis.smc,
+          validation: masterAnalysis.validation,
+          note: masterAnalysis.note
+        });
+
+        display.layout.cardCount =
+          display.layout.cards.length;
+      } else {
+        masterAnalysisWarning =
+          masterAnalysis.error ||
+          "Master Historical Analysis validation failed.";
+      }
+    } catch (error) {
+      masterAnalysisWarning = error.message;
+      console.error("Master Historical Analysis error:", error);
+    }
+  }
+
   const uiModel =
     createHistoricalDashboardUIModel(display);
 
@@ -693,6 +746,22 @@ function buildDashboard(
   }
 
   renderCards(timeframe, rendered, uiModel, chartPanel);
+
+  if (masterAnalysisWarning) {
+    const warning = document.createElement("p");
+
+    warning.textContent =
+      `Master Analysis उपलब्ध नहीं: ${masterAnalysisWarning}`;
+
+    warning.style.padding = "10px";
+    warning.style.margin = "10px 0";
+    warning.style.background = "#292313";
+    warning.style.border = "1px solid #a16207";
+    warning.style.borderRadius = "8px";
+    warning.style.color = "#fde68a";
+
+    CONFIG[timeframe].dashboard.appendChild(warning);
+  }
 
   if (truncated) {
     const warning = document.createElement("p");

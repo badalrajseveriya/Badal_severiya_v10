@@ -8,8 +8,11 @@
 import { parseHistoricalDataText } from "./historical-data-import.js";
 import { generateHistoricalReport } from "./historical-analysis-report.js";
 import { analyzeMarketStructure } from "./market-structure.js";
+import { fetchHistoricalCandlePages } from "./historical-candle-pagination.js";
 
 const API_BASE = "https://badal-severiya-data.mrstarrdbs.workers.dev";
+const MAX_CLOUD_CANDLES = 25000;
+const API_PAGE_SIZE = 5000;
 
 const TIMEFRAMES = {
   "1d": {
@@ -518,7 +521,8 @@ function parseCandles(candles, timeframe, filename) {
   const imported = parseHistoricalDataText(
     JSON.stringify(candles),
     filename,
-    timeframe
+    timeframe,
+    { maxCandles: MAX_CLOUD_CANDLES }
   );
 
   if (imported.status !== "OK") throw new Error(imported.error);
@@ -557,36 +561,43 @@ function loadSavedData(timeframe) {
 }
 
 async function loadCloudflareData(timeframe) {
-  const url =
-    `${API_BASE}/api/data/candles` +
-    `?index=NIFTY&timeframe=${timeframe}&limit=5000`;
-
-  const response = await fetch(url, {
-    method: "GET",
-    cache: "no-store"
+  const fetched = await fetchHistoricalCandlePages({
+    apiBase: API_BASE,
+    timeframe,
+    index: "NIFTY",
+    maxCandles: MAX_CLOUD_CANDLES,
+    pageSize: API_PAGE_SIZE
   });
 
-  if (!response.ok) throw new Error(`HTTP ${response.status}`);
-
-  const result = await response.json();
-
-  if (
-    !result ||
-    result.app !== "BADAL SEVERIYA DATA V11" ||
-    !Array.isArray(result.candles)
-  ) {
-    throw new Error("API response सही नहीं है।");
+  if (!fetched || fetched.status !== "OK") {
+    throw new Error(
+      fetched?.error || "Cloudflare historical pagination failed."
+    );
   }
 
-  if (result.candles.length === 0) return false;
+  if (!Array.isArray(fetched.candles)) {
+    throw new Error("Cloudflare API ने सही candle array नहीं दिया।");
+  }
+
+  if (fetched.candles.length === 0) return false;
 
   const candles = parseCandles(
-    result.candles,
+    fetched.candles,
     timeframe,
     `cloudflare-${timeframe}.json`
   );
 
   analyzeTimeframe(timeframe, candles);
+
+  const status = getElement(TIMEFRAMES[timeframe].status);
+  if (status) {
+    status.textContent +=
+      ` | API Pages: ${fetched.pageCount} | ${fetched.candleCount} कैंडल्स` +
+      (fetched.truncated
+        ? " | पुराने डेटा के कुछ पेज बाकी हैं"
+        : " | सभी उपलब्ध पेज लोड");
+  }
+
   return true;
 }
 

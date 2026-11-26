@@ -25,7 +25,7 @@ function istTimestamp(date, hour, minute) {
   );
 }
 
-function candle(date, hour, minute) {
+function candle(date, hour, minute, close = 102) {
   return {
     timestamp: new Date(
       istTimestamp(date, hour, minute)
@@ -33,7 +33,7 @@ function candle(date, hour, minute) {
     open: 100,
     high: 105,
     low: 95,
-    close: 102,
+    close,
     volume: 1000
   };
 }
@@ -141,18 +141,15 @@ runTest(
     const candles = [
       candle(
         { year: 2026, month: 11, day: 24 },
-        9,
-        15
+        9, 15
       ),
       candle(
         { year: 2026, month: 11, day: 25 },
-        9,
-        15
+        9, 15
       ),
       candle(
         { year: 2026, month: 11, day: 26 },
-        9,
-        15
+        9, 15
       )
     ];
 
@@ -161,10 +158,7 @@ runTest(
         candles,
         FIXED_NOW
       ),
-      [
-        "2026-11-24",
-        "2026-11-25"
-      ]
+      ["2026-11-24", "2026-11-25"]
     );
   }
 );
@@ -174,18 +168,16 @@ runTest(
 // ======================================================
 
 runTest(
-  "Excludes current IST date from automatic checks",
+  "Excludes current IST date",
   () => {
     const candles = [
       candle(
         { year: 2026, month: 11, day: 26 },
-        9,
-        15
+        9, 15
       ),
       candle(
         { year: 2026, month: 11, day: 26 },
-        10,
-        0
+        10, 0
       )
     ];
 
@@ -200,11 +192,11 @@ runTest(
 );
 
 // ======================================================
-// TEST 3: INVALID INPUT
+// TEST 3: INVALID DATE INPUT
 // ======================================================
 
 runTest(
-  "Automatic date helper safely handles invalid input",
+  "Handles invalid date helper input safely",
   () => {
     assert.deepEqual(
       getAutomaticCompletedSessionDates(
@@ -238,18 +230,15 @@ runTest(
     const candles = [
       candle(
         { year: 2026, month: 11, day: 25 },
-        9,
-        15
+        9, 15
       ),
       candle(
         { year: 2026, month: 11, day: 24 },
-        9,
-        15
+        9, 15
       ),
       candle(
         { year: 2026, month: 11, day: 25 },
-        9,
-        30
+        9, 30
       )
     ];
 
@@ -258,10 +247,7 @@ runTest(
         candles,
         FIXED_NOW
       ),
-      [
-        "2026-11-24",
-        "2026-11-25"
-      ]
+      ["2026-11-24", "2026-11-25"]
     );
   }
 );
@@ -335,11 +321,11 @@ await runAsyncTest(
 );
 
 // ======================================================
-// TEST 6: CHRONOLOGICAL ORDER
+// TEST 6: REVERSED API PAGE ORDER
 // ======================================================
 
 await runAsyncTest(
-  "Preserves chronological order across pages",
+  "Globally sorts reverse-ordered API pages",
   async () => {
     const date = {
       year: 2026,
@@ -347,20 +333,22 @@ await runAsyncTest(
       day: 24
     };
 
-    const page1 = [
-      candle(date, 9, 15),
-      candle(date, 9, 30)
+    // API offset 0 returns newer candles first.
+    const newerPage = [
+      candle(date, 10, 0),
+      candle(date, 10, 15)
     ];
 
-    const page2 = [
-      candle(date, 9, 45),
-      candle(date, 10, 0)
+    // API offset 2 returns older candles.
+    const olderPage = [
+      candle(date, 9, 15),
+      candle(date, 9, 30)
     ];
 
     const pages = new Map([
       [
         0,
-        makeApiPayload(page1, {
+        makeApiPayload(newerPage, {
           offset: 0,
           limit: 2,
           hasMore: true
@@ -368,7 +356,7 @@ await runAsyncTest(
       ],
       [
         2,
-        makeApiPayload(page2, {
+        makeApiPayload(olderPage, {
           offset: 2,
           limit: 2,
           hasMore: false
@@ -387,35 +375,43 @@ await runAsyncTest(
       });
 
     assert.equal(result.status, "OK");
+    assert.equal(result.candleCount, 4);
 
-    const timestamps =
-      result.candles.map(
-        item => Date.parse(item.timestamp)
-      );
-
-    for (
-      let i = 1;
-      i < timestamps.length;
-      i++
-    ) {
-      assert.ok(
-        timestamps[i] > timestamps[i - 1]
-      );
-    }
+    assert.deepEqual(
+      result.candles.map(c => c.timestamp),
+      [
+        olderPage[0].timestamp,
+        olderPage[1].timestamp,
+        newerPage[0].timestamp,
+        newerPage[1].timestamp
+      ]
+    );
   }
 );
 
 // ======================================================
-// TEST 7: EMPTY API RESPONSE
+// TEST 7: SORTS OUT-OF-ORDER ROWS
 // ======================================================
 
 await runAsyncTest(
-  "Handles empty API response safely",
+  "Sorts out-of-order rows inside API pages",
   async () => {
+    const date = {
+      year: 2026,
+      month: 11,
+      day: 24
+    };
+
+    const unsorted = [
+      candle(date, 9, 30),
+      candle(date, 9, 15),
+      candle(date, 9, 45)
+    ];
+
     const pages = new Map([
       [
         0,
-        makeApiPayload([], {
+        makeApiPayload(unsorted, {
           offset: 0,
           limit: 10,
           hasMore: false
@@ -423,7 +419,7 @@ await runAsyncTest(
       ]
     ]);
 
-    const { fetchImpl, requests } =
+    const { fetchImpl } =
       mockFetchFromPages(pages);
 
     const result =
@@ -434,9 +430,15 @@ await runAsyncTest(
       });
 
     assert.equal(result.status, "OK");
-    assert.equal(result.candleCount, 0);
-    assert.equal(result.pagesRead, 1);
-    assert.equal(requests.length, 1);
+
+    assert.deepEqual(
+      result.candles.map(c => c.timestamp),
+      [
+        unsorted[1].timestamp,
+        unsorted[0].timestamp,
+        unsorted[2].timestamp
+      ]
+    );
   }
 );
 
@@ -500,57 +502,43 @@ await runAsyncTest(
 
     assert.match(
       result.error,
-      /Duplicate or out-of-order/
+      /Duplicate timestamp/
     );
   }
 );
 
 // ======================================================
-// TEST 9: OUT-OF-ORDER DATA
+// TEST 9: EMPTY API RESPONSE
 // ======================================================
 
 await runAsyncTest(
-  "Rejects out-of-order timestamps",
+  "Handles empty API response safely",
   async () => {
-    const date = {
-      year: 2026,
-      month: 11,
-      day: 24
-    };
-
     const pages = new Map([
       [
         0,
-        makeApiPayload(
-          [
-            candle(date, 9, 30),
-            candle(date, 9, 15)
-          ],
-          {
-            offset: 0,
-            limit: 2,
-            hasMore: false
-          }
-        )
+        makeApiPayload([], {
+          offset: 0,
+          limit: 10,
+          hasMore: false
+        })
       ]
     ]);
 
-    const { fetchImpl } =
+    const { fetchImpl, requests } =
       mockFetchFromPages(pages);
 
     const result =
       await fetchAllHistoricalCandles({
         apiBaseUrl: "https://example.test",
-        pageSize: 2,
+        pageSize: 10,
         fetchImpl
       });
 
-    assert.equal(result.status, "ERROR");
-
-    assert.match(
-      result.error,
-      /Duplicate or out-of-order/
-    );
+    assert.equal(result.status, "OK");
+    assert.equal(result.candleCount, 0);
+    assert.equal(result.pagesRead, 1);
+    assert.equal(requests.length, 1);
   }
 );
 
@@ -593,7 +581,7 @@ await runAsyncTest(
 // ======================================================
 
 await runAsyncTest(
-  "Rejects API index and timeframe mismatch",
+  "Rejects index and timeframe mismatch",
   async () => {
     const pages = new Map([
       [
@@ -765,8 +753,6 @@ await runAsyncTest(
       day: 25
     };
 
-    // Both sessions are complete to avoid
-    // creating unrelated intraday gap errors.
     const candles = [
       ...fullSession(date1),
       ...fullSession(date2)
@@ -929,7 +915,7 @@ await runAsyncTest(
 // ======================================================
 
 await runAsyncTest(
-  "Runner reports NO_DATA for empty historical storage",
+  "Runner reports NO_DATA for empty storage",
   async () => {
     const pages = new Map([
       [

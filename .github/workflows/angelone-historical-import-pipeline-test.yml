@@ -1,0 +1,39 @@
+name: BADAL SEVERIYA - Angel One Historical Import Pipeline Test
+
+on:
+  workflow_dispatch:
+
+  push:
+    branches:
+      - main
+    paths:
+      - "angelone-historical-import-pipeline.js"
+      - "angelone-historical-import-pipeline.test.js"
+      - "angelone-historical-import-controller.js"
+      - "angelone-historical-import-controller.test.js"
+      - "angelone-converter.js"
+      - "angelone-converter.test.js"
+      - "historical-candle-api-uploader.js"
+      - "historical-candle-api-uploader.test.js"
+      - "historical-candle-batch-import.js"
+      - "historical-candle-batch-import.test.js"
+      - "historical-candle-merge.js"
+      - "historical-candle-merge.test.js"
+      - ".github/workflows/angelone-historical-import-pipeline-test.yml"
+
+jobs:
+  angelone-historical-import-pipeline-test:
+    name: Test Angel One Historical Import Pipeline
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Run Pipeline Tests
+        run: node angelone-historical-import-pipeline.test.js

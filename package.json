@@ -15,6 +15,7 @@
     "test:data-quality": "node data-quality.test.js",
     "test:intraday-gap": "node intraday-gap-check.test.js",
     "test:intraday-gap-api-runner": "node intraday-gap-api-runner.test.js",
+    "test:historical-api-pipeline": "node historical-analysis-api-pipeline.test.js",
     "test:report": "node historical-analysis-report.test.js",
     "test:comparison": "node timeframe-comparison.test.js",
     "test:candle-composition": "node historical-candle-composition.test.js",
@@ -37,6 +38,6 @@
     "test:import-controller": "node historical-data-import-controller.test.js",
     "test:api-uploader": "node historical-candle-api-uploader.test.js",
     "test:api-verifier": "node historical-candle-api-verifier.test.js",
-    "test": "npm run test:decoder && npm run test:market && npm run test:structure && npm run test:support && npm run test:fibonacci && npm run test:candles && npm run test:integration && npm run test:data-quality && npm run test:intraday-gap && npm run test:intraday-gap-api-runner && npm run test:report && npm run test:comparison && npm run test:candle-composition && npm run test:candle-stability && npm run test:master-analysis && npm run test:dashboard && npm run test:dashboard-display && npm run test:dashboard-ui && npm run test:dashboard-renderer && npm run test:pipeline && npm run test:validation && npm run test:consistency && npm run test:panel-integrity && npm run test:ui-integrity && npm run test:import && npm run test:worker && npm run test:angelone && npm run test:candle-merge && npm run test:candle-batch-import && npm run test:import-controller && npm run test:api-uploader && npm run test:api-verifier"
+    "test": "npm run test:decoder && npm run test:market && npm run test:structure && npm run test:support && npm run test:fibonacci && npm run test:candles && npm run test:integration && npm run test:data-quality && npm run test:intraday-gap && npm run test:intraday-gap-api-runner && npm run test:historical-api-pipeline && npm run test:report && npm run test:comparison && npm run test:candle-composition && npm run test:candle-stability && npm run test:master-analysis && npm run test:dashboard && npm run test:dashboard-display && npm run test:dashboard-ui && npm run test:dashboard-renderer && npm run test:pipeline && npm run test:validation && npm run test:consistency && npm run test:panel-integrity && npm run test:ui-integrity && npm run test:import && npm run test:worker && npm run test:angelone && npm run test:candle-merge && npm run test:candle-batch-import && npm run test:import-controller && npm run test:api-uploader && npm run test:api-verifier"
   }
 }

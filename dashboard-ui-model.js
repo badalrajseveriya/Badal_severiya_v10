@@ -1,4 +1,3 @@
-
 const NOTE =
   "Historical educational dashboard only. No forecasts, probabilities or trading recommendations.";
 
@@ -10,6 +9,9 @@ const REQUIRED_CARD_IDS = [
   "fibonacci",
   "candle-patterns"
 ];
+
+const OPTIONAL_MASTER_CARD_ID =
+  "historical-master-analysis";
 
 function isObject(value) {
   return (
@@ -54,14 +56,62 @@ function validateDisplayData(display) {
 
   const cards = safeArray(display.layout?.cards);
 
-  if (cards.length !== REQUIRED_CARD_IDS.length) {
-    errors.push("Dashboard must contain six cards.");
+  const expectedSix =
+    cards.length === REQUIRED_CARD_IDS.length;
+
+  const expectedSeven =
+    cards.length ===
+      REQUIRED_CARD_IDS.length + 1 &&
+    cards[6]?.id === OPTIONAL_MASTER_CARD_ID;
+
+  if (!expectedSix && !expectedSeven) {
+    errors.push(
+      "Dashboard must contain the six required cards, optionally followed by the Master Analysis card."
+    );
   }
 
-  for (let i = 0; i < REQUIRED_CARD_IDS.length; i++) {
+  for (
+    let i = 0;
+    i < REQUIRED_CARD_IDS.length;
+    i++
+  ) {
     if (cards[i]?.id !== REQUIRED_CARD_IDS[i]) {
       errors.push(
         `Invalid dashboard card at position ${i + 1}.`
+      );
+    }
+  }
+
+  if (expectedSeven) {
+    const master = cards[6];
+
+    if (
+      !isObject(master) ||
+      master.title !== "Master Historical Analysis" ||
+      master.timeframe !== "15m" ||
+      !Number.isInteger(master.candleCount) ||
+      master.candleCount < 200 ||
+      !isObject(master.composition) ||
+      !isObject(master.composition.percentages)
+    ) {
+      errors.push(
+        "Master Analysis card is invalid."
+      );
+    }
+
+    const p = master?.composition?.percentages;
+
+    if (
+      !isObject(p) ||
+      !["bullish", "bearish", "neutral"].every(
+        key => Number.isFinite(p[key])
+      ) ||
+      Math.abs(
+        p.bullish + p.bearish + p.neutral - 100
+      ) > 0.2
+    ) {
+      errors.push(
+        "Master Analysis percentages are invalid."
       );
     }
   }
@@ -117,7 +167,8 @@ function createResponsiveLayout() {
 
 export function createHistoricalDashboardUIModel(display) {
   try {
-    const validation = validateDisplayData(display);
+    const validation =
+      validateDisplayData(display);
 
     if (!validation.valid) {
       throw new Error(
@@ -125,9 +176,10 @@ export function createHistoricalDashboardUIModel(display) {
       );
     }
 
-    const cards = display.layout.cards.map(
-      createCardModel
-    );
+    const cards =
+      display.layout.cards.map(
+        createCardModel
+      );
 
     return {
       status: "OK",
@@ -135,18 +187,20 @@ export function createHistoricalDashboardUIModel(display) {
       module: "HISTORICAL_DASHBOARD_UI_MODEL",
       dataType: "HISTORICAL_ONLY",
 
-      screen: createScreenModel(display.screen),
+      screen:
+        createScreenModel(display.screen),
 
       layout: {
         type: "RESPONSIVE",
         cards,
         cardCount: cards.length,
-        responsive: createResponsiveLayout()
+        responsive:
+          createResponsiveLayout()
       },
 
       navigation: {
         type: "SINGLE_SCREEN",
-        sections: REQUIRED_CARD_IDS
+        sections: cards.map(card => card.id)
       },
 
       validation: {

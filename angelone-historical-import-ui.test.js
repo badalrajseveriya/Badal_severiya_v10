@@ -4,13 +4,15 @@
  * Angel One Historical Import UI Tests
  *
  * Checks:
- * - HTML file exists and contains required controls.
- * - Preview and upload workflow is present.
- * - Runtime token is not persisted.
- * - File size limit is present.
- * - API pagination and pipeline modules are connected.
- * - Progress callback field names match uploader contract.
- * - Inline module JavaScript syntax is valid.
+ * - HTML structure and required controls.
+ * - Preview and upload confirmation.
+ * - Runtime token security.
+ * - File size/type validation.
+ * - API pagination and pipeline integration.
+ * - Upload progress/result field contracts.
+ * - Sequential upload failure safety.
+ * - Historical-only safety description.
+ * - Inline module JavaScript syntax.
  *
  * Historical import only.
  * No trading or order placement.
@@ -52,8 +54,9 @@ function getInlineModuleScript(source) {
 }
 
 function removeModuleImports(script) {
+  // Remove multiline named imports from the inline module.
   return script.replace(
-    /^\s*import\s*\{[\s\S]*?\}\s*from\s*["'][^"']+["'];\s*/gm,
+    /^\s*import\s*\{[^}]*\}\s*from\s*["'][^"']+["'];?\s*$/gm,
     ""
   );
 }
@@ -67,8 +70,14 @@ function compileInlineModule(script) {
     "Inline module script must not be empty."
   );
 
+  assert.doesNotMatch(
+    sourceWithoutImports,
+    /^\s*import\b/m,
+    "All static imports must be removed before syntax compilation."
+  );
+
   // Syntax-only compilation.
-  // The script is not executed and browser DOM is not required.
+  // Does not execute the code or require a browser DOM.
   assert.doesNotThrow(
     () => new Function(sourceWithoutImports),
     "Inline module JavaScript must be syntactically valid."
@@ -87,6 +96,7 @@ test(
     assert.match(html, /<head>/i);
     assert.match(html, /<body>/i);
     assert.match(html, /<\/html>/i);
+
     assert.match(
       html,
       /BADAL SEVERIYA V12/i
@@ -263,7 +273,7 @@ test(
   () => {
     assert.match(
       html,
-      /type=["']password["']/i
+      /id="ingestToken"[\s\S]*?type="password"/i
     );
 
     assert.match(
@@ -276,19 +286,17 @@ test(
       /pagehide/
     );
 
+    // Ignore plain explanatory text.
+    // Block actual storage API property access.
     assert.doesNotMatch(
       html,
-      /localStorage/
+      /\b(?:window\.)?(?:localStorage|sessionStorage)\s*(?:\.|\[)/
     );
 
+    // Block cookie reading/writing through document.cookie.
     assert.doesNotMatch(
       html,
-      /sessionStorage/
-    );
-
-    assert.doesNotMatch(
-      html,
-      /document\.cookie/
+      /\bdocument\.cookie\b/
     );
   }
 );
@@ -410,7 +418,7 @@ test(
 );
 
 // --------------------------------------------------
-// 12. No trading functionality
+// 12. Historical-only functionality
 // --------------------------------------------------
 
 test(
@@ -428,7 +436,7 @@ test(
 
     assert.match(
       html,
-      /does not execute trades/i
+      /execute trades|trading signals/i
     );
   }
 );

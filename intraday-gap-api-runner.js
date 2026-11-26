@@ -3,6 +3,7 @@
    BADAL SEVERIYA V12
    INTRADAY GAP API RUNNER
    AUTOMATIC SESSION BOUNDARY CHECK
+   FIX: GLOBAL CHRONOLOGICAL SORT ACROSS API PAGES
 ====================================================== */
 
 import {
@@ -42,9 +43,7 @@ export function getAutomaticCompletedSessionDates(
     return [];
   }
 
-  const todayIST =
-    getISTDateKey(now);
-
+  const todayIST = getISTDateKey(now);
   const dates = new Set();
 
   for (const candle of candles) {
@@ -56,8 +55,7 @@ export function getAutomaticCompletedSessionDates(
       continue;
     }
 
-    const dateKey =
-      getISTDateKey(timestamp);
+    const dateKey = getISTDateKey(timestamp);
 
     // Current IST date is excluded.
     if (dateKey < todayIST) {
@@ -172,8 +170,22 @@ function validateApiPage(payload, {
 }
 
 // ------------------------------------------------------
-// CHRONOLOGICAL VALIDATION
+// GLOBAL CHRONOLOGICAL SORT + DUPLICATE VALIDATION
 // ------------------------------------------------------
+
+function sortCandlesChronologically(candles) {
+  return candles
+    .map((candle, originalIndex) => ({
+      candle,
+      originalIndex,
+      timestamp: Date.parse(candle.timestamp)
+    }))
+    .sort((a, b) =>
+      a.timestamp - b.timestamp ||
+      a.originalIndex - b.originalIndex
+    )
+    .map(item => item.candle);
+}
 
 function validateChronologicalCandles(candles) {
   let previousTimestamp = -Infinity;
@@ -193,9 +205,15 @@ function validateChronologicalCandles(candles) {
       );
     }
 
-    if (timestamp <= previousTimestamp) {
+    if (timestamp === previousTimestamp) {
       throw new Error(
-        "Duplicate or out-of-order timestamps detected."
+        `Duplicate timestamp detected after sorting at candle ${i}: ${candles[i].timestamp}`
+      );
+    }
+
+    if (timestamp < previousTimestamp) {
+      throw new Error(
+        "Chronological sorting failed."
       );
     }
 
@@ -305,8 +323,7 @@ export async function fetchAllHistoricalCandles({
         limit: pageSize
       });
 
-      const pageCandles =
-        payload.candles;
+      const pageCandles = payload.candles;
 
       pagesRead++;
       rowsRead += pageCandles.length;
@@ -335,18 +352,27 @@ export async function fetchAllHistoricalCandles({
     }
 
     /*
-      API offset 0 is the first/oldest page.
-      Higher offsets contain later candles.
+      IMPORTANT:
+      API pages may be returned in reverse page order.
+      Each page may itself contain ascending timestamps.
 
-      Preserve page order and candle order.
-      Do not reverse pages.
+      Therefore:
+      1. Combine every page.
+      2. Globally sort all candles by timestamp.
+      3. Validate chronological order.
+      4. Reject duplicate timestamps.
+
+      Do not assume API offset order is chronological.
     */
 
-    const candles = pages.flat();
+    const combinedCandles = pages.flat();
 
-    validateChronologicalCandles(
-      candles
-    );
+    const candles =
+      sortCandlesChronologically(
+        combinedCandles
+      );
+
+    validateChronologicalCandles(candles);
 
     return {
       status: "OK",
@@ -404,7 +430,7 @@ export async function runIntradayGapApiCheck({
     return {
       status: "ERROR",
       module: "INTRADAY_GAP_API_RUNNER",
-      version: "1.2",
+      version: "1.3",
       index,
       timeframe,
       dataSource:
@@ -421,7 +447,7 @@ export async function runIntradayGapApiCheck({
     return {
       status: "NO_DATA",
       module: "INTRADAY_GAP_API_RUNNER",
-      version: "1.2",
+      version: "1.3",
       index,
       timeframe,
       dataSource:
@@ -479,7 +505,7 @@ export async function runIntradayGapApiCheck({
     module:
       "INTRADAY_GAP_API_RUNNER",
 
-    version: "1.2",
+    version: "1.3",
 
     index,
     timeframe,
@@ -525,5 +551,6 @@ export const INTRADAY_GAP_API_RUNNER_CONFIG = {
   maxPages: MAX_PAGES,
   timezone: "Asia/Kolkata",
   source: "D1_HISTORICAL_STORAGE",
-  automaticSessionBoundaryCheck: true
+  automaticSessionBoundaryCheck: true,
+  globalChronologicalSorting: true
 };

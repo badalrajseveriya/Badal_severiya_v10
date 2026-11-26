@@ -476,7 +476,10 @@ function renderSMC(timeframe, result) {
 // ------------------------------------------------------
 
 function analyzeTimeframe(timeframe, candles) {
-  const report = generateHistoricalReport({ candles, timeframe });
+  const report = generateHistoricalReport(
+    { candles, timeframe },
+    { maxCandles: MAX_CLOUD_CANDLES }
+  );
 
   if (!report || report.status !== "OK") {
     throw new Error(report?.error || "Historical report failed.");

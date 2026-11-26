@@ -1,4 +1,3 @@
-
 /* ======================================================
    BADAL SEVERIYA V12
    INTRADAY CANDLE GAP CHECKER
@@ -102,6 +101,48 @@ function isWithinMarketSession(timestampMs) {
 }
 
 // ------------------------------------------------------
+// SESSION BOUNDARY HELPERS
+// ------------------------------------------------------
+
+function getSessionStartTimestamp(dateKey) {
+  const [year, month, day] = dateKey
+    .split("-")
+    .map(Number);
+
+  // 09:15 IST = 03:45 UTC
+  return Date.UTC(
+    year,
+    month - 1,
+    day,
+    3,
+    45
+  );
+}
+
+function getExpectedSessionSlots(dateKey, intervalMs) {
+  const start = getSessionStartTimestamp(dateKey);
+
+  const last =
+    start +
+    (SESSION_LAST_CANDLE_MINUTES -
+      SESSION_START_MINUTES) *
+      60 *
+      1000;
+
+  const slots = [];
+
+  for (
+    let timestamp = start;
+    timestamp <= last;
+    timestamp += intervalMs
+  ) {
+    slots.push(timestamp);
+  }
+
+  return slots;
+}
+
+// ------------------------------------------------------
 // EMPTY RESULT
 // ------------------------------------------------------
 
@@ -109,7 +150,7 @@ function createEmptyResult(intervalMinutes) {
   return {
     status: "OK",
     module: "INTRADAY_GAP_CHECK",
-    version: "1.1",
+    version: "1.2",
     timeframe: `${intervalMinutes}m`,
     timezone: "Asia/Kolkata",
     quality: "NO_DATA",
@@ -128,6 +169,11 @@ function createEmptyResult(intervalMinutes) {
     gaps: [],
     gapsTruncated: false,
 
+    boundaryGapCount: 0,
+    boundaryMissingCandleCount: 0,
+    boundaryGaps: [],
+    boundaryCheckStatus: "NOT_REQUESTED",
+
     irregularIntervalCount: 0,
 
     offSessionCount: 0,
@@ -137,7 +183,8 @@ function createEmptyResult(intervalMinutes) {
       timestamps: "NO_DATA",
       duplicates: "NO_DATA",
       missingCandles: "NO_DATA",
-      marketSession: "NO_DATA"
+      marketSession: "NO_DATA",
+      sessionBoundaries: "NOT_REQUESTED"
     }
   };
 }
@@ -146,7 +193,10 @@ function createEmptyResult(intervalMinutes) {
 // MAIN GAP CHECK
 // ------------------------------------------------------
 
-export function analyzeIntradayGaps(input, options = {}) {
+export function analyzeIntradayGaps(
+  input,
+  options = {}
+) {
   try {
     const intervalMinutes =
       Number.isFinite(options.intervalMinutes) &&
@@ -154,21 +204,24 @@ export function analyzeIntradayGaps(input, options = {}) {
         ? options.intervalMinutes
         : DEFAULT_INTERVAL_MINUTES;
 
-    const intervalMs = intervalMinutes * 60 * 1000;
+    const intervalMs =
+      intervalMinutes * 60 * 1000;
 
     const candles = Array.isArray(input)
       ? input
       : input?.candles;
 
     if (!Array.isArray(candles)) {
-      throw new Error("Candles must be provided as an array.");
+      throw new Error(
+        "Candles must be provided as an array."
+      );
     }
 
     if (candles.length === 0) {
       return createEmptyResult(intervalMinutes);
     }
 
-    // STEP 1: Parse timestamps
+    // STEP 1: PARSE TIMESTAMPS
 
     const parsed = [];
     const invalidTimestampIndexes = [];
@@ -176,8 +229,8 @@ export function analyzeIntradayGaps(input, options = {}) {
     candles.forEach((candle, index) => {
       const timestamp = parseTimestamp(
         candle?.timestamp ??
-        candle?.time ??
-        candle?.date
+          candle?.time ??
+          candle?.date
       );
 
       if (
@@ -198,11 +251,13 @@ export function analyzeIntradayGaps(input, options = {}) {
       });
     });
 
-    // STEP 2: Sort by timestamp
+    // STEP 2: SORT BY TIMESTAMP
 
-    parsed.sort((a, b) => a.timestamp - b.timestamp);
+    parsed.sort(
+      (a, b) => a.timestamp - b.timestamp
+    );
 
-    // STEP 3: Detect duplicates
+    // STEP 3: DETECT DUPLICATES
 
     const duplicates = [];
     const seen = new Map();
@@ -217,23 +272,29 @@ export function analyzeIntradayGaps(input, options = {}) {
           duplicateIndex: candle.index
         });
       } else {
-        seen.set(candle.timestamp, candle.index);
+        seen.set(
+          candle.timestamp,
+          candle.index
+        );
       }
     }
 
-    // STEP 4: Detect off-session candles
+    // STEP 4: DETECT OFF-SESSION CANDLES
 
     const offSessionCandles = parsed
-      .filter(candle => !candle.inSession)
+      .filter(
+        candle => !candle.inSession
+      )
       .map(candle => ({
         index: candle.index,
         date: candle.dateKey,
         time: candle.time
       }));
 
-    // STEP 5: Detect gaps within same trading day
+    // STEP 5: DETECT GAPS INSIDE SAME TRADING DAY
 
     const gaps = [];
+
     let gapsTotal = 0;
     let missingCandleCount = 0;
     let irregularIntervalCount = 0;
@@ -243,17 +304,23 @@ export function analyzeIntradayGaps(input, options = {}) {
       const current = parsed[i];
 
       // Ignore overnight/date-boundary transitions
-      if (previous.dateKey !== current.dateKey) {
+      if (
+        previous.dateKey !== current.dateKey
+      ) {
         continue;
       }
 
       // Compare only candles within market session
-      if (!previous.inSession || !current.inSession) {
+      if (
+        !previous.inSession ||
+        !current.inSession
+      ) {
         continue;
       }
 
       const difference =
-        current.timestamp - previous.timestamp;
+        current.timestamp -
+        previous.timestamp;
 
       // Duplicate or reversed timestamps
       if (difference <= 0) {
@@ -274,44 +341,223 @@ export function analyzeIntradayGaps(input, options = {}) {
       if (difference > intervalMs) {
         estimatedMissing = Math.max(
           0,
-          Math.round(difference / intervalMs) - 1
+          Math.round(
+            difference / intervalMs
+          ) - 1
         );
 
         isExactIntervalMultiple =
           difference % intervalMs === 0;
 
-        missingCandleCount += estimatedMissing;
-
-        if (!isExactIntervalMultiple) {
-          // Additional irregularity for non-multiple gaps
-          // already counted once above.
-        }
+        missingCandleCount +=
+          estimatedMissing;
       }
 
-      // Count EVERY gap event, even beyond display limit
+      // Count every gap, not only displayed gaps
       gapsTotal++;
 
-      // Store only first 100 gap details
+      // Keep only first 100 gap details
       if (gaps.length < MAX_REPORTED_GAPS) {
         gaps.push({
           date: current.dateKey,
           from: previous.time,
           to: current.time,
-          differenceMinutes: difference / 60000,
-          missingCandles: estimatedMissing,
-          exactIntervalMultiple: isExactIntervalMultiple,
+          differenceMinutes:
+            difference / 60000,
+          missingCandles:
+            estimatedMissing,
+          exactIntervalMultiple:
+            isExactIntervalMultiple,
           previousIndex: previous.index,
           currentIndex: current.index
         });
       }
     }
 
-    // STEP 6: Determine data quality
+    // STEP 6: OPTIONAL SESSION BOUNDARY CHECK
+    //
+    // Runs only when enabled AND dates are confirmed
+    // as completed trading sessions.
+    // Prevents false alerts on incomplete current day.
+
+    const boundaryGaps = [];
+
+    let boundaryGapCount = 0;
+    let boundaryMissingCandleCount = 0;
+
+    let boundaryCheckStatus =
+      "NOT_REQUESTED";
+
+    if (
+      options.checkSessionBoundaries === true
+    ) {
+      const completedDates =
+        Array.isArray(
+          options.completedSessionDates
+        )
+          ? new Set(
+              options.completedSessionDates.filter(
+                value =>
+                  typeof value === "string" &&
+                  /^\d{4}-\d{2}-\d{2}$/.test(
+                    value
+                  )
+              )
+            )
+          : new Set();
+
+      const inSessionByDate = new Map();
+
+      for (const item of parsed) {
+        if (!item.inSession) {
+          continue;
+        }
+
+        if (
+          !inSessionByDate.has(item.dateKey)
+        ) {
+          inSessionByDate.set(
+            item.dateKey,
+            []
+          );
+        }
+
+        inSessionByDate
+          .get(item.dateKey)
+          .push(item);
+      }
+
+      for (const dateKey of completedDates) {
+        const dayCandles =
+          inSessionByDate.get(dateKey);
+
+        // No candle data for date: skip safely
+        if (
+          !dayCandles ||
+          dayCandles.length === 0
+        ) {
+          continue;
+        }
+
+        const expectedSlots =
+          getExpectedSessionSlots(
+            dateKey,
+            intervalMs
+          );
+
+        if (expectedSlots.length === 0) {
+          continue;
+        }
+
+        const observedTimestamps =
+          new Set(
+            dayCandles.map(
+              item => item.timestamp
+            )
+          );
+
+        const firstObservedIndex =
+          expectedSlots.findIndex(
+            timestamp =>
+              observedTimestamps.has(timestamp)
+          );
+
+        let lastObservedIndex = -1;
+
+        for (
+          let i =
+            expectedSlots.length - 1;
+          i >= 0;
+          i--
+        ) {
+          if (
+            observedTimestamps.has(
+              expectedSlots[i]
+            )
+          ) {
+            lastObservedIndex = i;
+            break;
+          }
+        }
+
+        // No exact expected timestamp found
+        if (
+          firstObservedIndex < 0 ||
+          lastObservedIndex < 0
+        ) {
+          continue;
+        }
+
+        // Missing candles before first observed candle
+        const missingAtStart =
+          firstObservedIndex;
+
+        // Missing candles after last observed candle
+        const missingAtEnd =
+          expectedSlots.length -
+          1 -
+          lastObservedIndex;
+
+        if (missingAtStart > 0) {
+          boundaryGapCount++;
+
+          boundaryMissingCandleCount +=
+            missingAtStart;
+
+          boundaryGaps.push({
+            date: dateKey,
+            boundaryType: "SESSION_START",
+            expectedFrom: getISTTime(
+              expectedSlots[0]
+            ),
+            firstObserved: getISTTime(
+              expectedSlots[
+                firstObservedIndex
+              ]
+            ),
+            missingCandles:
+              missingAtStart
+          });
+        }
+
+        if (missingAtEnd > 0) {
+          boundaryGapCount++;
+
+          boundaryMissingCandleCount +=
+            missingAtEnd;
+
+          boundaryGaps.push({
+            date: dateKey,
+            boundaryType: "SESSION_END",
+            lastObserved: getISTTime(
+              expectedSlots[
+                lastObservedIndex
+              ]
+            ),
+            expectedTo: getISTTime(
+              expectedSlots[
+                expectedSlots.length - 1
+              ]
+            ),
+            missingCandles:
+              missingAtEnd
+          });
+        }
+      }
+
+      boundaryCheckStatus =
+        completedDates.size > 0
+          ? "CHECKED"
+          : "NO_COMPLETED_DATES";
+    }
+
+    // STEP 7: DETERMINE DATA QUALITY
 
     const issueCount =
       invalidTimestampIndexes.length +
       duplicates.length +
       missingCandleCount +
+      boundaryMissingCandleCount +
       irregularIntervalCount +
       offSessionCandles.length;
 
@@ -320,12 +566,12 @@ export function analyzeIntradayGaps(input, options = {}) {
         ? "ISSUES_FOUND"
         : "VALID";
 
-    // STEP 7: Return result
+    // STEP 8: RETURN RESULT
 
     return {
       status: "OK",
       module: "INTRADAY_GAP_CHECK",
-      version: "1.1",
+      version: "1.2",
       timeframe: `${intervalMinutes}m`,
       timezone: "Asia/Kolkata",
 
@@ -350,18 +596,27 @@ export function analyzeIntradayGaps(input, options = {}) {
 
       missingCandleCount,
 
-      // Total gap events (not limited to 100)
+      // Total gap events
       gapCount: gapsTotal,
       gapsTotal,
 
-      // Details limited to 100 records
+      // Gap details limited to 100
       gaps,
 
-      gapsTruncated: gapsTotal > MAX_REPORTED_GAPS,
+      gapsTruncated:
+        gapsTotal > MAX_REPORTED_GAPS,
+
+      // Session boundary data
+      boundaryGapCount,
+      boundaryMissingCandleCount,
+      boundaryGaps,
+      boundaryCheckStatus,
 
       irregularIntervalCount,
 
-      offSessionCount: offSessionCandles.length,
+      offSessionCount:
+        offSessionCandles.length,
+
       offSessionCandles,
 
       checks: {
@@ -383,16 +638,28 @@ export function analyzeIntradayGaps(input, options = {}) {
         marketSession:
           offSessionCandles.length === 0
             ? "PASS"
-            : "REVIEW"
+            : "REVIEW",
+
+        sessionBoundaries:
+          boundaryCheckStatus ===
+            "NOT_REQUESTED" ||
+          boundaryCheckStatus ===
+            "NO_COMPLETED_DATES"
+            ? boundaryCheckStatus
+            : boundaryMissingCandleCount === 0
+              ? "PASS"
+              : "FAIL"
       }
     };
   } catch (error) {
     return {
       status: "ERROR",
       module: "INTRADAY_GAP_CHECK",
-      version: "1.1",
+      version: "1.2",
       quality: "ERROR",
-      error: error?.message || "Unknown error"
+      error:
+        error?.message ||
+        "Unknown error"
     };
   }
 }
@@ -402,10 +669,20 @@ export function analyzeIntradayGaps(input, options = {}) {
 // ------------------------------------------------------
 
 export const INTRADAY_GAP_CHECK_CONFIG = {
-  intervalMinutes: DEFAULT_INTERVAL_MINUTES,
+  intervalMinutes:
+    DEFAULT_INTERVAL_MINUTES,
+
   timezone: "Asia/Kolkata",
+
   sessionStart: "09:15",
   lastCandleStart: "15:15",
   marketClose: "15:30",
-  maxReportedGaps: MAX_REPORTED_GAPS
+
+  maxReportedGaps:
+    MAX_REPORTED_GAPS,
+
+  sessionBoundaryCheck: {
+    enabledByDefault: false,
+    requiresCompletedSessionDates: true
+  }
 };

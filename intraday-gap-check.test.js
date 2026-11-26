@@ -64,10 +64,12 @@ runTest(
 
     assert.equal(result.status, "OK");
     assert.equal(result.quality, "VALID");
+
     assert.equal(
       result.missingCandleCount,
       0
     );
+
     assert.equal(result.gapCount, 0);
   }
 );
@@ -93,6 +95,7 @@ runTest(
 
     assert.equal(result.gapCount, 1);
     assert.equal(result.gapsTotal, 1);
+
     assert.equal(
       result.quality,
       "ISSUES_FOUND"
@@ -639,7 +642,7 @@ runTest(
       analyzeIntradayGaps(
         [
           candle(9, 30),
-          candle(10, 0)
+          candle(9, 45)
         ],
         {
           checkSessionBoundaries: true,

@@ -1,437 +1,379 @@
-import test from "node:test";
-import assert from "node:assert/strict";
+
+/**
+ * BADAL SEVERIYA V12
+ * Angel One -> Historical D1 Import Pipeline
+ *
+ * Flow:
+ * 1. Fetch existing D1 candles (all pages).
+ * 2. Convert Angel One response.
+ * 3. Validate, merge and deduplicate.
+ * 4. Prepare safe upload batches.
+ * 5. Sequentially upload batches to D1.
+ *
+ * Historical data only.
+ * No trading or order placement.
+ */
 
 import {
-  fetchExistingHistoricalCandles,
-  runAngelOneHistoricalImportPipeline
-} from "./angelone-historical-import-pipeline.js";
+  prepareAngelOneHistoricalImport
+} from "./angelone-historical-import-controller.js";
 
-const API_BASE_URL =
-  "https://badal-severiya-data.mrstarrdbs.workers.dev";
+import {
+  runHistoricalCandleApiUpload
+} from "./historical-candle-api-uploader.js";
 
-const TEST_TOKEN = "pipeline-test-token";
+const MAX_PAGE_SIZE = 5000;
+const MAX_PAGES = 2000;
 
-function mockResponse(status, body) {
-  return {
-    ok: status >= 200 && status < 300,
-    status,
-    async json() {
-      return body;
-    }
-  };
-}
-
-function existingCandle(timestamp, price) {
-  return {
-    timestamp,
-    open: price,
-    high: price + 10,
-    low: price - 10,
-    close: price + 5,
-    volume: 1000
-  };
-}
-
-function angelResponse(rows) {
-  return {
-    status: true,
-    message: "SUCCESS",
-    errorcode: "",
-    data: rows
-  };
-}
-
-function angelRow(timestamp, price, volume = 500) {
-  return [
-    timestamp,
-    price,
-    price + 10,
-    price - 10,
-    price + 5,
-    volume
-  ];
-}
-
-test(
-  "fetches every D1 page and combines candles",
-  async () => {
-    const firstPage = [
-      existingCandle(
-        "2026-11-23T03:30:00.000Z",
-        25000
-      ),
-      existingCandle(
-        "2026-11-23T03:45:00.000Z",
-        25010
-      )
-    ];
-
-    const secondPage = [
-      existingCandle(
-        "2026-11-23T04:00:00.000Z",
-        25020
-      )
-    ];
-
-    const requests = [];
-
-    const fetchImpl = async url => {
-      const parsed = new URL(url);
-      const offset = Number(
-        parsed.searchParams.get("offset")
-      );
-
-      requests.push(offset);
-
-      if (offset === 0) {
-        return mockResponse(200, {
-          index: "NIFTY",
-          timeframe: "15m",
-          count: firstPage.length,
-          hasMore: true,
-          candles: firstPage
-        });
-      }
-
-      if (offset === 2) {
-        return mockResponse(200, {
-          index: "NIFTY",
-          timeframe: "15m",
-          count: secondPage.length,
-          hasMore: false,
-          candles: secondPage
-        });
-      }
-
-      throw new Error("Unexpected pagination offset.");
-    };
-
-    const result =
-      await fetchExistingHistoricalCandles({
-        apiBaseUrl: API_BASE_URL,
-        index: "NIFTY",
-        timeframe: "15m",
-        fetchImpl,
-        pageSize: 2
-      });
-
-    assert.equal(result.status, "completed");
-    assert.equal(result.pageCount, 2);
-    assert.equal(result.candleCount, 3);
-    assert.deepEqual(requests, [0, 2]);
+function validateApiBaseUrl(apiBaseUrl) {
+  if (
+    typeof apiBaseUrl !== "string" ||
+    !apiBaseUrl.trim()
+  ) {
+    throw new Error("API base URL is required.");
   }
-);
 
-test(
-  "fetches old data, merges duplicates and uploads sequentially",
-  async () => {
-    const oldCandle = existingCandle(
-      "2026-11-23T03:30:00.000Z",
-      25000
+  let parsed;
+
+  try {
+    parsed = new URL(apiBaseUrl.trim());
+  } catch {
+    throw new Error("Invalid API base URL.");
+  }
+
+  if (
+    parsed.protocol !== "https:" &&
+    parsed.hostname !== "localhost"
+  ) {
+    throw new Error(
+      "API base URL must use HTTPS."
     );
+  }
 
-    const requests = [];
-    const uploadPayloads = [];
+  return parsed.href.replace(/\/+$/, "");
+}
 
-    const fetchImpl = async (url, options = {}) => {
-      const parsed = new URL(url);
-      const method = options.method || "GET";
+function validateFetch(fetchImpl) {
+  if (typeof fetchImpl !== "function") {
+    throw new Error(
+      "Fetch implementation is unavailable."
+    );
+  }
+}
 
-      requests.push({
-        method,
-        url: parsed.href
-      });
+async function readJsonResponse(response, label) {
+  if (
+    !response ||
+    typeof response.json !== "function"
+  ) {
+    throw new Error(
+      `${label}: invalid HTTP response.`
+    );
+  }
 
-      if (
-        method === "GET" &&
-        parsed.pathname === "/api/data/candles"
-      ) {
-        return mockResponse(200, {
-          index: "NIFTY",
-          timeframe: "15m",
-          count: 1,
-          hasMore: false,
-          candles: [oldCandle]
-        });
-      }
+  if (!response.ok) {
+    throw new Error(
+      `${label}: HTTP ${response.status}.`
+    );
+  }
 
-      if (
-        method === "POST" &&
-        parsed.pathname === "/api/data/ingest"
-      ) {
-        assert.equal(
-          options.headers["x-ingest-token"],
-          TEST_TOKEN
-        );
+  let body;
 
-        const payload = JSON.parse(options.body);
+  try {
+    body = await response.json();
+  } catch {
+    throw new Error(
+      `${label}: invalid JSON response.`
+    );
+  }
 
-        uploadPayloads.push(payload);
+  if (
+    !body ||
+    typeof body !== "object" ||
+    Array.isArray(body)
+  ) {
+    throw new Error(
+      `${label}: response body is invalid.`
+    );
+  }
 
-        return mockResponse(200, {
-          status: "OK",
-          received: payload.candles.length
-        });
-      }
+  return body;
+}
 
-      throw new Error(`Unexpected request: ${parsed.href}`);
-    };
+/**
+ * Fetches all existing D1 candle pages.
+ *
+ * D1 API uses limit and offset pagination.
+ * Results are later normalized and sorted by
+ * the historical candle merge engine.
+ */
+export async function fetchExistingHistoricalCandles({
+  apiBaseUrl,
+  index,
+  timeframe,
+  fetchImpl = globalThis.fetch,
+  pageSize = MAX_PAGE_SIZE
+} = {}) {
+  const baseUrl =
+    validateApiBaseUrl(apiBaseUrl);
 
-    const progressEvents = [];
+  validateFetch(fetchImpl);
 
-    const result =
-      await runAngelOneHistoricalImportPipeline({
-        response: angelResponse([
-          angelRow(
-            "2026-11-23T09:00:00+05:30",
-            25100
-          ),
-          angelRow(
-            "2026-11-23T09:15:00+05:30",
-            25110
-          )
-        ]),
+  if (
+    !Number.isInteger(pageSize) ||
+    pageSize < 1 ||
+    pageSize > MAX_PAGE_SIZE
+  ) {
+    throw new Error(
+      "Page size must be between 1 and 5000."
+    );
+  }
 
-        apiBaseUrl: API_BASE_URL,
-        token: TEST_TOKEN,
-        index: "NIFTY",
-        timeframe: "15m",
-        batchSize: 1,
-        fetchImpl,
+  if (
+    typeof index !== "string" ||
+    !index.trim()
+  ) {
+    throw new Error("Index is required.");
+  }
 
-        onProgress: event => {
-          progressEvents.push(event);
+  if (
+    typeof timeframe !== "string" ||
+    !timeframe.trim()
+  ) {
+    throw new Error("Timeframe is required.");
+  }
+
+  const normalizedIndex =
+    index.trim().toUpperCase();
+
+  const normalizedTimeframe =
+    timeframe.trim();
+
+  const allCandles = [];
+
+  let offset = 0;
+  let pageCount = 0;
+
+  while (pageCount < MAX_PAGES) {
+    const params = new URLSearchParams({
+      index: normalizedIndex,
+      timeframe: normalizedTimeframe,
+      limit: String(pageSize),
+      offset: String(offset)
+    });
+
+    const url =
+      `${baseUrl}/api/data/candles?` +
+      params.toString();
+
+    let response;
+
+    try {
+      response = await fetchImpl(url, {
+        method: "GET",
+        headers: {
+          accept: "application/json"
         }
       });
+    } catch (error) {
+      throw new Error(
+        `D1 historical fetch failed at offset ${offset}: ` +
+        (error?.message ?? String(error))
+      );
+    }
 
-    assert.equal(result.status, "completed");
-    assert.equal(result.dataType, "HISTORICAL_ONLY");
-
-    assert.equal(
-      result.existingFetch.candleCount,
-      1
+    const body = await readJsonResponse(
+      response,
+      `D1 historical fetch at offset ${offset}`
     );
 
-    assert.equal(
-      result.preparation.incomingCandleCount,
-      2
-    );
+    if (
+      !Array.isArray(body.candles) ||
+      !Number.isInteger(body.count) ||
+      body.count !== body.candles.length
+    ) {
+      throw new Error(
+        `Invalid D1 candle page at offset ${offset}.`
+      );
+    }
 
-    assert.equal(
-      result.preparation.duplicateAgainstExisting,
-      1
-    );
+    if (
+      body.index !== normalizedIndex ||
+      body.timeframe !== normalizedTimeframe
+    ) {
+      throw new Error(
+        `D1 returned unexpected index/timeframe at offset ${offset}.`
+      );
+    }
 
-    assert.equal(
-      result.preparation.finalUniqueCandleCount,
-      2
-    );
+    if (typeof body.hasMore !== "boolean") {
+      throw new Error(
+        `Invalid D1 pagination flag at offset ${offset}.`
+      );
+    }
 
-    assert.equal(
-      result.upload.uploadedBatchCount,
-      2
-    );
+    if (
+      body.candles.length === 0 &&
+      body.hasMore === true
+    ) {
+      throw new Error(
+        "D1 returned an empty page while hasMore is true."
+      );
+    }
 
-    assert.equal(
-      result.upload.uploadedCandleCount,
-      2
-    );
+    allCandles.push(...body.candles);
+    pageCount++;
 
-    assert.equal(uploadPayloads.length, 2);
+    if (body.hasMore === false) {
+      return {
+        status: "completed",
+        index: normalizedIndex,
+        timeframe: normalizedTimeframe,
+        pageCount,
+        candleCount: allCandles.length,
+        candles: allCandles
+      };
+    }
 
-    assert.equal(
-      uploadPayloads[0].candles.length,
-      1
-    );
-
-    assert.equal(
-      uploadPayloads[1].candles.length,
-      1
-    );
-
-    assert.equal(progressEvents.length, 2);
-
-    assert.equal(
-      progressEvents[1].completedBatches,
-      2
-    );
-
-    assert.equal(requests[0].method, "GET");
-    assert.equal(requests[1].method, "POST");
-    assert.equal(requests[2].method, "POST");
+    offset += pageSize;
   }
-);
 
-test(
-  "rejects a malformed D1 page",
-  async () => {
-    await assert.rejects(
-      () =>
-        fetchExistingHistoricalCandles({
-          apiBaseUrl: API_BASE_URL,
-          index: "NIFTY",
-          timeframe: "15m",
+  throw new Error(
+    `D1 pagination exceeded ${MAX_PAGES} pages.`
+  );
+}
 
-          fetchImpl: async () =>
-            mockResponse(200, {
-              index: "NIFTY",
-              timeframe: "15m",
-              count: 1,
-              hasMore: false,
-              candles: []
-            })
-        }),
-      /Invalid D1 candle page/
-    );
-  }
-);
+/**
+ * Full Angel One historical import pipeline.
+ *
+ * Required:
+ * - response
+ * - apiBaseUrl
+ * - token
+ *
+ * Optional:
+ * - index
+ * - timeframe
+ * - batchSize
+ * - pageSize
+ * - fetchImpl (testing)
+ * - onProgress
+ *
+ * Ingest token is runtime-only.
+ */
+export async function runAngelOneHistoricalImportPipeline({
+  response,
+  apiBaseUrl,
+  token,
+  index = "NIFTY",
+  timeframe = "15m",
+  batchSize = MAX_PAGE_SIZE,
+  pageSize = MAX_PAGE_SIZE,
+  fetchImpl = globalThis.fetch,
+  onProgress
+} = {}) {
+  const baseUrl =
+    validateApiBaseUrl(apiBaseUrl);
 
-test(
-  "rejects D1 fetch HTTP errors",
-  async () => {
-    await assert.rejects(
-      () =>
-        fetchExistingHistoricalCandles({
-          apiBaseUrl: API_BASE_URL,
-          index: "NIFTY",
-          timeframe: "15m",
+  validateFetch(fetchImpl);
 
-          fetchImpl: async () =>
-            mockResponse(503, {
-              error: "Unavailable"
-            })
-        }),
-      /HTTP 503/
-    );
-  }
-);
-
-test(
-  "rejects invalid API URL",
-  async () => {
-    await assert.rejects(
-      () =>
-        fetchExistingHistoricalCandles({
-          apiBaseUrl: "not-a-url",
-          index: "NIFTY",
-          timeframe: "15m",
-          fetchImpl: async () =>
-            mockResponse(200, {})
-        }),
-      /Invalid API base URL/
+  if (
+    typeof token !== "string" ||
+    !token.trim()
+  ) {
+    throw new Error(
+      "Ingest token is required."
     );
   }
-);
 
-test(
-  "rejects insecure non-local API URL",
-  async () => {
-    await assert.rejects(
-      () =>
-        fetchExistingHistoricalCandles({
-          apiBaseUrl: "http://example.com",
-          index: "NIFTY",
-          timeframe: "15m",
-          fetchImpl: async () =>
-            mockResponse(200, {})
-        }),
-      /must use HTTPS/
+  if (
+    !["15m", "1d"].includes(timeframe)
+  ) {
+    throw new Error(
+      "Timeframe must be 15m or 1d."
     );
   }
-);
 
-test(
-  "rejects missing ingest token",
-  async () => {
-    await assert.rejects(
-      () =>
-        runAngelOneHistoricalImportPipeline({
-          response: angelResponse([
-            angelRow(
-              "2026-11-23T09:00:00+05:30",
-              25000
-            )
-          ]),
-          apiBaseUrl: API_BASE_URL,
-          token: "",
-          fetchImpl: async () =>
-            mockResponse(200, {
-              index: "NIFTY",
-              timeframe: "15m",
-              count: 0,
-              hasMore: false,
-              candles: []
-            })
-        }),
-      /Ingest token is required/
-    );
+  if (
+    typeof index !== "string" ||
+    !index.trim()
+  ) {
+    throw new Error("Index is required.");
   }
-);
 
-test(
-  "stops upload when D1 rejects a batch",
-  async () => {
-    let postCount = 0;
+  // Step 1: Read the complete existing D1 dataset.
+  const existingResult =
+    await fetchExistingHistoricalCandles({
+      apiBaseUrl: baseUrl,
+      index,
+      timeframe,
+      fetchImpl,
+      pageSize
+    });
 
-    const fetchImpl = async (url, options = {}) => {
-      const parsed = new URL(url);
+  // Step 2: Convert, validate, merge and batch.
+  const preparedImport =
+    prepareAngelOneHistoricalImport({
+      response,
+      index,
+      timeframe,
+      existingCandles:
+        existingResult.candles,
+      batchSize
+    });
 
-      if (
-        options.method === "GET" &&
-        parsed.pathname === "/api/data/candles"
-      ) {
-        return mockResponse(200, {
-          index: "NIFTY",
-          timeframe: "15m",
-          count: 0,
-          hasMore: false,
-          candles: []
-        });
+  // Step 3: Upload sequentially.
+  // Upload helper stops after the first failure.
+  const uploadResult =
+    await runHistoricalCandleApiUpload(
+      preparedImport,
+      {
+        apiBaseUrl: baseUrl,
+        token,
+        index,
+        timeframe,
+        fetchImpl,
+        onProgress
       }
+    );
 
-      if (
-        options.method === "POST" &&
-        parsed.pathname === "/api/data/ingest"
-      ) {
-        postCount++;
+  return {
+    status: uploadResult.status,
 
-        return mockResponse(401, {
-          status: "ERROR",
-          error: "Unauthorized"
-        });
-      }
+    dataType: "HISTORICAL_ONLY",
+    source: "ANGEL_ONE_SMARTAPI",
 
-      throw new Error("Unexpected request.");
-    };
+    index,
+    timeframe,
 
-    const result =
-      await runAngelOneHistoricalImportPipeline({
-        response: angelResponse([
-          angelRow(
-            "2026-11-23T09:00:00+05:30",
-            25000
-          ),
-          angelRow(
-            "2026-11-23T09:15:00+05:30",
-            25010
-          )
-        ]),
+    existingFetch: {
+      pageCount:
+        existingResult.pageCount,
 
-        apiBaseUrl: API_BASE_URL,
-        token: TEST_TOKEN,
-        index: "NIFTY",
-        timeframe: "15m",
-        batchSize: 1,
-        fetchImpl
-      });
+      candleCount:
+        existingResult.candleCount
+    },
 
-    assert.equal(result.status, "failed");
-    assert.equal(result.upload.status, "failed");
-    assert.equal(postCount, 1);
-    assert.equal(result.upload.httpStatus, 401);
-  }
-);
+    preparation: {
+      incomingCandleCount:
+        preparedImport.incomingCandleCount,
 
-console.log(
-  "ANGEL ONE HISTORICAL IMPORT PIPELINE TESTS PASSED"
-);
+      duplicateAgainstExisting:
+        preparedImport.duplicateAgainstExisting,
+
+      finalUniqueCandleCount:
+        preparedImport.finalUniqueCandleCount,
+
+      batchSize:
+        preparedImport.batchSize,
+
+      batchCount:
+        preparedImport.batchCount
+    },
+
+    upload: uploadResult,
+
+    note:
+      "Historical import only. No trading or order placement."
+  };
+}

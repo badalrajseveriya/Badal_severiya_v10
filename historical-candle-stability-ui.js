@@ -3,15 +3,22 @@ import { parseHistoricalDataText } from "./historical-data-import.js";
 import {
   calculateHistoricalPeriodStability
 } from "./historical-candle-stability.js";
+import {
+  fetchHistoricalCandlePages
+} from "./historical-candle-pagination.js";
 
 // ======================================================
 // BADAL SEVERIYA V12
 // HISTORICAL PERIOD STABILITY UI
+// Complete paginated historical data | 1D + 15M
 // Retrospective comparison only
 // ======================================================
 
 const API_BASE =
   "https://badal-severiya-data.mrstarrdbs.workers.dev";
+
+const MAX_CLOUD_CANDLES = 25000;
+const API_PAGE_SIZE = 5000;
 
 const TIMEFRAMES = {
   "1d": {
@@ -32,12 +39,14 @@ function getElement(id) {
   return document.getElementById(id);
 }
 
-function setStatus(timeframe, message) {
+function setStatus(timeframe, message, state = "") {
   const config = TIMEFRAMES[timeframe];
   const element = getElement(config.status);
 
   if (element) {
     element.textContent = message;
+    if (state) element.dataset.state = state;
+    else delete element.dataset.state;
   }
 }
 
@@ -74,6 +83,7 @@ function formatDate(value) {
   }
 
   return date.toLocaleString("en-IN", {
+    timeZone: "Asia/Kolkata",
     year: "numeric",
     month: "short",
     day: "2-digit"
@@ -91,7 +101,8 @@ function renderPeriod(timeframe, result) {
   if (result.status !== "OK") {
     setStatus(
       timeframe,
-      `पर्याप्त डेटा नहीं है। उपलब्ध: ${result.sampleSize}, आवश्यक: ${result.requiredCandles}`
+      `पर्याप्त डेटा नहीं है। उपलब्ध: ${result.sampleSize}, आवश्यक: ${result.requiredCandles}`,
+      "error"
     );
     return;
   }
@@ -106,7 +117,6 @@ function renderPeriod(timeframe, result) {
   );
 
   const spread = result.percentageSpread;
-
   const spreadGrid = document.createElement("div");
   spreadGrid.className = "stability-spread-grid";
 
@@ -170,7 +180,6 @@ function renderPeriod(timeframe, result) {
     );
 
     const percentages = period.percentages;
-
     const values = document.createElement("div");
     values.className = "stability-period-grid";
 
@@ -222,7 +231,8 @@ function renderPeriod(timeframe, result) {
 
   setStatus(
     timeframe,
-    `${result.segmentCount} ऐतिहासिक अवधियों की तुलना पूरी। कुल ${result.sampleSize} कैंडल्स। यह केवल पिछला डेटा है, भविष्य का अनुमान नहीं।`
+    `${result.segmentCount} ऐतिहासिक अवधियों की तुलना पूरी। कुल ${result.sampleSize} कैंडल्स। यह केवल पिछला डेटा है, भविष्य का अनुमान नहीं।`,
+    "success"
   );
 }
 
@@ -230,7 +240,8 @@ function parseCandles(candles, timeframe, filename) {
   const imported = parseHistoricalDataText(
     JSON.stringify(candles),
     filename,
-    timeframe
+    timeframe,
+    { maxCandles: MAX_CLOUD_CANDLES }
   );
 
   if (imported.status !== "OK") {
@@ -293,40 +304,46 @@ function loadSavedData(timeframe) {
 }
 
 async function loadCloudflareData(timeframe) {
-  const url =
-    `${API_BASE}/api/data/candles` +
-    `?index=NIFTY&timeframe=${timeframe}&limit=5000`;
-
-  const response = await fetch(url, {
-    method: "GET",
-    cache: "no-store"
+  const fetched = await fetchHistoricalCandlePages({
+    apiBase: API_BASE,
+    timeframe,
+    index: "NIFTY",
+    maxCandles: MAX_CLOUD_CANDLES,
+    pageSize: API_PAGE_SIZE
   });
 
-  if (!response.ok) {
-    throw new Error(`HTTP ${response.status}`);
+  if (!fetched || fetched.status !== "OK") {
+    throw new Error(
+      fetched?.error || "Cloudflare historical pagination failed."
+    );
   }
 
-  const result = await response.json();
-
-  if (
-    !result ||
-    result.app !== "BADAL SEVERIYA DATA V11" ||
-    !Array.isArray(result.candles)
-  ) {
-    throw new Error("API response सही नहीं है।");
+  if (!Array.isArray(fetched.candles)) {
+    throw new Error("API response में candle array सही नहीं है।");
   }
 
-  if (result.candles.length === 0) {
+  if (fetched.candles.length === 0) {
     return false;
   }
 
   const candles = parseCandles(
-    result.candles,
+    fetched.candles,
     timeframe,
     `cloudflare-${timeframe}.json`
   );
 
   analyze(timeframe, candles);
+
+  const suffix = fetched.truncated
+    ? " | अधिक पुराना डेटा 25,000 candle सीमा से आगे उपलब्ध है"
+    : " | सभी उपलब्ध historical pages लोड हुए";
+
+  setStatus(
+    timeframe,
+    `${fetched.pageCount} API pages से ${fetched.candleCount} candles की चार-अवधि जाँच पूरी। यह केवल पिछला डेटा है, भविष्य का अनुमान नहीं।${suffix}`,
+    "success"
+  );
+
   return true;
 }
 
@@ -335,7 +352,7 @@ async function initializeTimeframe(timeframe) {
 
   setStatus(
     timeframe,
-    "ऐतिहासिक अवधियों की जाँच हो रही है..."
+    "सभी उपलब्ध ऐतिहासिक API pages पढ़े जा रहे हैं..."
   );
 
   try {
@@ -362,8 +379,9 @@ async function initializeTimeframe(timeframe) {
     setStatus(
       timeframe,
       timeframe === "15m"
-        ? "15M डेटा उपलब्ध नहीं है — WAITING_FOR_DATA"
-        : `ऐतिहासिक जाँच उपलब्ध नहीं: ${error.message}`
+        ? `15M डेटा उपलब्ध नहीं है — WAITING_FOR_DATA (${error.message})`
+        : `ऐतिहासिक जाँच उपलब्ध नहीं: ${error.message}`,
+      "error"
     );
   }
 }
@@ -386,14 +404,15 @@ function setupFileImport(timeframe) {
 
     setStatus(
       timeframe,
-      "फाइल के ऐतिहासिक डेटा की जाँच हो रही है..."
+      "फाइल के पूरे ऐतिहासिक डेटा की जाँच हो रही है..."
     );
 
     try {
       const imported = parseHistoricalDataText(
         await file.text(),
         file.name,
-        timeframe
+        timeframe,
+        { maxCandles: MAX_CLOUD_CANDLES }
       );
 
       if (imported.status !== "OK") {
@@ -406,7 +425,8 @@ function setupFileImport(timeframe) {
 
       setStatus(
         timeframe,
-        `ऐतिहासिक जाँच नहीं हो सकी: ${error.message}`
+        `ऐतिहासिक जाँच नहीं हो सकी: ${error.message}`,
+        "error"
       );
     }
   });

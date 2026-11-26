@@ -8,7 +8,7 @@ import {
 } from "./intraday-gap-api-runner.js";
 
 // ======================================================
-// TEST HELPERS
+// HELPERS
 // ======================================================
 
 const FIXED_NOW = Date.parse(
@@ -38,6 +38,26 @@ function candle(date, hour, minute) {
   };
 }
 
+function fullSession(date) {
+  const result = [];
+
+  for (
+    let minute = 9 * 60 + 15;
+    minute <= 15 * 60 + 15;
+    minute += 15
+  ) {
+    result.push(
+      candle(
+        date,
+        Math.floor(minute / 60),
+        minute % 60
+      )
+    );
+  }
+
+  return result;
+}
+
 function makeApiPayload(candles, {
   offset = 0,
   limit = 5000,
@@ -64,6 +84,7 @@ function mockFetchFromPages(pages) {
 
   const fetchImpl = async (url, options) => {
     const parsedUrl = new URL(url);
+
     const offset = Number(
       parsedUrl.searchParams.get("offset")
     );
@@ -135,14 +156,11 @@ runTest(
       )
     ];
 
-    const dates =
+    assert.deepEqual(
       getAutomaticCompletedSessionDates(
         candles,
         FIXED_NOW
-      );
-
-    assert.deepEqual(
-      dates,
+      ),
       [
         "2026-11-24",
         "2026-11-25"
@@ -171,13 +189,13 @@ runTest(
       )
     ];
 
-    const dates =
+    assert.deepEqual(
       getAutomaticCompletedSessionDates(
         candles,
         FIXED_NOW
-      );
-
-    assert.deepEqual(dates, []);
+      ),
+      []
+    );
   }
 );
 
@@ -211,7 +229,7 @@ runTest(
 );
 
 // ======================================================
-// TEST 4: SORTS AND DEDUPLICATES DATES
+// TEST 4: SORT AND DEDUPLICATE DATES
 // ======================================================
 
 runTest(
@@ -290,15 +308,12 @@ await runAsyncTest(
       ]
     ]);
 
-    const {
-      fetchImpl,
-      requests
-    } = mockFetchFromPages(pages);
+    const { fetchImpl, requests } =
+      mockFetchFromPages(pages);
 
     const result =
       await fetchAllHistoricalCandles({
-        apiBaseUrl:
-          "https://example.test",
+        apiBaseUrl: "https://example.test",
         pageSize: 2,
         fetchImpl
       });
@@ -308,7 +323,7 @@ await runAsyncTest(
     assert.equal(result.pagesRead, 2);
 
     assert.deepEqual(
-      requests.map(request => request.offset),
+      requests.map(item => item.offset),
       [0, 2]
     );
 
@@ -320,7 +335,7 @@ await runAsyncTest(
 );
 
 // ======================================================
-// TEST 6: CHRONOLOGICAL PAGE ORDER
+// TEST 6: CHRONOLOGICAL ORDER
 // ======================================================
 
 await runAsyncTest(
@@ -332,12 +347,12 @@ await runAsyncTest(
       day: 24
     };
 
-    const firstPage = [
+    const page1 = [
       candle(date, 9, 15),
       candle(date, 9, 30)
     ];
 
-    const secondPage = [
+    const page2 = [
       candle(date, 9, 45),
       candle(date, 10, 0)
     ];
@@ -345,7 +360,7 @@ await runAsyncTest(
     const pages = new Map([
       [
         0,
-        makeApiPayload(firstPage, {
+        makeApiPayload(page1, {
           offset: 0,
           limit: 2,
           hasMore: true
@@ -353,7 +368,7 @@ await runAsyncTest(
       ],
       [
         2,
-        makeApiPayload(secondPage, {
+        makeApiPayload(page2, {
           offset: 2,
           limit: 2,
           hasMore: false
@@ -366,38 +381,36 @@ await runAsyncTest(
 
     const result =
       await fetchAllHistoricalCandles({
-        apiBaseUrl:
-          "https://example.test",
+        apiBaseUrl: "https://example.test",
         pageSize: 2,
         fetchImpl
       });
 
-    const times =
+    assert.equal(result.status, "OK");
+
+    const timestamps =
       result.candles.map(
         item => Date.parse(item.timestamp)
       );
 
-    assert.equal(result.status, "OK");
-
     for (
       let i = 1;
-      i < times.length;
+      i < timestamps.length;
       i++
     ) {
       assert.ok(
-        times[i] > times[i - 1],
-        "Candles must be strictly chronological"
+        timestamps[i] > timestamps[i - 1]
       );
     }
   }
 );
 
 // ======================================================
-// TEST 7: EMPTY API DATA
+// TEST 7: EMPTY API RESPONSE
 // ======================================================
 
 await runAsyncTest(
-  "Handles empty API response without pagination loop",
+  "Handles empty API response safely",
   async () => {
     const pages = new Map([
       [
@@ -410,15 +423,12 @@ await runAsyncTest(
       ]
     ]);
 
-    const {
-      fetchImpl,
-      requests
-    } = mockFetchFromPages(pages);
+    const { fetchImpl, requests } =
+      mockFetchFromPages(pages);
 
     const result =
       await fetchAllHistoricalCandles({
-        apiBaseUrl:
-          "https://example.test",
+        apiBaseUrl: "https://example.test",
         pageSize: 10,
         fetchImpl
       });
@@ -481,8 +491,7 @@ await runAsyncTest(
 
     const result =
       await fetchAllHistoricalCandles({
-        apiBaseUrl:
-          "https://example.test",
+        apiBaseUrl: "https://example.test",
         pageSize: 2,
         fetchImpl
       });
@@ -501,7 +510,7 @@ await runAsyncTest(
 // ======================================================
 
 await runAsyncTest(
-  "Rejects out-of-order candle timestamps",
+  "Rejects out-of-order timestamps",
   async () => {
     const date = {
       year: 2026,
@@ -531,8 +540,7 @@ await runAsyncTest(
 
     const result =
       await fetchAllHistoricalCandles({
-        apiBaseUrl:
-          "https://example.test",
+        apiBaseUrl: "https://example.test",
         pageSize: 2,
         fetchImpl
       });
@@ -547,19 +555,19 @@ await runAsyncTest(
 );
 
 // ======================================================
-// TEST 10: INVALID API APPLICATION
+// TEST 10: INVALID APPLICATION
 // ======================================================
 
 await runAsyncTest(
   "Rejects wrong API application identifier",
   async () => {
-    const badPayload = {
+    const payload = {
       ...makeApiPayload([]),
       app: "WRONG APP"
     };
 
     const pages = new Map([
-      [0, badPayload]
+      [0, payload]
     ]);
 
     const { fetchImpl } =
@@ -567,8 +575,7 @@ await runAsyncTest(
 
     const result =
       await fetchAllHistoricalCandles({
-        apiBaseUrl:
-          "https://example.test",
+        apiBaseUrl: "https://example.test",
         fetchImpl
       });
 
@@ -582,7 +589,7 @@ await runAsyncTest(
 );
 
 // ======================================================
-// TEST 11: INDEX/TIMEFRAME MISMATCH
+// TEST 11: INDEX / TIMEFRAME MISMATCH
 // ======================================================
 
 await runAsyncTest(
@@ -603,8 +610,7 @@ await runAsyncTest(
 
     const result =
       await fetchAllHistoricalCandles({
-        apiBaseUrl:
-          "https://example.test",
+        apiBaseUrl: "https://example.test",
         fetchImpl
       });
 
@@ -632,8 +638,7 @@ await runAsyncTest(
 
     const result =
       await fetchAllHistoricalCandles({
-        apiBaseUrl:
-          "https://example.test",
+        apiBaseUrl: "https://example.test",
         fetchImpl
       });
 
@@ -693,14 +698,11 @@ await runAsyncTest(
     const pages = new Map([
       [
         0,
-        makeApiPayload(
-          partialSession,
-          {
-            offset: 0,
-            limit: 10,
-            hasMore: false
-          }
-        )
+        makeApiPayload(partialSession, {
+          offset: 0,
+          limit: 10,
+          hasMore: false
+        })
       ]
     ]);
 
@@ -709,8 +711,7 @@ await runAsyncTest(
 
     const result =
       await runIntradayGapApiCheck({
-        apiBaseUrl:
-          "https://example.test",
+        apiBaseUrl: "https://example.test",
         pageSize: 10,
         fetchImpl,
         now: FIXED_NOW
@@ -750,7 +751,7 @@ await runAsyncTest(
 // ======================================================
 
 await runAsyncTest(
-  "Merges manual dates with automatically detected dates",
+  "Merges manual dates with automatic dates",
   async () => {
     const date1 = {
       year: 2026,
@@ -764,11 +765,11 @@ await runAsyncTest(
       day: 25
     };
 
+    // Both sessions are complete to avoid
+    // creating unrelated intraday gap errors.
     const candles = [
-      candle(date1, 9, 15),
-      candle(date1, 15, 15),
-      candle(date2, 9, 15),
-      candle(date2, 15, 15)
+      ...fullSession(date1),
+      ...fullSession(date2)
     ];
 
     const pages = new Map([
@@ -776,7 +777,7 @@ await runAsyncTest(
         0,
         makeApiPayload(candles, {
           offset: 0,
-          limit: 10,
+          limit: 100,
           hasMore: false
         })
       ]
@@ -787,9 +788,8 @@ await runAsyncTest(
 
     const result =
       await runIntradayGapApiCheck({
-        apiBaseUrl:
-          "https://example.test",
-        pageSize: 10,
+        apiBaseUrl: "https://example.test",
+        pageSize: 100,
         fetchImpl,
         now: FIXED_NOW,
         completedSessionDates: [
@@ -803,23 +803,39 @@ await runAsyncTest(
 
     assert.deepEqual(
       result.automaticCompletedSessionDates,
-      ["2026-11-24", "2026-11-25"]
+      [
+        "2026-11-24",
+        "2026-11-25"
+      ]
     );
 
     assert.deepEqual(
       result.completedSessionDates,
-      ["2026-11-24", "2026-11-25"]
+      [
+        "2026-11-24",
+        "2026-11-25"
+      ]
     );
 
     assert.equal(
       result.gapCheck.boundaryCheckStatus,
       "CHECKED"
     );
+
+    assert.equal(
+      result.gapCheck.boundaryGapCount,
+      0
+    );
+
+    assert.equal(
+      result.gapCheck.quality,
+      "VALID"
+    );
   }
 );
 
 // ======================================================
-// TEST 16: TODAY NOT BOUNDARY-CHECKED
+// TEST 16: TODAY EXCLUDED
 // ======================================================
 
 await runAsyncTest(
@@ -852,8 +868,7 @@ await runAsyncTest(
 
     const result =
       await runIntradayGapApiCheck({
-        apiBaseUrl:
-          "https://example.test",
+        apiBaseUrl: "https://example.test",
         pageSize: 10,
         fetchImpl,
         now: FIXED_NOW
@@ -888,8 +903,7 @@ await runAsyncTest(
 
     const result =
       await runIntradayGapApiCheck({
-        apiBaseUrl:
-          "https://example.test",
+        apiBaseUrl: "https://example.test",
         fetchImpl,
         now: FIXED_NOW
       });
@@ -933,8 +947,7 @@ await runAsyncTest(
 
     const result =
       await runIntradayGapApiCheck({
-        apiBaseUrl:
-          "https://example.test",
+        apiBaseUrl: "https://example.test",
         pageSize: 10,
         fetchImpl,
         now: FIXED_NOW

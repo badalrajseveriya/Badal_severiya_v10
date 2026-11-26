@@ -3,6 +3,42 @@ const DEFAULT_PAGE_SIZE = 5000;
 const DEFAULT_MAX_CANDLES = 25000;
 const ABSOLUTE_MAX_CANDLES = 10000000;
 
+// Both dashboard modules import this same module.
+// Successful requests are shared by timeframe and request configuration.
+const requestCache = new Map();
+const fetchFunctionIds = new WeakMap();
+let nextFetchFunctionId = 1;
+
+function getFetchFunctionId(fetchImpl) {
+  if (!fetchFunctionIds.has(fetchImpl)) {
+    fetchFunctionIds.set(fetchImpl, nextFetchFunctionId++);
+  }
+
+  return fetchFunctionIds.get(fetchImpl);
+}
+
+function makeCacheKey({
+  apiBase,
+  timeframe,
+  index,
+  maxCandles,
+  pageSize,
+  fetchImpl
+}) {
+  return JSON.stringify([
+    apiBase,
+    timeframe,
+    index,
+    maxCandles,
+    pageSize,
+    getFetchFunctionId(fetchImpl)
+  ]);
+}
+
+export function clearHistoricalCandlePageCache() {
+  requestCache.clear();
+}
+
 async function requestCandlePage({
   apiBase,
   timeframe,
@@ -65,14 +101,14 @@ function validateChronologicalCandles(candles) {
   }
 }
 
-export async function fetchHistoricalCandlePages({
+async function fetchHistoricalCandlePagesUncached({
   apiBase,
   timeframe,
-  index = "NIFTY",
-  maxCandles = DEFAULT_MAX_CANDLES,
-  pageSize = DEFAULT_PAGE_SIZE,
-  fetchImpl = globalThis.fetch
-} = {}) {
+  index,
+  maxCandles,
+  pageSize,
+  fetchImpl
+}) {
   try {
     if (
       typeof apiBase !== "string" ||
@@ -150,8 +186,6 @@ export async function fetchHistoricalCandlePages({
       offset += result.candles.length;
     }
 
-    // If the dashboard limit is reached, verify whether
-    // another database candle actually exists.
     if (totalFetched >= maxCandles && hasMore) {
       const probe = await requestCandlePage({
         apiBase,
@@ -165,14 +199,8 @@ export async function fetchHistoricalCandlePages({
       hasMore = probe.candles.length > 0;
     }
 
-    // API returns the newest page first.
-    // Each page itself is already in ascending order.
-    // Reverse only the page order to restore chronology.
-    const candles = pages
-      .reverse()
-      .flat();
+    const candles = pages.reverse().flat();
 
-    // Never silently accept duplicate or unordered candles.
     validateChronologicalCandles(candles);
 
     return {
@@ -200,4 +228,70 @@ export async function fetchHistoricalCandlePages({
       candleCount: 0
     };
   }
+}
+
+export async function fetchHistoricalCandlePages({
+  apiBase,
+  timeframe,
+  index = "NIFTY",
+  maxCandles = DEFAULT_MAX_CANDLES,
+  pageSize = DEFAULT_PAGE_SIZE,
+  fetchImpl = globalThis.fetch
+} = {}) {
+  // Invalid fetch implementations are handled by the normal validator.
+  if (typeof fetchImpl !== "function") {
+    return fetchHistoricalCandlePagesUncached({
+      apiBase,
+      timeframe,
+      index,
+      maxCandles,
+      pageSize,
+      fetchImpl
+    });
+  }
+
+  const key = makeCacheKey({
+    apiBase,
+    timeframe,
+    index,
+    maxCandles,
+    pageSize,
+    fetchImpl
+  });
+
+  const existing = requestCache.get(key);
+
+  if (existing) {
+    return existing;
+  }
+
+  const request = fetchHistoricalCandlePagesUncached({
+    apiBase,
+    timeframe,
+    index,
+    maxCandles,
+    pageSize,
+    fetchImpl
+  }).then(result => {
+    // Do not retain errors; a later call must be able to retry.
+    if (!result || result.status !== "OK") {
+      requestCache.delete(key);
+    }
+
+    return result;
+  }).catch(error => {
+    requestCache.delete(key);
+
+    return {
+      status: "ERROR",
+      dataType: "HISTORICAL_ONLY",
+      error: error.message,
+      candles: [],
+      candleCount: 0
+    };
+  });
+
+  requestCache.set(key, request);
+
+  return request;
 }

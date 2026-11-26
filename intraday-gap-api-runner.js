@@ -3,6 +3,7 @@
    BADAL SEVERIYA V12
    INTRADAY GAP API RUNNER
    HISTORICAL DATABASE -> PAGINATION -> GAP CHECK
+   AUTOMATIC SESSION BOUNDARY CHECK
 ====================================================== */
 
 import {
@@ -15,6 +16,67 @@ const DEFAULT_API_BASE =
 const DEFAULT_PAGE_SIZE = 5000;
 const MAX_PAGE_SIZE = 5000;
 const MAX_PAGES = 1000;
+
+// ------------------------------------------------------
+// IST DATE HELPERS
+// ------------------------------------------------------
+
+const IST_OFFSET_MS = 330 * 60 * 1000;
+
+function getISTDateKey(timestampMs) {
+  const shifted = new Date(
+    timestampMs + IST_OFFSET_MS
+  );
+
+  return [
+    shifted.getUTCFullYear(),
+    String(shifted.getUTCMonth() + 1).padStart(2, "0"),
+    String(shifted.getUTCDate()).padStart(2, "0")
+  ].join("-");
+}
+
+function getCurrentISTDateKey(now = Date.now()) {
+  return getISTDateKey(now);
+}
+
+// ------------------------------------------------------
+// AUTOMATIC COMPLETED SESSION DATE DETECTION
+// ------------------------------------------------------
+
+export function getAutomaticCompletedSessionDates(
+  candles,
+  now = Date.now()
+) {
+  if (!Array.isArray(candles)) {
+    return [];
+  }
+
+  const todayIST =
+    getCurrentISTDateKey(now);
+
+  const dates = new Set();
+
+  for (const candle of candles) {
+    const timestamp = Date.parse(
+      candle?.timestamp
+    );
+
+    if (!Number.isFinite(timestamp)) {
+      continue;
+    }
+
+    const dateKey =
+      getISTDateKey(timestamp);
+
+    // Today's session is excluded because it
+    // may still be incomplete.
+    if (dateKey < todayIST) {
+      dates.add(dateKey);
+    }
+  }
+
+  return [...dates].sort();
+}
 
 // ------------------------------------------------------
 // BUILD API URL
@@ -174,9 +236,7 @@ export async function fetchAllHistoricalCandles({
       );
     }
 
-    if (
-      timeframe !== "15m"
-    ) {
+    if (timeframe !== "15m") {
       throw new Error(
         "This runner currently supports 15m timeframe only."
       );
@@ -192,9 +252,7 @@ export async function fetchAllHistoricalCandles({
       );
     }
 
-    if (
-      typeof fetchImpl !== "function"
-    ) {
+    if (typeof fetchImpl !== "function") {
       throw new Error(
         "Fetch implementation is unavailable."
       );
@@ -259,9 +317,7 @@ export async function fetchAllHistoricalCandles({
         pages.push(pageCandles);
       }
 
-      if (
-        typeof onProgress === "function"
-      ) {
+      if (typeof onProgress === "function") {
         onProgress({
           pagesRead,
           rowsRead,
@@ -334,7 +390,8 @@ export async function runIntradayGapApiCheck({
   timeframe = "15m",
   pageSize = DEFAULT_PAGE_SIZE,
   fetchImpl = globalThis.fetch,
-  completedSessionDates = [],
+  completedSessionDates,
+  now = Date.now(),
   onProgress
 } = {}) {
   const fetched =
@@ -351,12 +408,13 @@ export async function runIntradayGapApiCheck({
     return {
       status: "ERROR",
       module: "INTRADAY_GAP_API_RUNNER",
-      version: "1.0",
+      version: "1.1",
       index,
       timeframe,
       dataSource:
         "D1_HISTORICAL_STORAGE",
       fetch: fetched,
+      completedSessionDates: [],
       gapCheck: null,
       error: fetched.error
     };
@@ -366,16 +424,42 @@ export async function runIntradayGapApiCheck({
     return {
       status: "NO_DATA",
       module: "INTRADAY_GAP_API_RUNNER",
-      version: "1.0",
+      version: "1.1",
       index,
       timeframe,
       dataSource:
         "D1_HISTORICAL_STORAGE",
       fetch: fetched,
+      completedSessionDates: [],
       gapCheck: null,
       error: null
     };
   }
+
+  // Automatically determine completed session dates.
+  const automaticDates =
+    getAutomaticCompletedSessionDates(
+      fetched.candles,
+      now
+    );
+
+  // If user supplied dates, combine them with
+  // automatic dates without duplicate entries.
+  const manualDates =
+    Array.isArray(completedSessionDates)
+      ? completedSessionDates.filter(
+          date =>
+            typeof date === "string" &&
+            /^\d{4}-\d{2}-\d{2}$/.test(date)
+        )
+      : [];
+
+  const datesToCheck = [
+    ...new Set([
+      ...automaticDates,
+      ...manualDates
+    ])
+  ].sort();
 
   const gapCheck =
     analyzeIntradayGaps(
@@ -383,11 +467,9 @@ export async function runIntradayGapApiCheck({
       {
         intervalMinutes: 15,
         checkSessionBoundaries:
-          Array.isArray(
-            completedSessionDates
-          ) &&
-          completedSessionDates.length > 0,
-        completedSessionDates
+          datesToCheck.length > 0,
+        completedSessionDates:
+          datesToCheck
       }
     );
 
@@ -400,13 +482,19 @@ export async function runIntradayGapApiCheck({
     module:
       "INTRADAY_GAP_API_RUNNER",
 
-    version: "1.0",
+    version: "1.1",
 
     index,
     timeframe,
 
     dataSource:
       "D1_HISTORICAL_STORAGE",
+
+    completedSessionDates:
+      datesToCheck,
+
+    automaticCompletedSessionDates:
+      automaticDates,
 
     fetch: {
       status: fetched.status,
@@ -439,5 +527,6 @@ export const INTRADAY_GAP_API_RUNNER_CONFIG = {
   maxPageSize: MAX_PAGE_SIZE,
   maxPages: MAX_PAGES,
   timezone: "Asia/Kolkata",
-  source: "D1_HISTORICAL_STORAGE"
+  source: "D1_HISTORICAL_STORAGE",
+  automaticSessionBoundaryCheck: true
 };

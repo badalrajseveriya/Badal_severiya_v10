@@ -2,7 +2,6 @@
 /* ======================================================
    BADAL SEVERIYA V12
    INTRADAY GAP API RUNNER
-   HISTORICAL DATABASE -> PAGINATION -> GAP CHECK
    AUTOMATIC SESSION BOUNDARY CHECK
 ====================================================== */
 
@@ -17,11 +16,11 @@ const DEFAULT_PAGE_SIZE = 5000;
 const MAX_PAGE_SIZE = 5000;
 const MAX_PAGES = 1000;
 
+const IST_OFFSET_MS = 330 * 60 * 1000;
+
 // ------------------------------------------------------
 // IST DATE HELPERS
 // ------------------------------------------------------
-
-const IST_OFFSET_MS = 330 * 60 * 1000;
 
 function getISTDateKey(timestampMs) {
   const shifted = new Date(
@@ -35,14 +34,6 @@ function getISTDateKey(timestampMs) {
   ].join("-");
 }
 
-function getCurrentISTDateKey(now = Date.now()) {
-  return getISTDateKey(now);
-}
-
-// ------------------------------------------------------
-// AUTOMATIC COMPLETED SESSION DATE DETECTION
-// ------------------------------------------------------
-
 export function getAutomaticCompletedSessionDates(
   candles,
   now = Date.now()
@@ -52,7 +43,7 @@ export function getAutomaticCompletedSessionDates(
   }
 
   const todayIST =
-    getCurrentISTDateKey(now);
+    getISTDateKey(now);
 
   const dates = new Set();
 
@@ -68,8 +59,7 @@ export function getAutomaticCompletedSessionDates(
     const dateKey =
       getISTDateKey(timestamp);
 
-    // Today's session is excluded because it
-    // may still be incomplete.
+    // Current IST date is excluded.
     if (dateKey < todayIST) {
       dates.add(dateKey);
     }
@@ -79,7 +69,7 @@ export function getAutomaticCompletedSessionDates(
 }
 
 // ------------------------------------------------------
-// BUILD API URL
+// API URL
 // ------------------------------------------------------
 
 function buildCandleApiUrl({
@@ -105,7 +95,7 @@ function buildCandleApiUrl({
 }
 
 // ------------------------------------------------------
-// VALIDATE API PAGE
+// API PAGE VALIDATION
 // ------------------------------------------------------
 
 function validateApiPage(payload, {
@@ -143,7 +133,11 @@ function validateApiPage(payload, {
     );
   }
 
-  for (let i = 0; i < payload.candles.length; i++) {
+  for (
+    let i = 0;
+    i < payload.candles.length;
+    i++
+  ) {
     const candle = payload.candles[i];
 
     const timestamp = Date.parse(
@@ -178,13 +172,17 @@ function validateApiPage(payload, {
 }
 
 // ------------------------------------------------------
-// VALIDATE FINAL CHRONOLOGICAL ORDER
+// CHRONOLOGICAL VALIDATION
 // ------------------------------------------------------
 
 function validateChronologicalCandles(candles) {
   let previousTimestamp = -Infinity;
 
-  for (let i = 0; i < candles.length; i++) {
+  for (
+    let i = 0;
+    i < candles.length;
+    i++
+  ) {
     const timestamp = Date.parse(
       candles[i]?.timestamp
     );
@@ -206,7 +204,7 @@ function validateChronologicalCandles(candles) {
 }
 
 // ------------------------------------------------------
-// FETCH ALL HISTORICAL PAGES
+// FETCH HISTORICAL DATA
 // ------------------------------------------------------
 
 export async function fetchAllHistoricalCandles({
@@ -337,16 +335,14 @@ export async function fetchAllHistoricalCandles({
     }
 
     /*
-      Worker pagination returns newest page first.
-      Each page is individually chronological.
+      API offset 0 is the first/oldest page.
+      Higher offsets contain later candles.
 
-      Reverse page order only.
-      Do NOT reverse candle order inside each page.
+      Preserve page order and candle order.
+      Do not reverse pages.
     */
 
-    const candles = pages
-      .reverse()
-      .flat();
+    const candles = pages.flat();
 
     validateChronologicalCandles(
       candles
@@ -381,7 +377,7 @@ export async function fetchAllHistoricalCandles({
 }
 
 // ------------------------------------------------------
-// RUN INTRADAY GAP CHECK ON API DATA
+// AUTOMATIC BOUNDARY GAP CHECK
 // ------------------------------------------------------
 
 export async function runIntradayGapApiCheck({
@@ -408,13 +404,14 @@ export async function runIntradayGapApiCheck({
     return {
       status: "ERROR",
       module: "INTRADAY_GAP_API_RUNNER",
-      version: "1.1",
+      version: "1.2",
       index,
       timeframe,
       dataSource:
         "D1_HISTORICAL_STORAGE",
       fetch: fetched,
       completedSessionDates: [],
+      automaticCompletedSessionDates: [],
       gapCheck: null,
       error: fetched.error
     };
@@ -424,27 +421,27 @@ export async function runIntradayGapApiCheck({
     return {
       status: "NO_DATA",
       module: "INTRADAY_GAP_API_RUNNER",
-      version: "1.1",
+      version: "1.2",
       index,
       timeframe,
       dataSource:
         "D1_HISTORICAL_STORAGE",
       fetch: fetched,
       completedSessionDates: [],
+      automaticCompletedSessionDates: [],
       gapCheck: null,
       error: null
     };
   }
 
-  // Automatically determine completed session dates.
+  // Automatically detect historical dates.
   const automaticDates =
     getAutomaticCompletedSessionDates(
       fetched.candles,
       now
     );
 
-  // If user supplied dates, combine them with
-  // automatic dates without duplicate entries.
+  // Optional user dates, if provided.
   const manualDates =
     Array.isArray(completedSessionDates)
       ? completedSessionDates.filter(
@@ -482,7 +479,7 @@ export async function runIntradayGapApiCheck({
     module:
       "INTRADAY_GAP_API_RUNNER",
 
-    version: "1.1",
+    version: "1.2",
 
     index,
     timeframe,
@@ -516,7 +513,7 @@ export async function runIntradayGapApiCheck({
 }
 
 // ------------------------------------------------------
-// EXPORT CONFIGURATION
+// CONFIGURATION
 // ------------------------------------------------------
 
 export const INTRADAY_GAP_API_RUNNER_CONFIG = {

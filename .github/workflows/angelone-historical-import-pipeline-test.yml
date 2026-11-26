@@ -1,4 +1,5 @@
-name: BADAL SEVERIYA - Angel One Historical Import Pipeline Test
+
+name: BADAL SEVERIYA - Angel One Historical Import Tests
 
 on:
   workflow_dispatch:
@@ -7,6 +8,8 @@ on:
     branches:
       - main
     paths:
+      - "angelone-historical-import.html"
+      - "angelone-historical-import-ui.test.js"
       - "angelone-historical-import-pipeline.js"
       - "angelone-historical-import-pipeline.test.js"
       - "angelone-historical-import-controller.js"
@@ -22,8 +25,8 @@ on:
       - ".github/workflows/angelone-historical-import-pipeline-test.yml"
 
 jobs:
-  angelone-historical-import-pipeline-test:
-    name: Test Angel One Historical Import Pipeline
+  angelone-historical-import-tests:
+    name: Test Historical Import Pipeline and UI
     runs-on: ubuntu-latest
 
     steps:
@@ -35,5 +38,8 @@ jobs:
         with:
           node-version: "22"
 
-      - name: Run Pipeline Tests
+      - name: Run Historical Import Pipeline Tests
         run: node angelone-historical-import-pipeline.test.js
+
+      - name: Run Historical Import UI Tests
+        run: node angelone-historical-import-ui.test.js

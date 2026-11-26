@@ -5,11 +5,8 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>BADAL SEVERIYA V12 - Angel One Historical Import</title>
-
   <style>
-    * {
-      box-sizing: border-box;
-    }
+    * { box-sizing: border-box; }
 
     body {
       margin: 0;
@@ -24,10 +21,7 @@
       margin: 0 auto;
     }
 
-    h1 {
-      font-size: 22px;
-      margin-bottom: 6px;
-    }
+    h1 { font-size: 22px; margin-bottom: 6px; }
 
     .subtitle {
       color: #9ca3af;
@@ -50,9 +44,7 @@
       font-size: 14px;
     }
 
-    input,
-    select,
-    button {
+    input, select, button {
       width: 100%;
       padding: 12px;
       border-radius: 8px;
@@ -62,9 +54,7 @@
       font-size: 15px;
     }
 
-    input[type="file"] {
-      padding: 10px;
-    }
+    input[type="file"] { padding: 10px; }
 
     button {
       cursor: pointer;
@@ -78,17 +68,9 @@
       cursor: not-allowed;
     }
 
-    .preview-button {
-      background: #2563eb;
-    }
-
-    .upload-button {
-      background: #15803d;
-    }
-
-    .clear-button {
-      background: #475569;
-    }
+    .preview-button { background: #2563eb; }
+    .upload-button { background: #15803d; }
+    .clear-button { background: #475569; }
 
     .status {
       padding: 12px;
@@ -101,17 +83,9 @@
       font-size: 14px;
     }
 
-    .success {
-      color: #86efac;
-    }
-
-    .error {
-      color: #fca5a5;
-    }
-
-    .warning {
-      color: #fcd34d;
-    }
+    .success { color: #86efac; }
+    .error { color: #fca5a5; }
+    .warning { color: #fcd34d; }
 
     .grid {
       display: grid;
@@ -144,9 +118,7 @@
       line-height: 1.5;
     }
 
-    .hidden {
-      display: none;
-    }
+    .hidden { display: none; }
 
     .progress {
       margin-top: 12px;
@@ -166,26 +138,16 @@
     }
 
     @media (max-width: 480px) {
-      body {
-        padding: 10px;
-      }
-
-      .grid {
-        grid-template-columns: 1fr 1fr;
-      }
-
-      h1 {
-        font-size: 19px;
-      }
+      body { padding: 10px; }
+      .grid { grid-template-columns: 1fr 1fr; }
+      h1 { font-size: 19px; }
     }
   </style>
 </head>
 
 <body>
   <main class="container">
-
     <h1>BADAL SEVERIYA V12</h1>
-
     <div class="subtitle">
       Angel One → Historical Database Import
     </div>
@@ -193,10 +155,7 @@
     <div class="card">
       <h3>1. API Settings</h3>
 
-      <label for="apiBaseUrl">
-        Historical API Base URL
-      </label>
-
+      <label for="apiBaseUrl">Historical API Base URL</label>
       <input
         id="apiBaseUrl"
         type="url"
@@ -204,10 +163,7 @@
         autocomplete="off"
       >
 
-      <label for="index">
-        Index
-      </label>
-
+      <label for="index">Index</label>
       <select id="index">
         <option value="NIFTY">NIFTY</option>
         <option value="BANKNIFTY">BANKNIFTY</option>
@@ -225,19 +181,13 @@
         <option value="NIFTYPSUBANK">NIFTYPSUBANK</option>
       </select>
 
-      <label for="timeframe">
-        Timeframe
-      </label>
-
+      <label for="timeframe">Timeframe</label>
       <select id="timeframe">
         <option value="15m">15 Minutes</option>
         <option value="1d">Daily (1D)</option>
       </select>
 
-      <label for="ingestToken">
-        D1 Ingest Token
-      </label>
-
+      <label for="ingestToken">D1 Ingest Token</label>
       <input
         id="ingestToken"
         type="password"
@@ -254,10 +204,7 @@
     <div class="card">
       <h3>2. Angel One JSON File</h3>
 
-      <label for="jsonFile">
-        Select Historical JSON
-      </label>
-
+      <label for="jsonFile">Select Historical JSON</label>
       <input
         id="jsonFile"
         type="file"
@@ -265,32 +212,19 @@
       >
 
       <p class="small">
-        JSON file must contain the Angel One historical candle response.
+        JSON must contain the Angel One historical candle response.
         Maximum file size: 20 MB.
       </p>
 
-      <button
-        id="previewButton"
-        class="preview-button"
-        type="button"
-      >
-        PREVIEW & CHECK DATA
+      <button id="previewButton" class="preview-button" type="button">
+        PREVIEW &amp; CHECK DATA
       </button>
 
-      <button
-        id="uploadButton"
-        class="upload-button"
-        type="button"
-        disabled
-      >
-        CONFIRM & UPLOAD TO D1
+      <button id="uploadButton" class="upload-button" type="button" disabled>
+        CONFIRM &amp; UPLOAD TO D1
       </button>
 
-      <button
-        id="clearButton"
-        class="clear-button"
-        type="button"
-      >
+      <button id="clearButton" class="clear-button" type="button">
         CLEAR / RESET
       </button>
 
@@ -359,7 +293,6 @@
         is not stored in localStorage, sessionStorage, or this source file.
       </p>
     </div>
-
   </main>
 
   <script type="module">
@@ -444,87 +377,51 @@
 
     function clearPreview() {
       preparedPreview = null;
-
       previewCard.classList.add("hidden");
-
       uploadButton.disabled = true;
 
-      document.getElementById(
-        "existingCount"
-      ).textContent = "0";
-
-      document.getElementById(
-        "incomingCount"
-      ).textContent = "0";
-
-      document.getElementById(
-        "duplicateCount"
-      ).textContent = "0";
-
-      document.getElementById(
-        "finalCount"
-      ).textContent = "0";
-
-      document.getElementById(
-        "batchSize"
-      ).textContent = "0";
-
-      document.getElementById(
-        "batchCount"
-      ).textContent = "0";
+      document.getElementById("existingCount").textContent = "0";
+      document.getElementById("incomingCount").textContent = "0";
+      document.getElementById("duplicateCount").textContent = "0";
+      document.getElementById("finalCount").textContent = "0";
+      document.getElementById("batchSize").textContent = "0";
+      document.getElementById("batchCount").textContent = "0";
 
       previewDetails.textContent = "";
-
       progressContainer.classList.add("hidden");
       progressBar.style.width = "0%";
     }
 
     function showPreview(existingResult, prepared) {
-      document.getElementById(
-        "existingCount"
-      ).textContent =
+      document.getElementById("existingCount").textContent =
         existingResult.candleCount.toLocaleString();
 
-      document.getElementById(
-        "incomingCount"
-      ).textContent =
+      document.getElementById("incomingCount").textContent =
         prepared.incomingCandleCount.toLocaleString();
 
-      document.getElementById(
-        "duplicateCount"
-      ).textContent =
+      document.getElementById("duplicateCount").textContent =
         prepared.duplicateAgainstExisting.toLocaleString();
 
-      document.getElementById(
-        "finalCount"
-      ).textContent =
+      document.getElementById("finalCount").textContent =
         prepared.finalUniqueCandleCount.toLocaleString();
 
-      document.getElementById(
-        "batchSize"
-      ).textContent =
+      document.getElementById("batchSize").textContent =
         prepared.batchSize.toLocaleString();
 
-      document.getElementById(
-        "batchCount"
-      ).textContent =
+      document.getElementById("batchCount").textContent =
         prepared.batchCount.toLocaleString();
 
       previewDetails.textContent =
         "Index: " + indexInput.value +
         "\nTimeframe: " + timeframeInput.value +
-        "\nExisting D1 pages: " +
-        existingResult.pageCount +
-        "\nExisting D1 candles: " +
-        existingResult.candleCount +
-        "\nIncoming candles: " +
-        prepared.incomingCandleCount +
+        "\nExisting D1 pages: " + existingResult.pageCount +
+        "\nExisting D1 candles: " + existingResult.candleCount +
+        "\nIncoming candles: " + prepared.incomingCandleCount +
         "\nDuplicates against existing data: " +
         prepared.duplicateAgainstExisting +
         "\nFinal unique candles after merge: " +
         prepared.finalUniqueCandleCount +
-        "\nUpload batches: " +
-        prepared.batchCount;
+        "\nUpload batches: " + prepared.batchCount;
 
       previewCard.classList.remove("hidden");
     }
@@ -535,9 +432,7 @@
       try {
         parsed = JSON.parse(rawText);
       } catch {
-        throw new Error(
-          "File is not valid JSON."
-        );
+        throw new Error("File is not valid JSON.");
       }
 
       if (
@@ -561,9 +456,7 @@
       }
 
       if (parsed.data.length === 0) {
-        throw new Error(
-          "Angel One JSON contains no candles."
-        );
+        throw new Error("Angel One JSON contains no candles.");
       }
 
       return parsed;
@@ -573,320 +466,228 @@
       const file = fileInput.files?.[0];
 
       if (!file) {
-        throw new Error(
-          "Please select a JSON file."
-        );
+        throw new Error("Please select a JSON file.");
       }
 
       if (file.size > MAX_FILE_BYTES) {
-        throw new Error(
-          "File exceeds the 20 MB limit."
-        );
+        throw new Error("File exceeds the 20 MB limit.");
       }
 
-      const text = await file.text();
-
-      return parseAngelOneResponse(text);
+      return parseAngelOneResponse(await file.text());
     }
 
-    previewButton.addEventListener(
-      "click",
-      async () => {
-        if (busy) return;
+    previewButton.addEventListener("click", async () => {
+      if (busy) return;
 
-        clearPreview();
-        setBusy(true);
+      clearPreview();
+      setBusy(true);
 
-        try {
-          setStatus(
-            "Reading Angel One JSON file..."
-          );
+      try {
+        setStatus("Reading Angel One JSON file...");
 
-          const response =
-            await readSelectedFile();
+        const response = await readSelectedFile();
 
-          setStatus(
-            "Fetching existing historical candles from D1..."
-          );
+        setStatus("Fetching existing historical candles from D1...");
 
-          const existingResult =
-            await fetchExistingHistoricalCandles({
-              apiBaseUrl:
-                apiBaseUrlInput.value.trim(),
-
-              index:
-                indexInput.value,
-
-              timeframe:
-                timeframeInput.value,
-
-              pageSize:
-                PAGE_SIZE
-            });
-
-          setStatus(
-            "Validating, merging and checking duplicates..."
-          );
-
-          const prepared =
-            prepareAngelOneHistoricalImport({
-              response,
-              index: indexInput.value,
-              timeframe: timeframeInput.value,
-              existingCandles:
-                existingResult.candles,
-              batchSize: BATCH_SIZE
-            });
-
-          preparedPreview = {
-            response,
-            existingResult,
-            prepared,
+        const existingResult =
+          await fetchExistingHistoricalCandles({
+            apiBaseUrl: apiBaseUrlInput.value.trim(),
             index: indexInput.value,
             timeframe: timeframeInput.value,
-            apiBaseUrl:
-              apiBaseUrlInput.value.trim()
-          };
+            pageSize: PAGE_SIZE
+          });
 
-          showPreview(
-            existingResult,
-            prepared
-          );
+        setStatus("Validating, merging and checking duplicates...");
 
-          setStatus(
-            "PREVIEW PASSED.\n" +
-            "Data is prepared. Database has not been changed.\n" +
-            "Check the summary before upload.",
-            "success"
-          );
+        const prepared =
+          prepareAngelOneHistoricalImport({
+            response,
+            index: indexInput.value,
+            timeframe: timeframeInput.value,
+            existingCandles: existingResult.candles,
+            batchSize: BATCH_SIZE
+          });
 
-          uploadButton.disabled = false;
-        } catch (error) {
-          clearPreview();
+        preparedPreview = {
+          response,
+          existingResult,
+          prepared,
+          index: indexInput.value,
+          timeframe: timeframeInput.value,
+          apiBaseUrl: apiBaseUrlInput.value.trim()
+        };
 
-          setStatus(
-            "PREVIEW FAILED:\n" +
-            (error?.message ?? String(error)),
-            "error"
-          );
-        } finally {
-          setBusy(false);
-        }
+        showPreview(existingResult, prepared);
+
+        setStatus(
+          "PREVIEW PASSED.\n" +
+          "Data is prepared. Database has not been changed.\n" +
+          "Check the summary before upload.",
+          "success"
+        );
+
+        uploadButton.disabled = false;
+      } catch (error) {
+        clearPreview();
+
+        setStatus(
+          "PREVIEW FAILED:\n" +
+          (error?.message ?? String(error)),
+          "error"
+        );
+      } finally {
+        setBusy(false);
       }
-    );
+    });
 
-    uploadButton.addEventListener(
-      "click",
-      async () => {
-        if (
-          busy ||
-          !preparedPreview
-        ) {
-          return;
-        }
+    uploadButton.addEventListener("click", async () => {
+      if (busy || !preparedPreview) return;
 
-        const token =
-          tokenInput.value.trim();
+      const token = tokenInput.value.trim();
 
-        if (!token) {
-          setStatus(
-            "Ingest token is required before upload.",
-            "error"
+      if (!token) {
+        setStatus(
+          "Ingest token is required before upload.",
+          "error"
+        );
+        tokenInput.focus();
+        return;
+      }
+
+      const summary = preparedPreview.prepared;
+
+      const confirmation =
+        "CONFIRM HISTORICAL D1 UPLOAD\n\n" +
+        "Index: " + preparedPreview.index +
+        "\nTimeframe: " + preparedPreview.timeframe +
+        "\nIncoming candles: " + summary.incomingCandleCount +
+        "\nDuplicates: " + summary.duplicateAgainstExisting +
+        "\nFinal unique candles: " + summary.finalUniqueCandleCount +
+        "\nBatches: " + summary.batchCount +
+        "\n\nThis will modify the D1 historical database.\nContinue?";
+
+      if (!window.confirm(confirmation)) {
+        setStatus(
+          "Upload cancelled. Database unchanged.",
+          "warning"
+        );
+        return;
+      }
+
+      setBusy(true);
+      progressContainer.classList.remove("hidden");
+      progressBar.style.width = "0%";
+      setStatus("Starting sequential D1 upload...");
+
+      try {
+        const result =
+          await runAngelOneHistoricalImportPipeline({
+            response: preparedPreview.response,
+            apiBaseUrl: preparedPreview.apiBaseUrl,
+            token,
+            index: preparedPreview.index,
+            timeframe: preparedPreview.timeframe,
+            batchSize: BATCH_SIZE,
+            pageSize: PAGE_SIZE,
+
+            onProgress(event) {
+              const completed =
+                Number(event.completedBatches || 0);
+
+              const total =
+                Number(event.totalBatches || 0);
+
+              const percentage =
+                total > 0
+                  ? Math.min(
+                      100,
+                      Math.round(completed / total * 100)
+                    )
+                  : 0;
+
+              progressBar.style.width =
+                percentage + "%";
+
+              setStatus(
+                "Uploading batches...\n" +
+                "Completed batches: " +
+                completed + " / " + total +
+                "\nUploaded candles: " +
+                Number(
+                  event.uploadedCandles || 0
+                ).toLocaleString()
+              );
+            }
+          });
+
+        if (result.status !== "completed") {
+          throw new Error(
+            "D1 upload failed. Status: " +
+            result.status +
+            "\n" +
+            JSON.stringify(result.upload, null, 2)
           );
-
-          tokenInput.focus();
-          return;
         }
 
-        const summary =
-          preparedPreview.prepared;
+        progressBar.style.width = "100%";
 
-        const confirmation =
-          "CONFIRM HISTORICAL D1 UPLOAD\n\n" +
-          "Index: " +
-          preparedPreview.index +
-          "\nTimeframe: " +
-          preparedPreview.timeframe +
+        setStatus(
+          "UPLOAD COMPLETED SUCCESSFULLY.\n\n" +
+          "Index: " + result.index +
+          "\nTimeframe: " + result.timeframe +
+          "\nExisting candles read: " +
+          result.existingFetch.candleCount +
           "\nIncoming candles: " +
-          summary.incomingCandleCount +
+          result.preparation.incomingCandleCount +
           "\nDuplicates: " +
-          summary.duplicateAgainstExisting +
+          result.preparation.duplicateAgainstExisting +
           "\nFinal unique candles: " +
-          summary.finalUniqueCandleCount +
-          "\nBatches: " +
-          summary.batchCount +
-          "\n\nThis will modify the D1 historical database.\n" +
-          "Continue?";
-
-        if (!window.confirm(confirmation)) {
-          setStatus(
-            "Upload cancelled. Database unchanged.",
-            "warning"
-          );
-
-          return;
-        }
-
-        setBusy(true);
-
-        progressContainer.classList.remove(
-          "hidden"
+          result.preparation.finalUniqueCandleCount +
+          "\nUploaded batches: " +
+          result.upload.uploadedBatchCount +
+          "\nUploaded candles: " +
+          result.upload.uploadedCandleCount,
+          "success"
         );
-
-        progressBar.style.width = "0%";
-
-        setStatus(
-          "Starting sequential D1 upload..."
-        );
-
-        try {
-          const result =
-            await runAngelOneHistoricalImportPipeline({
-              response:
-                preparedPreview.response,
-
-              apiBaseUrl:
-                preparedPreview.apiBaseUrl,
-
-              token,
-
-              index:
-                preparedPreview.index,
-
-              timeframe:
-                preparedPreview.timeframe,
-
-              batchSize:
-                BATCH_SIZE,
-
-              pageSize:
-                PAGE_SIZE,
-
-              onProgress(event) {
-                const completed =
-                  Number(event.completedBatches || 0);
-
-                const total =
-                  Number(event.totalBatches || 0);
-
-                const percentage =
-                  total > 0
-                    ? Math.min(
-                        100,
-                        Math.round(
-                          completed / total * 100
-                        )
-                      )
-                    : 0;
-
-                progressBar.style.width =
-                  percentage + "%";
-
-                setStatus(
-                  "Uploading batches...\n" +
-                  "Completed batches: " +
-                  completed +
-                  " / " +
-                  total +
-                  "\nUploaded candles: " +
-                  Number(
-                    event.uploadedCandleCount || 0
-                  ).toLocaleString()
-                );
-              }
-            });
-
-          if (result.status !== "completed") {
-            throw new Error(
-              "D1 upload failed. Status: " +
-              result.status +
-              "\n" +
-              JSON.stringify(
-                result.upload,
-                null,
-                2
-              )
-            );
-          }
-
-          progressBar.style.width = "100%";
-
-          setStatus(
-            "UPLOAD COMPLETED SUCCESSFULLY.\n\n" +
-            "Index: " +
-            result.index +
-            "\nTimeframe: " +
-            result.timeframe +
-            "\nExisting candles read: " +
-            result.existingFetch.candleCount +
-            "\nIncoming candles: " +
-            result.preparation.incomingCandleCount +
-            "\nDuplicates: " +
-            result.preparation.duplicateAgainstExisting +
-            "\nFinal unique candles: " +
-            result.preparation.finalUniqueCandleCount +
-            "\nUploaded batches: " +
-            result.upload.uploadedBatchCount +
-            "\nUploaded candles: " +
-            result.upload.uploadedCandleCount,
-            "success"
-          );
-
-          tokenInput.value = "";
-          clearPreview();
-        } catch (error) {
-          setStatus(
-            "UPLOAD FAILED.\n\n" +
-            (error?.message ?? String(error)) +
-            "\n\nUpload stopped. Check D1 status before retrying.",
-            "error"
-          );
-        } finally {
-          tokenInput.value = "";
-          setBusy(false);
-        }
-      }
-    );
-
-    clearButton.addEventListener(
-      "click",
-      () => {
-        if (busy) return;
 
         tokenInput.value = "";
-        fileInput.value = "";
-
         clearPreview();
-
+      } catch (error) {
         setStatus(
-          "Reset completed. Select a new JSON file."
+          "UPLOAD FAILED.\n\n" +
+          (error?.message ?? String(error)) +
+          "\n\nUpload stopped. Check D1 status before retrying.",
+          "error"
         );
-      }
-    );
-
-    fileInput.addEventListener(
-      "change",
-      () => {
-        clearPreview();
-
-        if (fileInput.files?.length) {
-          setStatus(
-            "File selected. Click PREVIEW & CHECK DATA."
-          );
-        } else {
-          setStatus(
-            "No file selected."
-          );
-        }
-      }
-    );
-
-    window.addEventListener(
-      "pagehide",
-      () => {
+      } finally {
         tokenInput.value = "";
+        setBusy(false);
       }
-    );
+    });
+
+    clearButton.addEventListener("click", () => {
+      if (busy) return;
+
+      tokenInput.value = "";
+      fileInput.value = "";
+      clearPreview();
+
+      setStatus("Reset completed. Select a new JSON file.");
+    });
+
+    fileInput.addEventListener("change", () => {
+      clearPreview();
+
+      if (fileInput.files?.length) {
+        setStatus("File selected. Click PREVIEW & CHECK DATA.");
+      } else {
+        setStatus("No file selected.");
+      }
+    });
+
+    window.addEventListener("pagehide", () => {
+      tokenInput.value = "";
+    });
   </script>
 </body>
 </html>

@@ -1,4 +1,3 @@
-
 import assert from "node:assert/strict";
 
 import {
@@ -42,10 +41,11 @@ function makeCandles(count = 300) {
 }
 
 function makeRenderer() {
-  const report = generateHistoricalReport({
-    candles: makeCandles(),
-    timeframe: "15m"
-  });
+  const report =
+    generateHistoricalReport({
+      candles: makeCandles(),
+      timeframe: "15m"
+    });
 
   assert.equal(report.status, "OK");
 
@@ -55,7 +55,9 @@ function makeRenderer() {
   assert.equal(dashboardData.status, "OK");
 
   const display =
-    createHistoricalDashboardDisplay(dashboardData);
+    createHistoricalDashboardDisplay(
+      dashboardData
+    );
 
   assert.equal(display.status, "OK");
 
@@ -65,6 +67,65 @@ function makeRenderer() {
   assert.equal(uiModel.status, "OK");
 
   return renderHistoricalDashboard(uiModel);
+}
+
+function makeSevenCardUIModel() {
+  const base =
+    createHistoricalDashboardUIModel(
+      createHistoricalDashboardDisplay(
+        formatHistoricalDashboardData(
+          generateHistoricalReport({
+            candles: makeCandles(),
+            timeframe: "15m"
+          })
+        )
+      )
+    );
+
+  assert.equal(base.status, "OK");
+
+  base.layout.cards.push({
+    id: "historical-master-analysis",
+    title: "Master Historical Analysis",
+    order: 7,
+    visible: true,
+    collapsible: true,
+    defaultExpanded: false,
+
+    content: {
+      id: "historical-master-analysis",
+      title: "Master Historical Analysis",
+      timeframe: "15m",
+      candleCount: 300,
+
+      composition: {
+        sampleSize: 300,
+        counts: {
+          bullish: 120,
+          bearish: 100,
+          neutral: 80
+        },
+        percentages: {
+          bullish: 40,
+          bearish: 33.333,
+          neutral: 26.667
+        },
+        percentageTotal: 100
+      },
+
+      historicalLevels: {
+        status: "OK"
+      },
+
+      smc: {
+        status: "OK"
+      }
+    }
+  });
+
+  base.layout.cardCount = 7;
+
+  return base;
 }
 
 // 1. Complete renderer output
@@ -103,29 +164,28 @@ function makeRenderer() {
 {
   const result = makeRenderer();
 
-  assert.equal(result.screen.metadata.timeframe, "15m");
+  assert.equal(
+    result.screen.metadata.timeframe,
+    "15m"
+  );
 }
 
 // 5. Candle count
 {
   const result = makeRenderer();
 
-  assert.equal(result.screen.metadata.candleCount, 300);
+  assert.equal(
+    result.screen.metadata.candleCount,
+    300
+  );
 }
 
 // 6. Responsive viewport
 {
   const result = makeRenderer();
 
-  assert.equal(
-    result.viewport.scrollable,
-    true
-  );
-
-  assert.equal(
-    result.viewport.cardCount,
-    6
-  );
+  assert.equal(result.viewport.scrollable, true);
+  assert.equal(result.viewport.cardCount, 6);
 }
 
 // 7. Visible card count
@@ -181,7 +241,10 @@ function makeRenderer() {
     result.renderTree.children.slice(1);
 
   for (const card of cards) {
-    assert.equal(card.component, "DashboardCard");
+    assert.equal(
+      card.component,
+      "DashboardCard"
+    );
   }
 }
 
@@ -242,7 +305,8 @@ function makeRenderer() {
 
 // 16. Invalid input
 {
-  const result = renderHistoricalDashboard(null);
+  const result =
+    renderHistoricalDashboard(null);
 
   assert.equal(result.status, "ERROR");
 }
@@ -257,4 +321,49 @@ function makeRenderer() {
   assert.match(result.note, /trading recommendations/);
 }
 
-console.log("All 17 dashboard renderer tests passed.");
+// 18. Seven-card Master Dashboard rendering
+{
+  const result =
+    renderHistoricalDashboard(
+      makeSevenCardUIModel()
+    );
+
+  assert.equal(result.status, "OK");
+  assert.equal(result.viewport.cardCount, 7);
+  assert.equal(result.viewport.visibleCardCount, 7);
+  assert.equal(result.validation.checkedCards, 7);
+
+  const cards =
+    result.renderTree.children.slice(1);
+
+  assert.equal(cards.length, 7);
+
+  assert.equal(
+    cards[6].id,
+    "historical-master-analysis"
+  );
+
+  assert.equal(
+    cards[6].title,
+    "Master Historical Analysis"
+  );
+}
+
+// 19. Invalid master card blocked
+{
+  const model =
+    makeSevenCardUIModel();
+
+  model.layout.cards[6].content.id =
+    "wrong-master-card-id";
+
+  const result =
+    renderHistoricalDashboard(model);
+
+  assert.equal(result.status, "ERROR");
+  assert.match(result.error, /Master Analysis UI card is invalid/);
+}
+
+console.log(
+  "All 19 dashboard renderer tests passed."
+);

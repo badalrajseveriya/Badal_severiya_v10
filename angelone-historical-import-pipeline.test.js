@@ -1,3 +1,4 @@
+
 import test from "node:test";
 import assert from "node:assert/strict";
 
@@ -53,7 +54,7 @@ function angelRow(timestamp, price, volume = 500) {
 }
 
 // --------------------------------------------------
-// 1. Existing D1 pagination
+// 1. D1 pagination
 // --------------------------------------------------
 
 test(
@@ -107,7 +108,9 @@ test(
         });
       }
 
-      throw new Error("Unexpected pagination offset.");
+      throw new Error(
+        "Unexpected pagination offset."
+      );
     };
 
     const result =
@@ -127,11 +130,11 @@ test(
 );
 
 // --------------------------------------------------
-// 2. Full import pipeline
+// 2. Complete pipeline: fetch, merge, upload
 // --------------------------------------------------
 
 test(
-  "fetches old data, merges duplicates and uploads sequentially",
+  "fetches existing data, merges duplicates and uploads",
   async () => {
     const oldCandle = existingCandle(
       "2026-11-23T03:30:00.000Z",
@@ -150,7 +153,6 @@ test(
         url: parsed.href
       });
 
-      // Existing D1 candles request.
       if (
         method === "GET" &&
         parsed.pathname === "/api/data/candles"
@@ -164,7 +166,6 @@ test(
         });
       }
 
-      // D1 ingest request.
       if (
         method === "POST" &&
         parsed.pathname === "/api/data/ingest"
@@ -174,7 +175,9 @@ test(
           TEST_TOKEN
         );
 
-        const payload = JSON.parse(options.body);
+        const payload = JSON.parse(
+          options.body
+        );
 
         uploadPayloads.push(payload);
 
@@ -184,7 +187,9 @@ test(
         });
       }
 
-      throw new Error(`Unexpected request: ${parsed.href}`);
+      throw new Error(
+        `Unexpected request: ${parsed.href}`
+      );
     };
 
     const progressEvents = [];
@@ -192,12 +197,15 @@ test(
     const result =
       await runAngelOneHistoricalImportPipeline({
         response: angelResponse([
+          // 09:00 IST = 03:30 UTC
           angelRow(
-            "2026-11-23 09:00:00",
+            "2026-11-23T09:00:00+05:30",
             25100
           ),
+
+          // 09:15 IST = 03:45 UTC
           angelRow(
-            "2026-11-23 09:15:00",
+            "2026-11-23T09:15:00+05:30",
             25110
           )
         ]),
@@ -206,9 +214,7 @@ test(
         token: TEST_TOKEN,
         index: "NIFTY",
         timeframe: "15m",
-
         batchSize: 1,
-
         fetchImpl,
 
         onProgress: event => {
@@ -217,7 +223,11 @@ test(
       });
 
     assert.equal(result.status, "completed");
-    assert.equal(result.dataType, "HISTORICAL_ONLY");
+
+    assert.equal(
+      result.dataType,
+      "HISTORICAL_ONLY"
+    );
 
     assert.equal(
       result.existingFetch.candleCount,
@@ -261,14 +271,17 @@ test(
       1
     );
 
-    assert.equal(progressEvents.length, 2);
+    assert.equal(
+      progressEvents.length,
+      2
+    );
 
     assert.equal(
       progressEvents[1].completedBatches,
       2
     );
 
-    // GET is first, followed by sequential POST batches.
+    // Existing-data GET first, then two sequential POSTs.
     assert.equal(requests[0].method, "GET");
     assert.equal(requests[1].method, "POST");
     assert.equal(requests[2].method, "POST");
@@ -276,7 +289,7 @@ test(
 );
 
 // --------------------------------------------------
-// 3. Reject invalid page response
+// 3. Malformed D1 page
 // --------------------------------------------------
 
 test(
@@ -304,7 +317,35 @@ test(
 );
 
 // --------------------------------------------------
-// 4. Reject D1 fetch HTTP error
+// 4. Invalid pagination flag
+// --------------------------------------------------
+
+test(
+  "rejects an invalid hasMore flag",
+  async () => {
+    await assert.rejects(
+      () =>
+        fetchExistingHistoricalCandles({
+          apiBaseUrl: API_BASE_URL,
+          index: "NIFTY",
+          timeframe: "15m",
+
+          fetchImpl: async () =>
+            mockResponse(200, {
+              index: "NIFTY",
+              timeframe: "15m",
+              count: 0,
+              hasMore: "yes",
+              candles: []
+            })
+        }),
+      /Invalid D1 pagination flag/
+    );
+  }
+);
+
+// --------------------------------------------------
+// 5. HTTP error during existing-data fetch
 // --------------------------------------------------
 
 test(
@@ -328,7 +369,7 @@ test(
 );
 
 // --------------------------------------------------
-// 5. Reject invalid API URL
+// 6. Invalid URL and insecure URL
 // --------------------------------------------------
 
 test(
@@ -340,16 +381,13 @@ test(
           apiBaseUrl: "not-a-url",
           index: "NIFTY",
           timeframe: "15m",
-          fetchImpl: async () => mockResponse(200, {})
+          fetchImpl: async () =>
+            mockResponse(200, {})
         }),
       /Invalid API base URL/
     );
   }
 );
-
-// --------------------------------------------------
-// 6. Reject insecure API URL
-// --------------------------------------------------
 
 test(
   "rejects insecure non-local API URL",
@@ -360,7 +398,8 @@ test(
           apiBaseUrl: "http://example.com",
           index: "NIFTY",
           timeframe: "15m",
-          fetchImpl: async () => mockResponse(200, {})
+          fetchImpl: async () =>
+            mockResponse(200, {})
         }),
       /must use HTTPS/
     );
@@ -368,7 +407,7 @@ test(
 );
 
 // --------------------------------------------------
-// 7. Reject missing token
+// 7. Missing token
 // --------------------------------------------------
 
 test(
@@ -379,7 +418,7 @@ test(
         runAngelOneHistoricalImportPipeline({
           response: angelResponse([
             angelRow(
-              "2026-11-23 09:00:00",
+              "2026-11-23T09:00:00+05:30",
               25000
             )
           ]),
@@ -400,7 +439,7 @@ test(
 );
 
 // --------------------------------------------------
-// 8. Stop pipeline when upload fails
+// 8. Stop after first upload rejection
 // --------------------------------------------------
 
 test(
@@ -436,18 +475,20 @@ test(
         });
       }
 
-      throw new Error("Unexpected request.");
+      throw new Error(
+        "Unexpected request."
+      );
     };
 
     const result =
       await runAngelOneHistoricalImportPipeline({
         response: angelResponse([
           angelRow(
-            "2026-11-23 09:00:00",
+            "2026-11-23T09:00:00+05:30",
             25000
           ),
           angelRow(
-            "2026-11-23 09:15:00",
+            "2026-11-23T09:15:00+05:30",
             25010
           )
         ]),

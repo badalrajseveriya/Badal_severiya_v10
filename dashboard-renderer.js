@@ -1,9 +1,8 @@
-
 // ======================================================
 // BADAL SEVERIYA V12
 // HISTORICAL DASHBOARD RENDERER
-// Educational and historical analysis only
-// No forecasts or trading recommendations
+// 6 STANDARD CARDS + OPTIONAL MASTER ANALYSIS
+// Historical educational analysis only
 // ======================================================
 
 const NOTE =
@@ -17,6 +16,9 @@ const REQUIRED_CARD_IDS = [
   "fibonacci",
   "candle-patterns"
 ];
+
+const OPTIONAL_MASTER_CARD_ID =
+  "historical-master-analysis";
 
 // ------------------------------------------------------
 // HELPERS
@@ -72,16 +74,45 @@ function validateUIModel(model) {
     errors.push("Layout model is missing.");
   }
 
-  const cards = safeArray(model.layout?.cards);
+  const cards =
+    safeArray(model.layout?.cards);
 
-  if (cards.length !== REQUIRED_CARD_IDS.length) {
-    errors.push("Exactly six dashboard cards are required.");
+  const validSix =
+    cards.length === REQUIRED_CARD_IDS.length;
+
+  const validSeven =
+    cards.length ===
+      REQUIRED_CARD_IDS.length + 1 &&
+    cards[6]?.id === OPTIONAL_MASTER_CARD_ID;
+
+  if (!validSix && !validSeven) {
+    errors.push(
+      "Renderer accepts six required cards or those six followed by Master Analysis."
+    );
   }
 
-  for (let i = 0; i < REQUIRED_CARD_IDS.length; i++) {
+  for (
+    let i = 0;
+    i < REQUIRED_CARD_IDS.length;
+    i++
+  ) {
     if (cards[i]?.id !== REQUIRED_CARD_IDS[i]) {
       errors.push(
         `Invalid card at position ${i + 1}.`
+      );
+    }
+  }
+
+  if (validSeven) {
+    const master = cards[6];
+
+    if (
+      !isObject(master) ||
+      master.visible !== true ||
+      master.content?.id !== OPTIONAL_MASTER_CARD_ID
+    ) {
+      errors.push(
+        "Master Analysis UI card is invalid."
       );
     }
   }
@@ -101,7 +132,10 @@ function renderCard(card, index) {
     component: "DashboardCard",
     key: card.id,
     id: card.id,
-    title: safeText(card.title, "Untitled Section"),
+    title: safeText(
+      card.title,
+      "Untitled Section"
+    ),
     order: index + 1,
     visible: card.visible === true,
     expanded: card.defaultExpanded === true,
@@ -117,21 +151,36 @@ function renderCard(card, index) {
 function renderScreen(screen) {
   return {
     component: "DashboardScreen",
-    screenId: safeText(screen.id, "historical-dashboard"),
+    screenId: safeText(
+      screen.id,
+      "historical-dashboard"
+    ),
+
     header: {
-      title: safeText(screen.title, "BADAL SEVERIYA V12"),
+      title: safeText(
+        screen.title,
+        "BADAL SEVERIYA V12"
+      ),
+
       subtitle: safeText(
         screen.subtitle,
         "Historical Market Analysis"
       )
     },
+
     metadata: {
-      timeframe: safeText(screen.timeframe, "15m"),
+      timeframe: safeText(
+        screen.timeframe,
+        "15m"
+      ),
+
       candleCount:
         Number.isInteger(screen.candleCount)
           ? screen.candleCount
           : 0,
-      generatedAt: screen.generatedAt ?? null
+
+      generatedAt:
+        screen.generatedAt ?? null
     }
   };
 }
@@ -156,7 +205,8 @@ function createEmptyState() {
 
 export function renderHistoricalDashboard(model) {
   try {
-    const validation = validateUIModel(model);
+    const validation =
+      validateUIModel(model);
 
     if (!validation.valid) {
       throw new Error(
@@ -164,13 +214,15 @@ export function renderHistoricalDashboard(model) {
       );
     }
 
-    const cards = model.layout.cards.map(
-      renderCard
-    );
+    const cards =
+      model.layout.cards.map(
+        renderCard
+      );
 
-    const visibleCards = cards.filter(
-      card => card.visible
-    );
+    const visibleCards =
+      cards.filter(
+        card => card.visible
+      );
 
     return {
       status: "OK",
@@ -178,18 +230,26 @@ export function renderHistoricalDashboard(model) {
       module: "HISTORICAL_DASHBOARD_RENDERER",
       dataType: "HISTORICAL_ONLY",
 
-      screen: renderScreen(model.screen),
+      screen:
+        renderScreen(model.screen),
 
       viewport: {
-        responsive: model.layout.responsive,
+        responsive:
+          model.layout.responsive,
+
         scrollable: true,
-        cardCount: cards.length,
-        visibleCardCount: visibleCards.length
+
+        cardCount:
+          cards.length,
+
+        visibleCardCount:
+          visibleCards.length
       },
 
       renderTree: {
         component: "DashboardRoot",
         direction: "VERTICAL",
+
         children: [
           {
             component: "DashboardHeader",
@@ -199,7 +259,8 @@ export function renderHistoricalDashboard(model) {
         ]
       },
 
-      emptyState: createEmptyState(),
+      emptyState:
+        createEmptyState(),
 
       validation: {
         status: "OK",

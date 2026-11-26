@@ -1,0 +1,72 @@
+
+name: BADAL SEVERIYA V12 - Live Historical 15m Gap Report
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  live-historical-gap-check:
+    name: Check real NIFTY 15m historical candles
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Run live historical gap check
+        run: |
+          node --input-type=module <<'NODE'
+          import { writeFileSync } from "node:fs";
+          import { runIntradayGapApiCheck } from "./intraday-gap-api-runner.js";
+
+          const report = await runIntradayGapApiCheck({
+            index: "NIFTY",
+            timeframe: "15m",
+            pageSize: 5000
+          });
+
+          writeFileSync(
+            "intraday-gap-report.json",
+            JSON.stringify(report, null, 2),
+            "utf8"
+          );
+
+          const gap = report.gapCheck || {};
+
+          console.log(JSON.stringify({
+            status: report.status,
+            quality: report.quality,
+            index: report.index,
+            timeframe: report.timeframe,
+            candleCount: report.fetch?.candleCount ?? 0,
+            pagesRead: report.fetch?.pagesRead ?? 0,
+            checkedCompletedSessions: report.completedSessionDates?.length ?? 0,
+            missingCandleCount: report.missingCandleCount ?? 0,
+            gapCount: gap.gapCount ?? 0,
+            duplicateCount: report.duplicateCount ?? 0,
+            irregularIntervalCount: report.irregularIntervalCount ?? 0,
+            offSessionCount: report.offSessionCount ?? 0,
+            boundaryMissingCandleCount: report.boundaryMissingCandleCount ?? 0,
+            error: report.error ?? null
+          }, null, 2));
+
+          if (report.status !== "OK") {
+            process.exitCode = 1;
+          }
+          NODE
+
+      - name: Upload full gap report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: BADAL-SEVERIYA-NIFTY-15m-Gap-Report
+          path: intraday-gap-report.json
+          if-no-files-found: warn
+          retention-days: 14

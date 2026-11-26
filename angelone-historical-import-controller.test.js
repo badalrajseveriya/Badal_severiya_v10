@@ -1,8 +1,15 @@
+
 /**
  * BADAL SEVERIYA V12
  * Angel One Historical Import Controller Tests
+ *
+ * Tests conversion, merging, deduplication,
+ * validation, batch splitting and sequential upload.
+ *
+ * Historical data only — no trading/orders.
  */
 
+import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
@@ -10,17 +17,20 @@ import {
   runAngelOneHistoricalImport
 } from "./angelone-historical-import-controller.js";
 
-function makeResponse(rows) {
-  return {
-    status: true,
-    message: "SUCCESS",
-    data: rows
-  };
-}
+// ------------------------------------------------------
+// Test helpers
+// ------------------------------------------------------
 
-function row(minute, close, volume = 100) {
+function row(minuteOffset, close, volume = 100) {
+  const date = new Date(
+    Date.UTC(2026, 10, 23, 3, 30 + minuteOffset)
+  );
+
+  // UTC 03:30 = India 09:00
+  const timestamp = date.toISOString();
+
   return [
-    `2026-11-23T09:${String(minute).padStart(2, "0")}:00+05:30`,
+    timestamp,
     close - 5,
     close + 10,
     close - 10,
@@ -29,319 +39,369 @@ function row(minute, close, volume = 100) {
   ];
 }
 
-// --------------------------------------------------
-// TEST 1: Prepare valid Angel One response
-// --------------------------------------------------
-
-{
-  const result = prepareAngelOneHistoricalImport({
-    response: makeResponse([
-      row(15, 26000),
-      row(30, 26020),
-      row(45, 26040)
-    ]),
-    index: "NIFTY",
-    timeframe: "15m",
-    batchSize: 2
-  });
-
-  assert.equal(result.status, "prepared");
-  assert.equal(result.source, "ANGEL_ONE_SMARTAPI");
-  assert.equal(result.dataType, "REAL_HISTORICAL");
-  assert.equal(result.index, "NIFTY");
-  assert.equal(result.timeframe, "15m");
-  assert.equal(result.symbolToken, "99926000");
-
-  assert.equal(result.incomingCandleCount, 3);
-  assert.equal(result.finalUniqueCandleCount, 3);
-  assert.equal(result.batchCount, 2);
-
-  assert.equal(result.batches[0].candleCount, 2);
-  assert.equal(result.batches[1].candleCount, 1);
-
-  console.log("PASS: valid API response preparation");
+function successfulResponse(rows) {
+  return {
+    status: true,
+    message: "SUCCESS",
+    errorcode: "",
+    data: rows
+  };
 }
 
-// --------------------------------------------------
-// TEST 2: Existing duplicate is replaced
-// --------------------------------------------------
-
-{
-  const existingCandles = [
-    {
-      timestamp: "2026-11-23T03:45:00.000Z",
-      open: 25995,
-      high: 26010,
-      low: 25990,
-      close: 26000,
-      volume: null
-    }
-  ];
-
-  const result = prepareAngelOneHistoricalImport({
-    response: makeResponse([
-      row(15, 26050),
-      row(30, 26060)
-    ]),
-    index: "NIFTY",
-    timeframe: "15m",
-    existingCandles,
-    batchSize: 10
-  });
-
-  const merged = result.batches.flatMap(
-    batch => batch.candles
-  );
-
-  assert.equal(result.duplicateAgainstExisting, 1);
-  assert.equal(result.finalUniqueCandleCount, 2);
-  assert.equal(merged.length, 2);
-
-  // Incoming candle replaces the old candle.
-  assert.equal(merged[0].close, 26050);
-
-  console.log("PASS: existing duplicate replacement");
+function candle(timestamp, close, volume = 100) {
+  return {
+    timestamp,
+    open: close - 5,
+    high: close + 10,
+    low: close - 10,
+    close,
+    volume
+  };
 }
 
-// --------------------------------------------------
-// TEST 3: Batch limit respected
-// --------------------------------------------------
+// ------------------------------------------------------
+// 1. Prepare valid Angel One historical data
+// ------------------------------------------------------
 
-{
-  const rows = Array.from(
-    { length: 7 },
-    (_, index) =>
-      row(15 + index * 15, 26000 + index * 10)
-  );
+test(
+  "prepares valid Angel One candles and creates batches",
+  () => {
+    const response = successfulResponse([
+      row(0, 25000),
+      row(15, 25010),
+      row(30, 25020)
+    ]);
 
-  const result = prepareAngelOneHistoricalImport({
-    response: makeResponse(rows),
-    index: "NIFTY",
-    timeframe: "15m",
-    batchSize: 3
-  });
-
-  assert.equal(result.batchCount, 3);
-
-  assert.deepEqual(
-    result.batches.map(batch => batch.candleCount),
-    [3, 3, 1]
-  );
-
-  assert.ok(
-    result.batches.every(
-      batch => batch.candleCount <= 3
-    )
-  );
-
-  console.log("PASS: batch size enforcement");
-}
-
-// --------------------------------------------------
-// TEST 4: NIFTY zero volume remains null
-// --------------------------------------------------
-
-{
-  const result = prepareAngelOneHistoricalImport({
-    response: makeResponse([
-      row(15, 26000, 0)
-    ]),
-    index: "NIFTY",
-    timeframe: "15m"
-  });
-
-  assert.equal(
-    result.batches[0].candles[0].volume,
-    null
-  );
-
-  console.log("PASS: NIFTY zero volume normalization");
-}
-
-// --------------------------------------------------
-// TEST 5: Unsupported timeframe rejected
-// --------------------------------------------------
-
-{
-  assert.throws(
-    () =>
+    const result =
       prepareAngelOneHistoricalImport({
-        response: makeResponse([
-          row(15, 26000)
-        ]),
-        index: "NIFTY",
-        timeframe: "5m"
-      }),
-    /timeframe must be 15m or 1d/
-  );
-
-  console.log("PASS: unsupported timeframe rejection");
-}
-
-// --------------------------------------------------
-// TEST 6: Failed Angel One response rejected
-// --------------------------------------------------
-
-{
-  assert.throws(
-    () =>
-      prepareAngelOneHistoricalImport({
-        response: {
-          status: false,
-          data: []
-        },
-        index: "NIFTY",
-        timeframe: "15m"
-      }),
-    /not successful/
-  );
-
-  console.log("PASS: unsuccessful API response rejection");
-}
-
-// --------------------------------------------------
-// TEST 7: Existing candles array validation
-// --------------------------------------------------
-
-{
-  assert.throws(
-    () =>
-      prepareAngelOneHistoricalImport({
-        response: makeResponse([
-          row(15, 26000)
-        ]),
+        response,
         index: "NIFTY",
         timeframe: "15m",
-        existingCandles: {}
-      }),
-    /must be an array/
-  );
+        batchSize: 2
+      });
 
-  console.log("PASS: existing data validation");
-}
+    assert.equal(result.status, "prepared");
+    assert.equal(result.dataType, "REAL_HISTORICAL");
+    assert.equal(result.source, "ANGEL_ONE_SMARTAPI");
+    assert.equal(result.index, "NIFTY");
+    assert.equal(result.timeframe, "15m");
+    assert.equal(result.exchange, "NSE");
+    assert.equal(result.symbolToken, "99926000");
 
-// --------------------------------------------------
-// TEST 8: Sequential upload simulation
-// --------------------------------------------------
+    assert.equal(result.incomingCandleCount, 3);
+    assert.equal(result.existingCandleCount, 0);
+    assert.equal(result.finalUniqueCandleCount, 3);
 
-{
-  const prepared = prepareAngelOneHistoricalImport({
-    response: makeResponse([
-      row(15, 26000),
-      row(30, 26020),
-      row(45, 26040),
-      row(60, 26060)
-    ]),
-    index: "NIFTY",
-    timeframe: "15m",
-    batchSize: 2
-  });
+    assert.equal(result.batchSize, 2);
+    assert.equal(result.batchCount, 2);
 
-  const sent = [];
+    assert.equal(result.batches[0].candleCount, 2);
+    assert.equal(result.batches[1].candleCount, 1);
 
-  const uploadResult =
-    await runAngelOneHistoricalImport(
-      prepared,
-      async batch => {
-        sent.push(batch.batchNumber);
-      }
+    assert.equal(
+      result.note,
+      "Prepared only. Database upload is not performed."
+    );
+  }
+);
+
+// ------------------------------------------------------
+// 2. Existing timestamp duplicate is replaced
+// ------------------------------------------------------
+
+test(
+  "incoming candle replaces existing duplicate timestamp",
+  () => {
+    const timestamp = row(15, 25010)[0];
+
+    const existingCandles = [
+      candle(timestamp, 24900)
+    ];
+
+    const response = successfulResponse([
+      row(15, 25010),
+      row(30, 25020)
+    ]);
+
+    const result =
+      prepareAngelOneHistoricalImport({
+        response,
+        index: "NIFTY",
+        timeframe: "15m",
+        existingCandles,
+        batchSize: 5000
+      });
+
+    assert.equal(result.incomingCandleCount, 2);
+    assert.equal(result.existingCandleCount, 1);
+    assert.equal(result.duplicateAgainstExisting, 1);
+    assert.equal(result.finalUniqueCandleCount, 2);
+
+    const mergedCandles = result.batches[0].candles;
+
+    const duplicate = mergedCandles.find(
+      item => item.timestamp === timestamp
     );
 
-  assert.equal(uploadResult.status, "completed");
-  assert.equal(uploadResult.uploadedBatchCount, 2);
-  assert.equal(uploadResult.uploadedCandleCount, 4);
-  assert.equal(uploadResult.remainingBatchCount, 0);
+    assert.ok(duplicate);
+    assert.equal(duplicate.close, 25010);
+  }
+);
 
-  assert.deepEqual(sent, [1, 2]);
+// ------------------------------------------------------
+// 3. Batch splitting
+// ------------------------------------------------------
 
-  console.log("PASS: sequential upload simulation");
-}
+test(
+  "splits candles into correct batch sizes",
+  () => {
+    const rows = [];
 
-// --------------------------------------------------
-// TEST 9: Upload failure stops further batches
-// --------------------------------------------------
+    for (let i = 0; i < 7; i++) {
+      rows.push(row(i * 15, 25000 + i));
+    }
 
-{
-  const prepared = prepareAngelOneHistoricalImport({
-    response: makeResponse([
-      row(15, 26000),
-      row(30, 26020),
-      row(45, 26040),
-      row(60, 26060),
-      row(75, 26080)
-    ]),
-    index: "NIFTY",
-    timeframe: "15m",
-    batchSize: 2
-  });
+    const result =
+      prepareAngelOneHistoricalImport({
+        response: successfulResponse(rows),
+        index: "NIFTY",
+        timeframe: "15m",
+        batchSize: 3
+      });
 
-  let attempts = 0;
+    assert.equal(result.batchCount, 3);
 
-  const failure =
-    await runAngelOneHistoricalImport(
-      prepared,
-      async batch => {
-        attempts++;
-
-        if (batch.batchNumber === 2) {
-          throw new Error("Simulated database failure");
-        }
-      }
+    assert.deepEqual(
+      result.batches.map(batch => batch.candleCount),
+      [3, 3, 1]
     );
 
-  assert.equal(failure.status, "failed");
-  assert.equal(failure.uploadedBatchCount, 1);
-  assert.equal(failure.uploadedCandleCount, 2);
-  assert.equal(failure.failedBatchNumber, 2);
-  assert.equal(failure.remainingBatchCount, 1);
-  assert.equal(attempts, 2);
+    assert.deepEqual(
+      result.batches.map(batch => batch.batchNumber),
+      [1, 2, 3]
+    );
+  }
+);
 
-  console.log("PASS: upload failure handling");
-}
+// ------------------------------------------------------
+// 4. NIFTY zero volume becomes null
+// ------------------------------------------------------
 
-// --------------------------------------------------
-// TEST 10: Invalid prepared import rejected
-// --------------------------------------------------
+test(
+  "converts NIFTY zero volume to null",
+  () => {
+    const result =
+      prepareAngelOneHistoricalImport({
+        response: successfulResponse([
+          row(0, 25000, 0)
+        ]),
+        index: "NIFTY",
+        timeframe: "15m"
+      });
 
-{
-  await assert.rejects(
-    () =>
-      runAngelOneHistoricalImport(
-        null,
-        async () => {}
-      ),
-    /prepared Angel One/
-  );
+    assert.equal(
+      result.batches[0].candles[0].volume,
+      null
+    );
+  }
+);
 
-  console.log("PASS: prepared import validation");
-}
+// ------------------------------------------------------
+// 5. Unsupported timeframe
+// ------------------------------------------------------
 
-// --------------------------------------------------
-// TEST 11: Uploader required
-// --------------------------------------------------
+test(
+  "rejects unsupported timeframe",
+  () => {
+    assert.throws(
+      () =>
+        prepareAngelOneHistoricalImport({
+          response: successfulResponse([
+            row(0, 25000)
+          ]),
+          index: "NIFTY",
+          timeframe: "1h"
+        }),
+      /timeframe must be 15m or 1d/
+    );
+  }
+);
 
-{
-  const prepared = prepareAngelOneHistoricalImport({
-    response: makeResponse([
-      row(15, 26000)
-    ]),
-    index: "NIFTY",
-    timeframe: "15m"
-  });
+// ------------------------------------------------------
+// 6. Failed Angel One response
+// ------------------------------------------------------
 
-  await assert.rejects(
-    () =>
-      runAngelOneHistoricalImport(
+test(
+  "rejects unsuccessful Angel One response",
+  () => {
+    assert.throws(
+      () =>
+        prepareAngelOneHistoricalImport({
+          response: {
+            status: false,
+            message: "FAILED",
+            data: null
+          },
+          index: "NIFTY",
+          timeframe: "15m"
+        }),
+      /not successful/
+    );
+  }
+);
+
+// ------------------------------------------------------
+// 7. Existing candles must be an array
+// ------------------------------------------------------
+
+test(
+  "rejects non-array existing candles",
+  () => {
+    assert.throws(
+      () =>
+        prepareAngelOneHistoricalImport({
+          response: successfulResponse([
+            row(0, 25000)
+          ]),
+          index: "NIFTY",
+          timeframe: "15m",
+          existingCandles: {}
+        }),
+      /Existing historical candles must be an array/
+    );
+  }
+);
+
+// ------------------------------------------------------
+// 8. Sequential upload success
+// ------------------------------------------------------
+
+test(
+  "uploads prepared batches sequentially",
+  async () => {
+    const response = successfulResponse([
+      row(0, 25000),
+      row(15, 25010),
+      row(30, 25020)
+    ]);
+
+    const prepared =
+      prepareAngelOneHistoricalImport({
+        response,
+        index: "NIFTY",
+        timeframe: "15m",
+        batchSize: 2
+      });
+
+    const uploaded = [];
+
+    const result =
+      await runAngelOneHistoricalImport(
         prepared,
-        null
-      ),
-    /uploader function/
-  );
+        async batch => {
+          uploaded.push(batch.batchNumber);
+        }
+      );
 
-  console.log("PASS: uploader validation");
-}
+    assert.deepEqual(uploaded, [1, 2]);
 
-console.log("");
-console.log(
-  "ALL ANGEL ONE HISTORICAL IMPORT CONTROLLER TESTS PASSED"
+    assert.equal(result.status, "completed");
+    assert.equal(result.uploadedBatchCount, 2);
+    assert.equal(result.uploadedCandleCount, 3);
+    assert.equal(result.failedBatchNumber, null);
+    assert.equal(result.remainingBatchCount, 0);
+  }
+);
+
+// ------------------------------------------------------
+// 9. Upload failure stops remaining batches
+// ------------------------------------------------------
+
+test(
+  "stops upload after failed batch",
+  async () => {
+    const response = successfulResponse([
+      row(0, 25000),
+      row(15, 25010),
+      row(30, 25020),
+      row(45, 25030),
+      row(60, 25040)
+    ]);
+
+    const prepared =
+      prepareAngelOneHistoricalImport({
+        response,
+        index: "NIFTY",
+        timeframe: "15m",
+        batchSize: 2
+      });
+
+    const attempted = [];
+
+    const result =
+      await runAngelOneHistoricalImport(
+        prepared,
+        async batch => {
+          attempted.push(batch.batchNumber);
+
+          if (batch.batchNumber === 2) {
+            throw new Error("Test upload failure");
+          }
+        }
+      );
+
+    assert.deepEqual(attempted, [1, 2]);
+
+    assert.equal(result.status, "failed");
+    assert.equal(result.uploadedBatchCount, 1);
+    assert.equal(result.uploadedCandleCount, 2);
+    assert.equal(result.failedBatchNumber, 2);
+    assert.equal(result.remainingBatchCount, 1);
+    assert.equal(result.error, "Test upload failure");
+  }
+);
+
+// ------------------------------------------------------
+// 10. Invalid prepared import
+// ------------------------------------------------------
+
+test(
+  "rejects invalid prepared import",
+  async () => {
+    await assert.rejects(
+      () =>
+        runAngelOneHistoricalImport(
+          null,
+          async () => {}
+        ),
+      /prepared Angel One historical import is required/i
+    );
+  }
+);
+
+// ------------------------------------------------------
+// 11. Missing uploader
+// ------------------------------------------------------
+
+test(
+  "rejects missing uploader function",
+  async () => {
+    const prepared =
+      prepareAngelOneHistoricalImport({
+        response: successfulResponse([
+          row(0, 25000)
+        ]),
+        index: "NIFTY",
+        timeframe: "15m"
+      });
+
+    await assert.rejects(
+      () =>
+        runAngelOneHistoricalImport(
+          prepared,
+          null
+        ),
+      /database uploader function is required/i
+    );
+  }
 );

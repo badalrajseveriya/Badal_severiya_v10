@@ -1,4 +1,3 @@
-
 import assert from "node:assert/strict";
 
 import {
@@ -38,10 +37,11 @@ function makeCandles(count = 300) {
 }
 
 function makeUIModel() {
-  const report = generateHistoricalReport({
-    candles: makeCandles(),
-    timeframe: "15m"
-  });
+  const report =
+    generateHistoricalReport({
+      candles: makeCandles(),
+      timeframe: "15m"
+    });
 
   assert.equal(report.status, "OK");
 
@@ -51,11 +51,73 @@ function makeUIModel() {
   assert.equal(dashboardData.status, "OK");
 
   const display =
-    createHistoricalDashboardDisplay(dashboardData);
+    createHistoricalDashboardDisplay(
+      dashboardData
+    );
 
   assert.equal(display.status, "OK");
 
   return createHistoricalDashboardUIModel(display);
+}
+
+function makeSevenCardDisplay() {
+  const model = makeUIModel();
+
+  assert.equal(model.status, "OK");
+
+  const displayCards =
+    model.layout.cards.map(card => card.content);
+
+  displayCards.push({
+    id: "historical-master-analysis",
+    title: "Master Historical Analysis",
+    timeframe: "15m",
+    candleCount: 300,
+
+    composition: {
+      sampleSize: 300,
+      counts: {
+        bullish: 120,
+        bearish: 100,
+        neutral: 80
+      },
+      percentages: {
+        bullish: 40,
+        bearish: 33.333,
+        neutral: 26.667
+      },
+      percentageTotal: 100
+    },
+
+    historicalLevels: {
+      status: "OK",
+      trend: "UNKNOWN",
+      levels: []
+    },
+
+    smc: {
+      status: "OK"
+    },
+
+    validation: {
+      percentagesTotal100: true
+    }
+  });
+
+  return {
+    status: "OK",
+    dataType: "HISTORICAL_ONLY",
+    screen: {
+      ...model.screen,
+      screenId: "historical-dashboard",
+      subtitle: "Historical Dashboard + Master"
+    },
+    layout: {
+      type: "VERTICAL_CARDS",
+      cardCount: 7,
+      cards: displayCards
+    }
+  };
 }
 
 // 1. Complete UI model
@@ -94,7 +156,7 @@ function makeUIModel() {
   assert.equal(result.layout.type, "RESPONSIVE");
 }
 
-// 5. Six cards
+// 5. Six standard cards
 {
   const result = makeUIModel();
 
@@ -247,4 +309,62 @@ function makeUIModel() {
   assert.match(result.note, /No forecasts/);
 }
 
-console.log("All 17 dashboard UI model tests passed.");
+// 18. Seven-card Master Dashboard accepted
+{
+  const result =
+    createHistoricalDashboardUIModel(
+      makeSevenCardDisplay()
+    );
+
+  assert.equal(result.status, "OK");
+  assert.equal(result.layout.cardCount, 7);
+  assert.equal(result.layout.cards.length, 7);
+  assert.equal(result.validation.checkedCards, 7);
+
+  assert.equal(
+    result.layout.cards[6].id,
+    "historical-master-analysis"
+  );
+
+  assert.equal(
+    result.navigation.sections[6],
+    "historical-master-analysis"
+  );
+}
+
+// 19. Master card percentage validation
+{
+  const display =
+    makeSevenCardDisplay();
+
+  display.layout.cards[6]
+    .composition.percentages = {
+      bullish: 50,
+      bearish: 20,
+      neutral: 20
+    };
+
+  const result =
+    createHistoricalDashboardUIModel(display);
+
+  assert.equal(result.status, "ERROR");
+  assert.match(result.error, /percentages are invalid/);
+}
+
+// 20. Unknown seventh card rejected
+{
+  const display =
+    makeSevenCardDisplay();
+
+  display.layout.cards[6].id =
+    "unexpected-card";
+
+  const result =
+    createHistoricalDashboardUIModel(display);
+
+  assert.equal(result.status, "ERROR");
+}
+
+console.log(
+  "All 20 dashboard UI model tests passed."
+);

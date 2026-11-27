@@ -1,4 +1,3 @@
-
 import { test, expect } from "@playwright/test";
 import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
@@ -50,6 +49,10 @@ const fixture = {
       impact: "LOW"
     }
   ]
+};
+
+const CORS_HEADERS = {
+  "access-control-allow-origin": "*"
 };
 
 test.beforeAll(async () => {
@@ -125,12 +128,10 @@ test.beforeAll(async () => {
 
   await new Promise((resolve, reject) => {
     server.once("error", reject);
-
     server.listen(0, "127.0.0.1", resolve);
   });
 
   const address = server.address();
-
   baseUrl = `http://127.0.0.1:${address.port}`;
 });
 
@@ -152,6 +153,7 @@ async function openDashboard(page) {
       await route.fulfill({
         status: 200,
         contentType: "application/json",
+        headers: CORS_HEADERS,
         body: JSON.stringify(fixture)
       });
     }
@@ -260,6 +262,7 @@ test(
         await route.fulfill({
           status: 200,
           contentType: "application/json",
+          headers: CORS_HEADERS,
           body: JSON.stringify(payload)
         });
       }
@@ -319,6 +322,7 @@ test(
         await route.fulfill({
           status: 200,
           contentType: "application/json",
+          headers: CORS_HEADERS,
           body: JSON.stringify(fixture)
         });
       }

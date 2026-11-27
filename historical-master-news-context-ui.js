@@ -1,3 +1,4 @@
+
 /*
  * BADAL SEVERIYA V12
  * HISTORICAL MASTER — NEWS CONTEXT UI
@@ -32,6 +33,36 @@ const COLORS = {
 
 function getElement(id) {
   return document.getElementById(id);
+}
+
+/*
+ * Defense-in-depth: only safe HTTPS article links
+ * are rendered as clickable links in the dashboard.
+ */
+function getSafeArticleUrl(value) {
+  if (typeof value !== "string" || !value.trim()) {
+    return null;
+  }
+
+  try {
+    const parsed = new URL(value.trim());
+
+    if (parsed.protocol !== "https:") {
+      return null;
+    }
+
+    if (parsed.username || parsed.password) {
+      return null;
+    }
+
+    if (!parsed.hostname) {
+      return null;
+    }
+
+    return parsed.href;
+  } catch {
+    return null;
+  }
 }
 
 function createElement(tag, className, text) {
@@ -475,30 +506,50 @@ function createArticleCard(article, stale = false) {
     margin:8px 0 0;
   `;
 
-  const link = createElement(
-    "a",
-    "",
-    "OPEN ARTICLE"
+  const safeArticleUrl = getSafeArticleUrl(
+    article.link
   );
 
-  link.href = article.link;
-  link.target = "_blank";
-  link.rel = "noopener noreferrer";
+  let articleLinkElement;
 
-  link.style.cssText = `
-    display:inline-block;
-    margin-top:8px;
-    color:#38bdf8;
-    font-size:11px;
-    font-weight:bold;
-  `;
+  if (safeArticleUrl) {
+    articleLinkElement = createElement(
+      "a",
+      "",
+      "OPEN ARTICLE"
+    );
+
+    articleLinkElement.href = safeArticleUrl;
+    articleLinkElement.target = "_blank";
+    articleLinkElement.rel = "noopener noreferrer";
+
+    articleLinkElement.style.cssText = `
+      display:inline-block;
+      margin-top:8px;
+      color:#38bdf8;
+      font-size:11px;
+      font-weight:bold;
+    `;
+  } else {
+    articleLinkElement = createElement(
+      "div",
+      "",
+      "Article link unavailable or unsafe"
+    );
+
+    articleLinkElement.style.cssText = `
+      margin-top:8px;
+      color:${COLORS.muted};
+      font-size:11px;
+    `;
+  }
 
   card.append(
     title,
     meta,
     category,
     description,
-    link
+    articleLinkElement
   );
 
   if (stale) {

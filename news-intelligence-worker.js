@@ -1,10 +1,10 @@
 
-// BADAL SEVERIYA NEWS INTELLIGENCE — Phase 1.3.7
-// IST timestamp normalization and stricter India-market classification.
+// BADAL SEVERIYA NEWS INTELLIGENCE — Phase 1.3.8
+// Stricter index classification, exchange-source filtering, and rate-limit diagnostics.
 // Educational context only. No trading signals, predictions, or advice.
 
 const APP = "BADAL SEVERIYA NEWS INTELLIGENCE";
-const VERSION = "1.3.7";
+const VERSION = "1.3.8";
 const CACHE_SECONDS = 120;
 const MAX_PER_SOURCE = 40;
 const MAX_OUTPUT = 100;
@@ -130,7 +130,6 @@ function parseDate(value, options = {}) {
     } else if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?$/.test(s)) {
       input = `${s}${IST_OFFSET}`;
     } else {
-      // RFC-style or other textual date without a zone.
       input = `${s} ${IST_OFFSET}`;
     }
   }
@@ -229,9 +228,19 @@ function scoreItem(item) {
   ];
 
   const indexFocusTerms = [
-    "nifty", "nifty 50", "sensex", "bank nifty", "finnifty",
+    "nifty 50", "nifty", "sensex", "bank nifty", "nifty bank",
+    "finnifty", "nifty financial services", "nifty it",
     "indian stock market", "india stock market",
     "indian equity market", "indian equities", "market breadth"
+  ];
+
+  const indexMovementTerms = [
+    "rise", "rises", "rising", "gain", "gains", "gained",
+    "fall", "falls", "falling", "decline", "declines",
+    "drop", "drops", "dropped", "surge", "surges",
+    "slip", "slips", "advance", "advances", "close higher",
+    "close lower", "record high", "record low",
+    "rally", "rallies", "selloff", "sell-off"
   ];
 
   const indiaMacroTerms = [
@@ -296,7 +305,6 @@ function scoreItem(item) {
   ];
 
   const isRbi = sourceId === "rbi-press" || sourceId === "rbi-notifications";
-  const isExchange = sourceId === "nse-announcements" || sourceId === "bse-notices";
 
   const rbiRegulatory = isRbi && hasAny(text, regulatoryTerms);
   const rbiLiquidity = isRbi && hasAny(text, liquidityTerms);
@@ -308,8 +316,12 @@ function scoreItem(item) {
     /\b(?:share price|stock price|scrip code|listed company)\b/i.test(text);
 
   const indexMention = hasAny(text, directIndexTerms);
+
+  // A benchmark name alone is not an index move. Require both a
+  // benchmark reference and an explicit movement/action in the headline.
   const indexFocused =
     hasAny(title, indexFocusTerms) &&
+    hasAny(title, indexMovementTerms) &&
     !companySignal;
 
   const indiaMacroSignal =
@@ -338,7 +350,7 @@ function scoreItem(item) {
     category = "INDIA_MACRO";
     niftyRelevant = true;
     relevanceScore = rbiLiquidity ? 75 : 65;
-  } else if (companySignal || (isExchange && !indexFocused)) {
+  } else if (companySignal) {
     category = "INDIA_STOCK_SPECIFIC";
     relevanceScore = 55;
   } else if (indexFocused) {
@@ -451,6 +463,17 @@ async function fetchWithTimeout(url, source) {
   }
 }
 
+function classifySourceFailure(errors) {
+  if (!Array.isArray(errors) || errors.length === 0) return "EMPTY";
+  if (errors.every(error => /HTTP 429\b/i.test(String(error)))) return "RATE_LIMITED";
+
+  const onlyTransportErrors = errors.every(error =>
+    /HTTP \d+|Timeout|Network error/i.test(String(error))
+  );
+
+  return onlyTransportErrors ? "ERROR" : "EMPTY";
+}
+
 async function fetchSource(source) {
   const errors = [];
 
@@ -479,14 +502,10 @@ async function fetchSource(source) {
     }
   }
 
-  const onlyTransportErrors =
-    errors.length > 0 &&
-    errors.every(error => /HTTP \d+|Timeout|Network error/i.test(error));
-
   return {
     sourceId: source.id,
     sourceName: source.name,
-    status: onlyTransportErrors ? "ERROR" : "EMPTY",
+    status: classifySourceFailure(errors),
     fetchedItems: 0,
     parsedEntries: 0,
     items: [],
@@ -595,6 +614,7 @@ async function collectNews() {
     connectedSources: results.filter(x => x.status === "CONNECTED").length,
     emptySources: results.filter(x => x.status === "EMPTY").length,
     failedSources: results.filter(x => x.status === "ERROR").length,
+    rateLimitedSources: results.filter(x => x.status === "RATE_LIMITED").length,
     rawFeedEntries,
     fetchedItems,
     parsedItems: parsed.length,
@@ -622,7 +642,7 @@ async function collectNews() {
     sourceStatus,
     news,
     methodology: {
-      mode: "experimental-news-classification-market-context-v1.3.7",
+      mode: "experimental-news-classification-market-context-v1.3.8",
       disclaimer: "Educational news context only. Not live trading signals, predictions, or investment advice.",
       reliability: "Rule-based keyword classification. India-source timestamps without explicit timezone are interpreted as IST. Explicit timezone timestamps are preserved. Freshness is separately labelled. GENERAL_NOISE is excluded from the primary news list. Sentiment and context priority are not verified facts, measured market impact, or market-direction probabilities."
     }
@@ -645,7 +665,7 @@ function health() {
     app: APP,
     version: VERSION,
     configuredSources: SOURCES.length,
-    mode: "experimental-rss-atom-news-classification-v1.3.7",
+    mode: "experimental-rss-atom-news-classification-v1.3.8",
     endpoints: [
       "/api/health",
       "/api/news-intelligence",
@@ -681,6 +701,7 @@ export {
   classifyFreshness,
   isRecent,
   dedupe,
+  classifySourceFailure,
   collectNews
 };
 

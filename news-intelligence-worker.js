@@ -3,10 +3,11 @@
 // Experimental only. No fact-check certification or trading prediction.
 
 const APP = "BADAL SEVERIYA NEWS INTELLIGENCE";
-const VERSION = "1.1.0";
+const VERSION = "1.1.1";
 const CACHE_SECONDS = 180;
 const MAX_PER_SOURCE = 35;
 const MAX_OUTPUT = 80;
+const MAX_AGE_MS = 48 * 60 * 60 * 1000;
 
 const SOURCES = [
   {
@@ -138,16 +139,17 @@ function escapeRegExp(value) {
   return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-// Match whole words or phrases, not accidental substrings.
-// Example: "us" won't match "focus"; "rate" won't match "corporate".
 function termMatch(text, term) {
   const normalized = String(text || "").toLowerCase();
-  const t = String(term).toLowerCase().trim();
+  const t = String(term || "").toLowerCase().trim();
   if (!t) return false;
 
   const pattern = escapeRegExp(t).replace(/\s+/g, "\\s+");
-  return new RegExp(`(^|[^a-z0-9])${pattern}([^a-z0-9]|$)`, "i")
-    .test(normalized);
+
+  return new RegExp(
+    `(^|[^a-z0-9])${pattern}([^a-z0-9]|$)`,
+    "i"
+  ).test(normalized);
 }
 
 function countHits(text, terms) {
@@ -184,7 +186,7 @@ function safeHttps(value) {
 function parsePublished(raw) {
   if (!raw) return null;
 
-  const s = String(raw);
+  const s = String(raw).trim();
 
   if (/^\d{14}$/.test(s)) {
     const iso =
@@ -206,7 +208,7 @@ function parseRss(xml, source) {
     )
   ];
 
-  const atomEntries = rssItems.length
+  const entries = rssItems.length
     ? rssItems
     : [
         ...String(xml).matchAll(
@@ -214,7 +216,7 @@ function parseRss(xml, source) {
         )
       ];
 
-  return atomEntries.slice(0, MAX_PER_SOURCE).map(match => {
+  return entries.slice(0, MAX_PER_SOURCE).map(match => {
     const entry = match[1];
     const linkElement =
       (entry.match(/<(?:[\w.-]+:)?link\b[^>]*>/i) || [""])[0];
@@ -258,7 +260,7 @@ function parseGdelt(json, source) {
 }
 
 function isNiftyRelevant(news) {
-  const text = `${news.title || ""} ${news.description || ""}`.toLowerCase();
+  const text = `${news.title || ""} ${news.description || ""}`;
   const hits = RELEVANCE_TERMS.filter(term => termMatch(text, term));
 
   const priorityTerms = [
@@ -279,9 +281,9 @@ function isNiftyRelevant(news) {
 }
 
 function analyzeNewsItem(news) {
-  const text = `${news.title || ""} ${news.description || ""}`.toLowerCase();
-
+  const text = `${news.title || ""} ${news.description || ""}`;
   const relevance = isNiftyRelevant(news);
+
   const bullishHits = countHits(text, BULLISH_TERMS);
   const bearishHits = countHits(text, BEARISH_TERMS);
   const impactHits = countHits(text, HIGH_IMPACT_TERMS);
@@ -291,6 +293,7 @@ function analyzeNewsItem(news) {
   const critical = criticalHits >= 1;
 
   let direction = "NEUTRAL";
+
   if (bullishHits > bearishHits) direction = "BULLISH";
   if (bearishHits > bullishHits) direction = "BEARISH";
 
@@ -309,6 +312,7 @@ function analyzeNewsItem(news) {
   if (highImpact && direction !== "NEUTRAL") neutral -= 8;
 
   const total = bullish + bearish + neutral;
+
   bullish = Math.round(bullish * 100 / total);
   bearish = Math.round(bearish * 100 / total);
   neutral = 100 - bullish - bearish;
@@ -338,6 +342,11 @@ function analyzeNewsItem(news) {
       ? "OFFICIAL_SOURCE — independent fact-check not completed"
       : "UNVERIFIED — independent corroboration required",
     sourceTypeScore: official ? 65 : 45,
+
+    // Legacy compatibility field retained for existing tests/UI.
+    // This is source-type score, NOT factual verification confidence.
+    verificationConfidence: official ? 65 : 45,
+
     directionBias: direction,
     impactProbabilities: { bullish, bearish, neutral },
     scoringMethod: "transparent whole-word keyword rules; experimental",
@@ -367,9 +376,13 @@ function deduplicate(items) {
 function isFresh(news, now = Date.now()) {
   if (!news.published) return true;
 
-  const age = now - Date.parse(news.published);
-  // Ignore articles with dates older than 48h; retain unknown dates.
-  return !Number.isFinite(age) || age <= 48 * 60 * 60 * 1000;
+  const published = Date.parse(news.published);
+  if (!Number.isFinite(published)) return true;
+
+  const age = now - published;
+
+  // Filter older than 48 hours and unreasonable future timestamps.
+  return age <= MAX_AGE_MS && age >= -10 * 60 * 1000;
 }
 
 function prioritize(items) {
@@ -377,7 +390,7 @@ function prioritize(items) {
     .filter(item => item.niftyRelevance > 0 && isFresh(item))
     .sort((a, b) =>
       (b.niftyRelevance - a.niftyRelevance) ||
-      Date.parse(b.published || 0) - Date.parse(a.published || 0)
+      (Date.parse(b.published || 0) - Date.parse(a.published || 0))
     )
     .slice(0, MAX_OUTPUT);
 }
@@ -389,14 +402,16 @@ async function fetchSource(source) {
         Accept: source.id === "gdelt"
           ? "application/json"
           : "application/rss+xml, application/atom+xml, application/xml, text/xml, */*",
-        "User-Agent": "BADAL-SEVERIYA-News-Intelligence/1.1"
+        "User-Agent": `BADAL-SEVERIYA-News-Intelligence/${VERSION}`
       }
     });
 
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
     const body = await response.text();
+
     if (!body.trim()) throw new Error("Empty response");
+
     if (/^\s*<(?:!doctype html|html\b)/i.test(body)) {
       throw new Error("HTML response, not feed/data");
     }
@@ -447,7 +462,7 @@ async function collectNews() {
       direction: "rule-based sentiment bias only",
       verification: "official-source label only; independent claim verification is not implemented",
       percentages: "experimental and not calibrated against market outcomes",
-      freshness: "known-dated articles older than 48 hours are filtered out"
+      freshness: "known-dated articles older than 48 hours or over 10 minutes in the future are filtered"
     }
   };
 }
@@ -466,7 +481,6 @@ async function cachedCollect() {
     "https://badal-severiya-cache.invalid/news-intelligence-v1"
   );
 
-  // Cache API is available in the Cloudflare Worker runtime.
   const cache = caches.default;
   const cached = await cache.match(key);
 
@@ -491,6 +505,8 @@ export {
   parseRss,
   parseGdelt,
   prioritize,
+  isFresh,
+  termMatch,
   SOURCES
 };
 

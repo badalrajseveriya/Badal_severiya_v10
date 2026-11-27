@@ -1,13 +1,16 @@
-// BADAL SEVERIYA NEWS INTELLIGENCE — Phase 1.3.5
-// Structured Indian-market and global-market news context.
-// Educational information only; no trading signals, predictions, or advice.
+
+// BADAL SEVERIYA NEWS INTELLIGENCE — Phase 1.3.6
+// News freshness diagnostics and controlled stale-feed fallback.
+// Educational context only. No trading signals, predictions, or advice.
 
 const APP = "BADAL SEVERIYA NEWS INTELLIGENCE";
-const VERSION = "1.3.5";
+const VERSION = "1.3.6";
 const CACHE_SECONDS = 120;
 const MAX_PER_SOURCE = 40;
 const MAX_OUTPUT = 100;
 const MAX_AGE_MS = 48 * 60 * 60 * 1000;
+const FALLBACK_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+const FUTURE_TOLERANCE_MS = 5 * 60 * 1000;
 const FETCH_TIMEOUT_MS = 9000;
 
 const SOURCES = [
@@ -23,29 +26,57 @@ const SOURCES = [
   { id: "gdelt", name: "GDELT — Global News Monitor", type: "json", urls: ["https://api.gdeltproject.org/api/v2/doc/doc?query=India%20OR%20NIFTY%20OR%20RBI%20OR%20Indian%20markets%20OR%20Sensex&mode=ArtList&format=json&maxrecords=15&sort=DateDesc"] }
 ];
 
-const POSITIVE_TERMS = ["gain", "gains", "rise", "rises", "rising", "surge", "surges", "record high", "bullish", "rally", "rallies", "strong growth", "profit", "profits", "upgrade", "upgraded", "inflow", "inflows", "cuts rates", "rate cut", "eases", "easing", "beat estimates", "higher than expected", "positive outlook"];
-const NEGATIVE_TERMS = ["fall", "falls", "fell", "decline", "declines", "drop", "drops", "crash", "selloff", "sell-off", "bearish", "loss", "losses", "downgrade", "downgraded", "outflow", "outflows", "rate hike", "hikes rates", "inflation surge", "weak growth", "miss estimates", "lower than expected", "default", "fraud", "bankruptcy"];
+const POSITIVE_TERMS = [
+  "gain", "gains", "rise", "rises", "rising", "surge", "surges",
+  "record high", "bullish", "rally", "rallies", "strong growth",
+  "profit", "profits", "upgrade", "upgraded", "inflow", "inflows",
+  "cuts rates", "rate cut", "eases", "easing", "beat estimates",
+  "higher than expected", "positive outlook"
+];
+
+const NEGATIVE_TERMS = [
+  "fall", "falls", "fell", "decline", "declines", "drop", "drops",
+  "crash", "selloff", "sell-off", "bearish", "loss", "losses",
+  "downgrade", "downgraded", "outflow", "outflows", "rate hike",
+  "hikes rates", "inflation surge", "weak growth", "miss estimates",
+  "lower than expected", "default", "fraud", "bankruptcy"
+];
 
 function decodeEntities(value = "") {
-  return String(value).replace(/&nbsp;/gi, " ").replace(/&amp;/gi, "&")
-    .replace(/&quot;/gi, '"').replace(/&apos;/gi, "'").replace(/&#39;/gi, "'")
-    .replace(/&lt;/gi, "<").replace(/&gt;/gi, ">")
+  return String(value)
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&quot;/gi, '"')
+    .replace(/&apos;/gi, "'")
+    .replace(/&#39;/gi, "'")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
     .replace(/&#(\d+);/g, (_, n) => {
-      const c = Number(n); return c > 0 && c <= 0x10ffff ? String.fromCodePoint(c) : "";
-    }).replace(/&#x([\da-f]+);/gi, (_, n) => {
-      const c = parseInt(n, 16); return c > 0 && c <= 0x10ffff ? String.fromCodePoint(c) : "";
+      const c = Number(n);
+      return c > 0 && c <= 0x10ffff ? String.fromCodePoint(c) : "";
+    })
+    .replace(/&#x([\da-f]+);/gi, (_, n) => {
+      const c = parseInt(n, 16);
+      return c > 0 && c <= 0x10ffff ? String.fromCodePoint(c) : "";
     });
 }
 
 function stripHtml(value = "") {
-  return decodeEntities(String(value).replace(/<!\[CDATA\[([\s\S]*?)\]\]>/gi, "$1")
-    .replace(/<script[\s\S]*?<\/script>/gi, " ").replace(/<style[\s\S]*?<\/style>/gi, " ")
-    .replace(/<[^>]*>/g, " ")).replace(/\s+/g, " ").trim();
+  return decodeEntities(
+    String(value)
+      .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/gi, "$1")
+      .replace(/<script[\s\S]*?<\/script>/gi, " ")
+      .replace(/<style[\s\S]*?<\/style>/gi, " ")
+      .replace(/<[^>]*>/g, " ")
+  ).replace(/\s+/g, " ").trim();
 }
 
 function getTag(xml, tag) {
   const safe = tag.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const re = new RegExp(`<(?:(?:[\\w.-]+):)?${safe}(?:\\s[^>]*)?>([\\s\\S]*?)<\\/(?:(?:[\\w.-]+):)?${safe}\\s*>`, "i");
+  const re = new RegExp(
+    `<(?:(?:[\\w.-]+):)?${safe}(?:\\s[^>]*)?>([\\s\\S]*?)<\\/(?:(?:[\\w.-]+):)?${safe}\\s*>`,
+    "i"
+  );
   const m = String(xml).match(re);
   return m ? stripHtml(m[1]) : "";
 }
@@ -53,18 +84,26 @@ function getTag(xml, tag) {
 function getAttribute(xml, tag, attr) {
   const safeTag = tag.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const safeAttr = attr.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const re = new RegExp(`<(?:(?:[\\w.-]+):)?${safeTag}\\b[^>]*\\b${safeAttr}\\s*=\\s*["']([^"']+)["']`, "i");
+  const re = new RegExp(
+    `<(?:(?:[\\w.-]+):)?${safeTag}\\b[^>]*\\b${safeAttr}\\s*=\\s*["']([^"']+)["']`,
+    "i"
+  );
   const m = String(xml).match(re);
   return m ? decodeEntities(m[1].trim()) : "";
 }
 
 function parseDate(value) {
   if (!value) return null;
+
   const s = String(value).trim();
-  const gdelt = s.match(/^(\d{4})(\d{2})(\d{2})T?(\d{2})(\d{2})(\d{2})Z?$/i);
-  const input = gdelt ? `${gdelt[1]}-${gdelt[2]}-${gdelt[3]}T${gdelt[4]}:${gdelt[5]}:${gdelt[6]}Z` : s;
-  const d = new Date(input);
-  return Number.isFinite(d.getTime()) ? d.toISOString() : null;
+  const compact = s.match(/^(\d{4})(\d{2})(\d{2})T?(\d{2})(\d{2})(\d{2})Z?$/i);
+
+  const input = compact
+    ? `${compact[1]}-${compact[2]}-${compact[3]}T${compact[4]}:${compact[5]}:${compact[6]}Z`
+    : s;
+
+  const date = new Date(input);
+  return Number.isFinite(date.getTime()) ? date.toISOString() : null;
 }
 
 function parseRss(xml, source = {}, url = "") {
@@ -76,20 +115,34 @@ function parseRss(xml, source = {}, url = "") {
 
   const items = entries.map(entry => {
     const title = getTag(entry, "title");
-    const description = getTag(entry, "description") || getTag(entry, "summary") || getTag(entry, "content:encoded") || getTag(entry, "content");
-    const link = getTag(entry, "link") || getAttribute(entry, "link", "href") || getTag(entry, "guid");
-    const publishedAt = parseDate(getTag(entry, "pubDate") || getTag(entry, "published") || getTag(entry, "updated") || getTag(entry, "dc:date") || getTag(entry, "date"));
+    const description =
+      getTag(entry, "description") ||
+      getTag(entry, "summary") ||
+      getTag(entry, "encoded") ||
+      getTag(entry, "content");
+
+    const link =
+      getTag(entry, "link") ||
+      getAttribute(entry, "link", "href") ||
+      getTag(entry, "guid");
+
+    const dateText =
+      getTag(entry, "pubDate") ||
+      getTag(entry, "published") ||
+      getTag(entry, "updated") ||
+      getTag(entry, "date");
 
     return {
       title,
       description,
       link,
-      publishedAt,
+      publishedAt: parseDate(dateText),
       sourceId: source.id || "unknown",
       sourceName: source.name || "Unknown source",
-      sourceUrl: url
+      sourceUrl: url,
+      dateFieldPresent: Boolean(dateText)
     };
-  }).filter(x => x.title && x.link);
+  }).filter(item => item.title && item.link);
 
   return { items, entryCount: entries.length };
 }
@@ -97,15 +150,20 @@ function parseRss(xml, source = {}, url = "") {
 function parseGdelt(json, source = {}, url = "") {
   const articles = Array.isArray(json?.articles) ? json.articles : [];
 
-  const items = articles.slice(0, MAX_PER_SOURCE).map(a => ({
-    title: stripHtml(a.title || ""),
-    description: stripHtml(a.description || ""),
-    link: a.url || "",
-    publishedAt: parseDate(a.seendate || a.date || ""),
-    sourceId: source.id || "gdelt",
-    sourceName: a.domain || source.name || "GDELT",
-    sourceUrl: url
-  })).filter(x => x.title && x.link);
+  const items = articles.slice(0, MAX_PER_SOURCE).map(article => {
+    const dateText = article.seendate || article.date || "";
+
+    return {
+      title: stripHtml(article.title || ""),
+      description: stripHtml(article.description || ""),
+      link: article.url || "",
+      publishedAt: parseDate(dateText),
+      sourceId: source.id || "gdelt",
+      sourceName: article.domain || source.name || "GDELT",
+      sourceUrl: url,
+      dateFieldPresent: Boolean(dateText)
+    };
+  }).filter(item => item.title && item.link);
 
   return { items, entryCount: articles.length };
 }
@@ -114,8 +172,8 @@ function countTerms(text, terms) {
   const normalized = ` ${(String(text).toLowerCase().match(/[a-z0-9]+/g) || []).join(" ")} `;
 
   return terms.filter(term => {
-    const t = ` ${(String(term).toLowerCase().match(/[a-z0-9]+/g) || []).join(" ")} `;
-    return t.trim() && normalized.includes(t);
+    const normalizedTerm = ` ${(String(term).toLowerCase().match(/[a-z0-9]+/g) || []).join(" ")} `;
+    return normalizedTerm.trim() && normalized.includes(normalizedTerm);
   }).length;
 }
 
@@ -129,29 +187,33 @@ function scoreItem(item) {
 
   const directIndex = [
     "nifty", "nifty 50", "sensex", "bank nifty", "finnifty",
-    "indian stock market", "india stock market", "indian equity market",
-    "indian equities", "market breadth"
+    "indian stock market", "india stock market",
+    "indian equity market", "indian equities", "market breadth"
   ];
 
   const indiaMacro = [
-    "rupee", "inr", "fii", "fpi", "dii", "sebi", "indian economy",
-    "india economy", "indian markets", "india markets", "gdp",
-    "inflation", "bond yield", "forex reserves", "current account"
+    "rupee", "inr", "fii", "fpi", "dii", "sebi",
+    "indian economy", "india economy", "indian markets",
+    "india markets", "gdp", "inflation", "bond yield",
+    "forex reserves", "current account"
   ];
 
   const globalTerms = [
-    "federal reserve", "fed rate", "fomc", "interest rate", "inflation",
-    "crude oil", "oil price", "oil supply", "usd", "dollar", "bond yield",
-    "treasury yield", "global market", "stock market", "financial markets",
-    "equities", "gold", "commodity", "ecb", "central bank", "recession",
-    "economic growth", "monetary policy", "tariff", "trade war"
+    "federal reserve", "fed rate", "fomc", "interest rate",
+    "inflation", "crude oil", "oil price", "oil supply",
+    "usd", "dollar", "bond yield", "treasury yield",
+    "global market", "stock market", "financial markets",
+    "equities", "gold", "commodity", "ecb", "central bank",
+    "recession", "economic growth", "monetary policy",
+    "tariff", "trade war"
   ];
 
   const marketTerms = [
-    "market", "markets", "stock", "stocks", "equity", "equities",
-    "financial", "investor", "investors", "bond", "bonds", "yield",
-    "inflation", "interest rate", "currency", "rupee", "oil", "crude",
-    "gold", "commodity", "commodities", "liquidity", "capital"
+    "market", "markets", "stock", "stocks", "equity",
+    "equities", "financial", "investor", "investors",
+    "bond", "bonds", "yield", "inflation", "interest rate",
+    "currency", "rupee", "oil", "crude", "gold",
+    "commodity", "commodities", "liquidity", "capital"
   ];
 
   const liquidityTerms = [
@@ -159,31 +221,32 @@ function scoreItem(item) {
     "liquidity adjustment facility", "laf", "liquidity injection",
     "liquidity absorption", "liquidity operation",
     "standing deposit facility", "marginal standing facility",
-    "cash reserve ratio", "crr", "statutory liquidity ratio", "slr",
-    "open market operation", "government securities", "repo rate",
-    "reverse repo"
+    "cash reserve ratio", "crr", "statutory liquidity ratio",
+    "slr", "open market operation", "government securities",
+    "repo rate", "reverse repo"
   ];
 
   const policyTerms = [
-    "monetary policy", "policy rate", "repo rate", "inflation target",
-    "bank rate", "foreign exchange reserves", "forex reserves",
-    "payment system", "banking regulation", "rbi policy",
-    "reserve bank policy", "liquidity"
+    "monetary policy", "policy rate", "repo rate",
+    "inflation target", "bank rate", "foreign exchange reserves",
+    "forex reserves", "payment system", "banking regulation",
+    "rbi policy", "reserve bank policy", "liquidity"
   ];
 
   const regulatoryTerms = [
-    "sanctions list", "uapa", "unscr", "compliance", "know your customer",
-    "kyc", "regulatory directions", "regulatory framework",
-    "notification", "circular", "amendment", "regulated entities",
-    "directions"
+    "sanctions list", "uapa", "unscr", "compliance",
+    "know your customer", "kyc", "regulatory directions",
+    "regulatory framework", "notification", "circular",
+    "amendment", "regulated entities", "directions"
   ];
 
   const corporateTerms = [
-    "quarterly results", "financial results", "earnings", "dividend",
-    "buyback", "merger", "acquisition", "share split", "stock split",
-    "bonus shares", "board meeting", "order win", "contract win",
-    "fund raising", "fundraising", "ipo", "listing", "promoter",
-    "pledge", "shareholding"
+    "quarterly results", "financial results", "earnings",
+    "dividend", "buyback", "merger", "acquisition",
+    "share split", "stock split", "bonus shares",
+    "board meeting", "order win", "contract win",
+    "fund raising", "fundraising", "ipo", "listing",
+    "promoter", "pledge", "shareholding"
   ];
 
   const isRbi = sourceId === "rbi-press" || sourceId === "rbi-notifications";
@@ -194,7 +257,9 @@ function scoreItem(item) {
   const explicitIndex = hasAny(text, directIndex);
   const indiaMacroHit = hasAny(text, indiaMacro);
   const globalMarket = hasAny(text, globalTerms) && hasAny(text, marketTerms);
-  const companyContext = (isExchange || hasAny(text, ["india", "indian", "nse", "bse"])) && hasAny(text, corporateTerms);
+  const companyContext =
+    (isExchange || hasAny(text, ["india", "indian", "nse", "bse"])) &&
+    hasAny(text, corporateTerms);
 
   let category = "GENERAL_NOISE";
   let niftyRelevant = false;
@@ -211,11 +276,15 @@ function scoreItem(item) {
     category = "INDIA_INDEX_CONTEXT";
     niftyRelevant = true;
     relevanceScore = 85;
-  } else if (indiaMacroHit && hasAny(text, [
-    "indian economy", "india economy", "indian markets", "india markets",
-    "rupee", "inr", "fii", "fpi", "dii", "sebi", "gdp", "inflation",
-    "bond yield", "forex reserves", "current account"
-  ])) {
+  } else if (
+    indiaMacroHit &&
+    hasAny(text, [
+      "indian economy", "india economy", "indian markets",
+      "india markets", "rupee", "inr", "fii", "fpi",
+      "dii", "sebi", "gdp", "inflation", "bond yield",
+      "forex reserves", "current account"
+    ])
+  ) {
     category = "INDIA_MACRO";
     niftyRelevant = true;
     relevanceScore = 65;
@@ -229,7 +298,10 @@ function scoreItem(item) {
 
   const positive = countTerms(text, POSITIVE_TERMS);
   const negative = countTerms(text, NEGATIVE_TERMS);
-  const sentiment = positive && negative ? "MIXED" : positive ? "POSITIVE" : negative ? "NEGATIVE" : "NEUTRAL";
+  const sentiment =
+    positive && negative ? "MIXED" :
+    positive ? "POSITIVE" :
+    negative ? "NEGATIVE" : "NEUTRAL";
 
   return {
     ...item,
@@ -243,14 +315,30 @@ function scoreItem(item) {
   };
 }
 
-function isRecent(item, now = Date.now()) {
-  if (!item.publishedAt) return true;
-  const t = new Date(item.publishedAt).getTime();
-  return Number.isFinite(t) && now - t <= MAX_AGE_MS && now - t >= -5 * 60 * 1000;
+function classifyFreshness(item, now = Date.now()) {
+  if (!item.publishedAt) {
+    return item.dateFieldPresent ? "INVALID_DATE" : "MISSING_DATE";
+  }
+
+  const timestamp = new Date(item.publishedAt).getTime();
+  if (!Number.isFinite(timestamp)) return "INVALID_DATE";
+
+  const age = now - timestamp;
+
+  if (age < -FUTURE_TOLERANCE_MS) return "FUTURE_DATE";
+  if (age <= MAX_AGE_MS) return "FRESH";
+  if (age <= FALLBACK_AGE_MS) return "STALE_FALLBACK";
+
+  return "STALE_OLD";
 }
 
-function normalizeTitle(s = "") {
-  return String(s).toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+function isRecent(item, now = Date.now()) {
+  const status = classifyFreshness(item, now);
+  return status === "FRESH" || status === "MISSING_DATE";
+}
+
+function normalizeTitle(value = "") {
+  return String(value).toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 }
 
 function dedupe(items) {
@@ -258,14 +346,14 @@ function dedupe(items) {
   const links = new Set();
 
   return items.filter(item => {
-    const t = normalizeTitle(item.title);
-    const l = String(item.link || "").trim().toLowerCase().replace(/[?#].*$/, "");
+    const title = normalizeTitle(item.title);
+    const link = String(item.link || "").trim().toLowerCase().replace(/[?#].*$/, "");
 
-    if (!t && !l) return false;
-    if ((t && titles.has(t)) || (l && links.has(l))) return false;
+    if (!title && !link) return false;
+    if ((title && titles.has(title)) || (link && links.has(link))) return false;
 
-    if (t) titles.add(t);
-    if (l) links.add(l);
+    if (title) titles.add(title);
+    if (link) links.add(link);
 
     return true;
   });
@@ -328,13 +416,14 @@ async function fetchSource(source) {
       }
 
       errors.push(`${url}: parser returned 0 valid items (entries detected: ${parsed.entryCount})`);
-    } catch (e) {
-      errors.push(`${url}: ${e.message}`);
+    } catch (error) {
+      errors.push(`${url}: ${error.message}`);
     }
   }
 
-  const onlyTransportErrors = errors.length > 0 &&
-    errors.every(e => /HTTP \d+|Timeout|Network error/i.test(e));
+  const onlyTransportErrors =
+    errors.length > 0 &&
+    errors.every(error => /HTTP \d+|Timeout|Network error/i.test(error));
 
   return {
     sourceId: source.id,
@@ -351,23 +440,99 @@ async function fetchSource(source) {
 async function collectNews() {
   const results = await Promise.all(SOURCES.map(fetchSource));
 
-  const rawFeedEntries = results.reduce((n, r) => n + r.parsedEntries, 0);
-  const fetchedItems = results.reduce((n, r) => n + r.fetchedItems, 0);
+  const rawFeedEntries = results.reduce((n, result) => n + result.parsedEntries, 0);
+  const fetchedItems = results.reduce((n, result) => n + result.fetchedItems, 0);
+  const parsed = results.flatMap(result => result.items).map(scoreItem);
+  const now = Date.now();
 
-  const parsed = results.flatMap(r => r.items).map(scoreItem);
-  const recent = parsed.filter(isRecent);
+  const freshnessCounts = {
+    fresh: 0,
+    staleFallback: 0,
+    staleOld: 0,
+    missingDate: 0,
+    invalidDate: 0,
+    futureDate: 0
+  };
 
-  const unique = dedupe(recent).sort((a, b) =>
+  const freshnessBySource = {};
+
+  for (const result of results) {
+    freshnessBySource[result.sourceId] = {
+      sourceName: result.sourceName,
+      parsedItems: result.items.length,
+      fresh: 0,
+      staleFallback: 0,
+      staleOld: 0,
+      missingDate: 0,
+      invalidDate: 0,
+      futureDate: 0,
+      newestPublishedAt: null
+    };
+  }
+
+  const classified = parsed.map(item => {
+    const freshness = classifyFreshness(item, now);
+    const stats = freshnessBySource[item.sourceId];
+
+    if (freshness === "FRESH") {
+      freshnessCounts.fresh++;
+      stats.fresh++;
+    } else if (freshness === "STALE_FALLBACK") {
+      freshnessCounts.staleFallback++;
+      stats.staleFallback++;
+    } else if (freshness === "STALE_OLD") {
+      freshnessCounts.staleOld++;
+      stats.staleOld++;
+    } else if (freshness === "MISSING_DATE") {
+      freshnessCounts.missingDate++;
+      stats.missingDate++;
+    } else if (freshness === "INVALID_DATE") {
+      freshnessCounts.invalidDate++;
+      stats.invalidDate++;
+    } else if (freshness === "FUTURE_DATE") {
+      freshnessCounts.futureDate++;
+      stats.futureDate++;
+    }
+
+    if (
+      item.publishedAt &&
+      (!stats.newestPublishedAt || item.publishedAt > stats.newestPublishedAt)
+    ) {
+      stats.newestPublishedAt = item.publishedAt;
+    }
+
+    return { ...item, freshness };
+  });
+
+  const strictEligible = classified.filter(item =>
+    item.freshness === "FRESH" || item.freshness === "MISSING_DATE"
+  );
+
+  const usedFallbackWindow =
+    strictEligible.length === 0 && freshnessCounts.staleFallback > 0;
+
+  const eligible = usedFallbackWindow
+    ? classified.filter(item =>
+        item.freshness === "STALE_FALLBACK" ||
+        item.freshness === "MISSING_DATE"
+      )
+    : strictEligible;
+
+  const unique = dedupe(eligible).sort((a, b) =>
     b.relevanceScore - a.relevanceScore ||
     String(b.publishedAt || "").localeCompare(String(a.publishedAt || ""))
   );
 
-  const primary = unique.filter(x => x.relevanceCategory !== "GENERAL_NOISE");
+  const primary = unique.filter(item =>
+    item.relevanceCategory !== "GENERAL_NOISE"
+  );
+
   const news = primary.slice(0, MAX_OUTPUT);
 
-  const categoryCounts = unique.reduce((o, x) => {
-    o[x.relevanceCategory] = (o[x.relevanceCategory] || 0) + 1;
-    return o;
+  const categoryCounts = unique.reduce((counts, item) => {
+    counts[item.relevanceCategory] =
+      (counts[item.relevanceCategory] || 0) + 1;
+    return counts;
   }, {});
 
   const sourceStatus = results.map(({ items, ...rest }) => rest);
@@ -384,20 +549,30 @@ async function collectNews() {
     fetchedItems,
     parsedItems: parsed.length,
     invalidItems: Math.max(0, rawFeedEntries - fetchedItems),
-    filteredOldOrInvalidItems: parsed.length - recent.length,
-    duplicateItems: recent.length - unique.length,
+    freshnessCounts,
+    freshnessBySource,
+    freshnessPolicy: {
+      normalWindowHours: 48,
+      fallbackWindowDays: 7,
+      usedFallbackWindow,
+      note: usedFallbackWindow
+        ? "No items were inside 48 hours; output uses items aged 48 hours to 7 days and labels them STALE_FALLBACK."
+        : "Output uses items inside 48 hours plus items with missing publication dates. Older items are excluded."
+    },
+    filteredOldOrInvalidItems: parsed.length - eligible.length,
+    duplicateItems: eligible.length - unique.length,
     uniqueItems: unique.length,
     outputItems: news.length,
-    niftyRelevantItems: unique.filter(x => x.niftyRelevant).length,
+    niftyRelevantItems: unique.filter(item => item.niftyRelevant).length,
     primaryMarketItems: primary.length,
     generalNoiseItems: categoryCounts.GENERAL_NOISE || 0,
     categoryCounts,
     sourceStatus,
     news,
     methodology: {
-      mode: "experimental-news-classification-market-context-v1.3.5",
+      mode: "experimental-news-classification-market-context-v1.3.6",
       disclaimer: "Educational news context only. Not live trading signals, predictions, or investment advice.",
-      reliability: "Rule-based keyword classification. GENERAL_NOISE is excluded from the primary news list but counted in diagnostics. Global market context is not automatically NIFTY-relevant. Sentiment and context priority are not verified facts, measured market impact, or market-direction probabilities."
+      reliability: "Rule-based keyword classification. Freshness is separately labelled. GENERAL_NOISE is excluded from the primary news list. Global market context is not automatically NIFTY-relevant. Sentiment and context priority are not verified facts, measured market impact, or market-direction probabilities."
     }
   };
 }
@@ -418,7 +593,7 @@ function health() {
     app: APP,
     version: VERSION,
     configuredSources: SOURCES.length,
-    mode: "experimental-rss-atom-news-classification-v1.3.5",
+    mode: "experimental-rss-atom-news-classification-v1.3.6",
     endpoints: [
       "/api/health",
       "/api/news-intelligence",
@@ -429,7 +604,9 @@ function health() {
 }
 
 async function getCachedNews(cache, forceRefresh = false) {
-  const key = new Request(`https://badal-severiya-cache.local/news-intelligence-${VERSION}`);
+  const key = new Request(
+    `https://badal-severiya-cache.local/news-intelligence-${VERSION}`
+  );
 
   if (forceRefresh) {
     await cache.delete(key);
@@ -440,15 +617,16 @@ async function getCachedNews(cache, forceRefresh = false) {
 
   const response = jsonResponse(await collectNews());
   await cache.put(key, response.clone());
-
   return response;
 }
 
 export {
   SOURCES,
+  parseDate,
   parseRss,
   parseGdelt,
   scoreItem,
+  classifyFreshness,
   isRecent,
   dedupe,
   collectNews

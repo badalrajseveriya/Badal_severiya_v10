@@ -2,9 +2,11 @@
 import { analyzeHistoricalMasterNewsContext } from "./historical-master-news-context.js";
 
 const MODULE = "BADAL_SEVERIYA_MASTER_NEWS_CONTEXT_PROXY";
-const VERSION = "1.0.0";
+const VERSION = "1.1.0";
 const UPSTREAM =
   "https://badal-severiya-news-intelligence.mrstarrdbs.workers.dev/api/news-intelligence";
+
+const UPSTREAM_TIMEOUT_MS = 8000;
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -24,11 +26,76 @@ function json(data, status = 200) {
   });
 }
 
-export async function handleNewsContextRequest(request, fetchImpl = fetch) {
+function createTimeoutError() {
+  const error = new Error("UPSTREAM_TIMEOUT");
+  error.code = "UPSTREAM_TIMEOUT";
+  return error;
+}
+
+async function fetchUpstreamWithTimeout(fetchImpl, upstreamUrl) {
+  const controller = new AbortController();
+  let timeoutId;
+
+  const timeoutPromise = new Promise((_, reject) => {
+    timeoutId = setTimeout(() => {
+      controller.abort();
+      reject(createTimeoutError());
+    }, UPSTREAM_TIMEOUT_MS);
+  });
+
+  const requestPromise = (async () => {
+    const upstream = await fetchImpl(upstreamUrl, {
+      method: "GET",
+      headers: {
+        Accept: "application/json"
+      },
+      signal: controller.signal
+    });
+
+    if (!upstream.ok) {
+      return {
+        type: "HTTP_ERROR",
+        status: upstream.status
+      };
+    }
+
+    let payload;
+
+    try {
+      payload = await upstream.json();
+    } catch {
+      return {
+        type: "INVALID_JSON"
+      };
+    }
+
+    return {
+      type: "SUCCESS",
+      payload
+    };
+  })();
+
+  try {
+    return await Promise.race([
+      requestPromise,
+      timeoutPromise
+    ]);
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+export async function handleNewsContextRequest(
+  request,
+  fetchImpl = fetch
+) {
   const url = new URL(request.url);
 
   if (request.method === "OPTIONS") {
-    return new Response(null, { status: 204, headers: CORS_HEADERS });
+    return new Response(null, {
+      status: 204,
+      headers: CORS_HEADERS
+    });
   }
 
   if (request.method !== "GET") {
@@ -39,7 +106,10 @@ export async function handleNewsContextRequest(request, fetchImpl = fetch) {
     }, 405);
   }
 
-  if (url.pathname !== "/" && url.pathname !== "/api/news-context") {
+  if (
+    url.pathname !== "/" &&
+    url.pathname !== "/api/news-context"
+  ) {
     return json({
       ok: false,
       module: MODULE,
@@ -54,27 +124,23 @@ export async function handleNewsContextRequest(request, fetchImpl = fetch) {
       upstreamUrl.searchParams.set("refresh", "1");
     }
 
-    const upstream = await fetchImpl(upstreamUrl.toString(), {
-      method: "GET",
-      headers: { Accept: "application/json" }
-    });
+    const upstreamResult = await fetchUpstreamWithTimeout(
+      fetchImpl,
+      upstreamUrl.toString()
+    );
 
-    if (!upstream.ok) {
+    if (upstreamResult.type === "HTTP_ERROR") {
       return json({
         ok: false,
         module: MODULE,
         version: VERSION,
         status: "UPSTREAM_ERROR",
-        upstreamStatus: upstream.status,
+        upstreamStatus: upstreamResult.status,
         error: "News Intelligence upstream API returned an error."
       }, 502);
     }
 
-    let payload;
-
-    try {
-      payload = await upstream.json();
-    } catch {
+    if (upstreamResult.type === "INVALID_JSON") {
       return json({
         ok: false,
         module: MODULE,
@@ -84,18 +150,31 @@ export async function handleNewsContextRequest(request, fetchImpl = fetch) {
       }, 502);
     }
 
+    const payload = upstreamResult.payload;
     const context = analyzeHistoricalMasterNewsContext(payload);
 
     return json({
       ok: context.status === "OK",
       module: MODULE,
       version: VERSION,
-      upstreamApp: payload?.app || "BADAL SEVERIYA NEWS INTELLIGENCE",
+      upstreamApp:
+        payload?.app || "BADAL SEVERIYA NEWS INTELLIGENCE",
       upstreamVersion: payload?.version || null,
       fetchedAt: new Date().toISOString(),
       context
     }, context.status === "OK" ? 200 : 503);
   } catch (error) {
+    if (error?.code === "UPSTREAM_TIMEOUT") {
+      return json({
+        ok: false,
+        module: MODULE,
+        version: VERSION,
+        status: "UPSTREAM_TIMEOUT",
+        timeoutMs: UPSTREAM_TIMEOUT_MS,
+        error: "News Intelligence API request timed out."
+      }, 504);
+    }
+
     return json({
       ok: false,
       module: MODULE,

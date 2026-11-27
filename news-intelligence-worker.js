@@ -1,9 +1,9 @@
-// BADAL SEVERIYA NEWS INTELLIGENCE — Phase 1.4.0
-// Stricter India macro gating, exchange disclosure classification, and mixed-context sentiment.
+// BADAL SEVERIYA NEWS INTELLIGENCE — Phase 1.4.1
+// Index outlook classification, finance-stock detection, and source diagnostics.
 // Educational context only. No trading signals, predictions, or advice.
 
 const APP = "BADAL SEVERIYA NEWS INTELLIGENCE";
-const VERSION = "1.4.0";
+const VERSION = "1.4.1";
 const CACHE_SECONDS = 120;
 const MAX_PER_SOURCE = 40;
 const MAX_OUTPUT = 100;
@@ -233,13 +233,13 @@ function scoreItem(item) {
   const sourceId = item.sourceId || "";
 
   const directIndexTerms = [
-    "nifty", "nifty 50", "sensex", "bank nifty", "finnifty",
+    "nifty", "nifty 50", "sensex", "bank nifty", "finnifty", "gift nifty",
     "indian stock market", "india stock market",
     "indian equity market", "indian equities", "market breadth"
   ];
 
   const indexFocusTerms = [
-    "nifty 50", "nifty", "sensex", "bank nifty", "nifty bank",
+    "nifty 50", "nifty", "sensex", "bank nifty", "nifty bank", "gift nifty",
     "finnifty", "nifty financial services", "nifty it",
     "indian stock market", "india stock market",
     "indian equity market", "indian equities", "market breadth"
@@ -251,7 +251,8 @@ function scoreItem(item) {
     "drop", "drops", "dropped", "surge", "surges", "up", "down",
     "higher", "lower", "slip", "slips", "advance", "advances",
     "close higher", "close lower", "record high", "record low",
-    "rally", "rallies", "selloff", "sell-off", "outperform", "crash"
+    "rally", "rallies", "selloff", "sell-off", "outperform", "crash",
+    "outlook", "target", "hit", "touch", "reach", "forecast"
   ];
 
   // Only India-specific anchors qualify an item as India macro.
@@ -349,7 +350,7 @@ function scoreItem(item) {
 
   const companySignal =
     hasAny(title, corporateTerms) || companyMovement || exchangeDisclosureSignal ||
-    /\b(?:shares?|stock)\s+(?:jump|surge|rise|rally|fall|drop|decline|gain|lose|slide)/i.test(title) ||
+    /\b(?:shares?|stocks?)\s+(?:jump|surge|rise|rally|fall|drop|decline|gain|lose|slide)/i.test(title) ||
     /\b(?:share price|stock price|scrip code|listed company)\b/i.test(title);
 
   const indexMention = hasAny(text, directIndexTerms);
@@ -531,7 +532,9 @@ async function fetchSource(source) {
           fetchedItems: parsed.items.length,
           parsedEntries: parsed.entryCount,
           items: parsed.items,
-          url
+          url,
+          attemptedUrls: [...errors.map(entry => entry.split(": ")[0]), url],
+          attemptCount: errors.length + 1
         };
       }
 
@@ -549,7 +552,11 @@ async function fetchSource(source) {
     parsedEntries: 0,
     items: [],
     error: errors.join(" | "),
-    diagnostic: "No valid items were parsed from the attempted feed URLs."
+    attemptedUrls: source.urls.slice(0, errors.length),
+    attemptCount: errors.length,
+    diagnostic: errors.some(error => /Timeout/i.test(error))
+      ? "All attempted URLs failed or timed out; inspect per-URL error details. Configured fallback URLs were attempted."
+      : "No valid items were parsed from the attempted feed URLs."
   };
 }
 
@@ -681,7 +688,7 @@ async function collectNews() {
     sourceStatus,
     news,
     methodology: {
-      mode: "experimental-news-classification-market-context-v1.4.0",
+      mode: "experimental-news-classification-market-context-v1.4.1",
       disclaimer: "Educational news context only. Not live trading signals, predictions, or investment advice.",
       reliability: "Rule-based keyword classification. India-source timestamps without explicit timezone are interpreted as IST. Explicit timezone timestamps are preserved. Freshness is separately labelled. GENERAL_NOISE is excluded from the primary news list. Sentiment and context priority are not verified facts, measured market impact, or market-direction probabilities."
     }
@@ -704,7 +711,7 @@ function health() {
     app: APP,
     version: VERSION,
     configuredSources: SOURCES.length,
-    mode: "experimental-rss-atom-news-classification-v1.4.0",
+    mode: "experimental-rss-atom-news-classification-v1.4.1",
     endpoints: [
       "/api/health",
       "/api/news-intelligence",

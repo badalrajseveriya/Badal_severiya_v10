@@ -1,4 +1,3 @@
-
 // BADAL SEVERIYA NEWS INTELLIGENCE — Phase 1.2 Tests
 // Run: node news-intelligence-worker.test.js
 
@@ -283,7 +282,7 @@ test("US mention alone does not qualify as market news", () => {
   assert.equal(result.relevanceScore, 0);
 });
 
-// 17. India financial context — CORRECTED
+// 17. India financial context
 test("India economy news with explicit financial context is relevant", () => {
   const result = isNiftyRelevant({
     title: "India GDP growth and inflation outlook",
@@ -485,7 +484,7 @@ test("Old dated news is excluded from prioritized output", () => {
       title: "RBI India inflation update stale",
       description: "Monetary policy and market update",
       sourceKind: "official",
-      published: new Date(now - 60 * 60 * 49).toISOString()
+      published: new Date(now - 49 * 60 * 60 * 1000).toISOString()
     }
   ];
 

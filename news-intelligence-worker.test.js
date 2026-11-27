@@ -1,5 +1,4 @@
-
-// BADAL SEVERIYA NEWS INTELLIGENCE — Phase 1.3.9 tests
+// BADAL SEVERIYA NEWS INTELLIGENCE — Phase 1.4.0 tests
 // Run: node news-intelligence-worker.test.js
 
 import assert from "node:assert/strict";
@@ -378,6 +377,51 @@ test("NIFTY 50 falling headline remains index context", () => {
   assert.equal(result.niftyRelevant, true);
 });
 
+// Phase 1.4.0 regression tests
+
+test("NSE company disclosure is stock-specific, not India macro", () => {
+  const result = scoreItem({
+    title: "Mercury Ev-Tech Limited",
+    description: "Disclosure under Regulation 7(2)(a) of SEBI (Prohibition of Insider Trading) Regulations, 2015. The company informed the Exchange regarding the disclosure.",
+    sourceId: "nse-announcements"
+  });
+
+  assert.equal(result.relevanceCategory, "INDIA_STOCK_SPECIFIC");
+  assert.equal(result.niftyRelevant, false);
+});
+
+test("Gold and silver commodity selloff is global context, not India macro", () => {
+  const result = scoreItem({
+    title: "Gold vs silver: Precious metals prices crashed and rebounded",
+    description: "MCX gold fell as a stronger US dollar and elevated bond yields triggered selling.",
+    sourceId: "livemint-markets"
+  });
+
+  assert.equal(result.relevanceCategory, "GLOBAL_MARKET_CONTEXT");
+  assert.equal(result.niftyRelevant, false);
+});
+
+test("Vedanta group rises while NIFTY and Sensex fall gives mixed sentiment", () => {
+  const result = scoreItem({
+    title: "Sensex, Nifty down today but Hindustan Zinc, Vedanta Aluminium and Vedanta Power are rising",
+    description: "Hindustan Zinc emerged as the biggest gainer among the group stocks.",
+    sourceId: "livemint-markets"
+  });
+
+  assert.equal(result.relevanceCategory, "INDIA_INDEX_CONTEXT");
+  assert.equal(result.niftyRelevant, true);
+  assert.equal(result.sentiment, "MIXED");
+});
+
+test("GDELT source has a narrower one-day fallback query", () => {
+  const gdelt = SOURCES.find(item => item.id === "gdelt");
+
+  assert.ok(gdelt);
+  assert.equal(gdelt.urls.length, 2);
+  assert.match(gdelt.urls[1], /timespan=1d/);
+  assert.match(gdelt.urls[1], /maxrecords=8/);
+});
+
 test("Fresh item is classified correctly", () => {
   const now = Date.parse("2026-11-27T12:00:00.000Z");
 
@@ -449,7 +493,7 @@ test("HTTP 429 is distinguished from other source failures", () => {
   );
 
   assert.equal(
-    classifySourceFailure(["https://feed.test: Timeout after 12000ms"]),
+    classifySourceFailure(["https://feed.test: Timeout after 9000ms"]),
     "ERROR"
   );
 

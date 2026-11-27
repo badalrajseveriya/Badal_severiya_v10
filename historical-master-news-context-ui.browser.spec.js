@@ -285,7 +285,7 @@ test(
 );
 
 test(
-  "renders safe HTTPS links and never makes unsafe links clickable",
+  "renders safe HTTPS links and bridge excludes unsafe URL articles",
   async ({ page }) => {
     const payload = {
       ...fixture,
@@ -329,36 +329,27 @@ test(
       panel.locator('a[href*="user:password"]')
     ).toHaveCount(0);
 
-    const unsafeArticle = panel.locator(
-      ".news-context-article"
-    ).filter({
-      hasText: "Unsafe JavaScript URL"
-    });
-
-    const credentialArticle = panel.locator(
-      ".news-context-article"
-    ).filter({
-      hasText: "Credential URL"
-    });
-
-    await expect(unsafeArticle).toBeVisible();
-    await expect(credentialArticle).toBeVisible();
-
+    // The bridge rejects unsafe URLs before the UI receives them.
+    // Therefore unsafe articles must not be rendered at all.
     await expect(
-      unsafeArticle.locator("a")
+      panel.locator(".news-context-article").filter({
+        hasText: "Unsafe JavaScript URL"
+      })
     ).toHaveCount(0);
 
     await expect(
-      credentialArticle.locator("a")
+      panel.locator(".news-context-article").filter({
+        hasText: "Credential URL"
+      })
     ).toHaveCount(0);
 
-    await expect(unsafeArticle).toContainText(
-      "Article link unavailable or unsafe"
-    );
+    await expect(
+      panel.locator(".news-context-articles")
+    ).not.toContainText("Unsafe JavaScript URL");
 
-    await expect(credentialArticle).toContainText(
-      "Article link unavailable or unsafe"
-    );
+    await expect(
+      panel.locator(".news-context-articles")
+    ).not.toContainText("Credential URL");
   }
 );
 

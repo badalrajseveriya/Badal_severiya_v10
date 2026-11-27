@@ -1,0 +1,5 @@
+
+name = "badal-severiya-master-news-context"
+main = "historical-master-news-context-worker.js"
+compatibility_date = "2026-11-22"
+workers_dev = true

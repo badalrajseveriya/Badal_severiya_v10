@@ -1,10 +1,10 @@
 
-// BADAL SEVERIYA NEWS INTELLIGENCE — Phase 1.3.8
-// Stricter index classification, exchange-source filtering, and rate-limit diagnostics.
+// BADAL SEVERIYA NEWS INTELLIGENCE — Phase 1.3.9
+// Refined index/company/macro classification and risk-aware sentiment.
 // Educational context only. No trading signals, predictions, or advice.
 
 const APP = "BADAL SEVERIYA NEWS INTELLIGENCE";
-const VERSION = "1.3.8";
+const VERSION = "1.3.9";
 const CACHE_SECONDS = 120;
 const MAX_PER_SOURCE = 40;
 const MAX_OUTPUT = 100;
@@ -44,7 +44,9 @@ const NEGATIVE_TERMS = [
   "crash", "selloff", "sell-off", "bearish", "loss", "losses",
   "downgrade", "downgraded", "outflow", "outflows", "rate hike",
   "hikes rates", "inflation surge", "weak growth", "miss estimates",
-  "lower than expected", "default", "fraud", "bankruptcy"
+  "lower than expected", "default", "fraud", "bankruptcy",
+  "risk", "risks", "risky", "unwind", "weakness", "pressure",
+  "funding cost", "funding costs", "cost bites", "less of a boost"
 ];
 
 function decodeEntities(value = "") {
@@ -212,7 +214,7 @@ function countTerms(text, terms) {
 }
 
 function hasAny(text, terms) {
-  return terms.some(term => text.includes(term));
+  return terms.some(term => countTerms(text, [term]) > 0);
 }
 
 function scoreItem(item) {
@@ -236,18 +238,20 @@ function scoreItem(item) {
 
   const indexMovementTerms = [
     "rise", "rises", "rising", "gain", "gains", "gained",
-    "fall", "falls", "falling", "decline", "declines",
-    "drop", "drops", "dropped", "surge", "surges",
-    "slip", "slips", "advance", "advances", "close higher",
-    "close lower", "record high", "record low",
-    "rally", "rallies", "selloff", "sell-off"
+    "fall", "falls", "fell", "falling", "decline", "declines",
+    "drop", "drops", "dropped", "surge", "surges", "up", "down",
+    "higher", "lower", "slip", "slips", "advance", "advances",
+    "close higher", "close lower", "record high", "record low",
+    "rally", "rallies", "selloff", "sell-off", "outperform", "crash"
   ];
 
   const indiaMacroTerms = [
-    "rupee", "inr", "fii", "fpi", "dii", "sebi",
-    "indian economy", "india economy", "indian markets",
-    "india markets", "gdp", "inflation", "bond yield",
-    "forex reserves", "current account"
+    "rupee", "inr", "fii", "fpi", "dii", "sebi", "rbi",
+    "indian economy", "india economy", "indian gdp", "india gdp",
+    "indian inflation", "india inflation", "exports", "imports",
+    "forex reserves", "current account", "fiscal deficit",
+    "trade deficit", "industrial production", "bond yield",
+    "monetary policy", "interest rate", "crude oil"
   ];
 
   const globalTerms = [
@@ -297,11 +301,13 @@ function scoreItem(item) {
     "dividend", "buyback", "merger", "acquisition",
     "share split", "stock split", "bonus shares",
     "board meeting", "order win", "contract win",
-    "fund raising", "fundraising", "ipo", "listing",
-    "promoter", "pledge", "shareholding", "share price",
-    "shares jump", "shares fall", "shares rise",
-    "stock jumps", "stock falls", "stock rises",
-    "company shares", "company stock"
+    "fund raising", "fundraising", "ipo", "promoter",
+    "pledge", "shareholding", "share price", "stock price",
+    "scrip code", "listed company", "target price",
+    "stop-loss", "stop loss", "should you buy",
+    "stock recommendation", "stock recommendations",
+    "stock picks", "buy sell or hold", "company shares",
+    "company stock"
   ];
 
   const isRbi = sourceId === "rbi-press" || sourceId === "rbi-notifications";
@@ -310,10 +316,14 @@ function scoreItem(item) {
   const rbiLiquidity = isRbi && hasAny(text, liquidityTerms);
   const rbiPolicy = isRbi && hasAny(text, policyTerms);
 
+  const companyMovement =
+    /\b[a-z][a-z0-9&.'-]*(?:\s+[a-z][a-z0-9&.'-]*){0,3}\s+(?:shares?|stock)\s+(?:jump|jumps|surge|surges|rise|rises|rising|rally|rallies|fall|falls|drop|drops|decline|declines|gain|gains|slide|slides|shows?|showed)\b/i.test(title) ||
+    /\b(?:healthcare|banking|technology|metal|auto|pharma|cement|energy)\s+stocks?\s+(?:jump|surge|rise|rally|fall|drop|decline|gain|slide|show)\b/i.test(title);
+
   const companySignal =
-    hasAny(text, corporateTerms) ||
-    /\b(?:shares?|stock)\s+(?:jump|surge|rise|rally|fall|drop|decline|gain|lose|slide)/i.test(text) ||
-    /\b(?:share price|stock price|scrip code|listed company)\b/i.test(text);
+    hasAny(title, corporateTerms) || companyMovement ||
+    /\b(?:shares?|stock)\s+(?:jump|surge|rise|rally|fall|drop|decline|gain|lose|slide)/i.test(title) ||
+    /\b(?:share price|stock price|scrip code|listed company)\b/i.test(title);
 
   const indexMention = hasAny(text, directIndexTerms);
 
@@ -324,14 +334,20 @@ function scoreItem(item) {
     hasAny(title, indexMovementTerms) &&
     !companySignal;
 
+  const indiaMacroMovementTerms = [
+    "rupee", "inr", "fii", "fpi", "dii", "sebi", "rbi",
+    "indian economy", "india economy", "indian gdp", "india gdp",
+    "indian inflation", "india inflation", "forex reserves",
+    "current account", "fiscal deficit", "trade deficit",
+    "industrial production", "bond yield", "monetary policy",
+    "interest rate", "crude oil", "exports", "imports",
+    "growth", "inflation"
+  ];
+
   const indiaMacroSignal =
     hasAny(text, indiaMacroTerms) &&
-    hasAny(text, [
-      "indian economy", "india economy", "indian markets",
-      "india markets", "rupee", "inr", "fii", "fpi",
-      "dii", "sebi", "indian gdp", "india's gdp",
-      "india inflation", "indian inflation", "rbi"
-    ]);
+    hasAny(text, indiaMacroMovementTerms) &&
+    !companySignal;
 
   const globalMarket =
     hasAny(text, globalTerms) &&
@@ -642,7 +658,7 @@ async function collectNews() {
     sourceStatus,
     news,
     methodology: {
-      mode: "experimental-news-classification-market-context-v1.3.8",
+      mode: "experimental-news-classification-market-context-v1.3.9",
       disclaimer: "Educational news context only. Not live trading signals, predictions, or investment advice.",
       reliability: "Rule-based keyword classification. India-source timestamps without explicit timezone are interpreted as IST. Explicit timezone timestamps are preserved. Freshness is separately labelled. GENERAL_NOISE is excluded from the primary news list. Sentiment and context priority are not verified facts, measured market impact, or market-direction probabilities."
     }
@@ -665,7 +681,7 @@ function health() {
     app: APP,
     version: VERSION,
     configuredSources: SOURCES.length,
-    mode: "experimental-rss-atom-news-classification-v1.3.8",
+    mode: "experimental-rss-atom-news-classification-v1.3.9",
     endpoints: [
       "/api/health",
       "/api/news-intelligence",

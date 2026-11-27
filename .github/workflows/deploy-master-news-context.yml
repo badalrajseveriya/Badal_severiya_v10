@@ -1,0 +1,45 @@
+
+name: Deploy Master News Context Bridge
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - historical-master-news-context.js
+      - historical-master-news-context-worker.js
+      - historical-master-news-context.test.js
+      - historical-master-news-context-worker.test.js
+      - wrangler-master-news-context.toml
+      - .github/workflows/deploy-master-news-context.yml
+
+permissions:
+  contents: read
+
+jobs:
+  test-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Test news context bridge
+        run: node historical-master-news-context.test.js
+
+      - name: Test proxy worker
+        run: node historical-master-news-context-worker.test.js
+
+      - name: Deploy Master News Context Worker
+        uses: cloudflare/wrangler-action@v4
+        with:
+          apiToken: ${{ secrets.CF_API_TOKEN }}
+          accountId: ${{ secrets.CF_ACCOUNT_ID }}
+          wranglerVersion: "4"
+          command: deploy --config wrangler-master-news-context.toml

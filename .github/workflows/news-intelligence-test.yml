@@ -1,0 +1,32 @@
+
+name: News Intelligence Tests
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "news-intelligence-worker.js"
+      - "news-intelligence-worker.test.js"
+      - "package.json"
+      - ".github/workflows/news-intelligence-test.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  news-intelligence-tests:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Run News Intelligence regression tests
+        run: node news-intelligence-worker.test.js

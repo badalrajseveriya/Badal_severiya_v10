@@ -27,8 +27,14 @@ const upstreamPayload = {
     }
   ],
   sourceStatus: [],
-  freshnessPolicy: { usedFallbackWindow: false }
+  freshnessPolicy: {
+    usedFallbackWindow: false
+  }
 };
+
+// ------------------------------------------------------
+// 1. SUCCESS RESPONSE
+// ------------------------------------------------------
 
 const fakeFetch = async (url, init) => {
   assert.equal(init.method, "GET");
@@ -36,7 +42,9 @@ const fakeFetch = async (url, init) => {
 
   return new Response(JSON.stringify(upstreamPayload), {
     status: 200,
-    headers: { "Content-Type": "application/json" }
+    headers: {
+      "Content-Type": "application/json"
+    }
   });
 };
 
@@ -46,7 +54,10 @@ const response = await handleNewsContextRequest(
 );
 
 assert.equal(response.status, 200);
-assert.equal(response.headers.get("Access-Control-Allow-Origin"), "*");
+assert.equal(
+  response.headers.get("Access-Control-Allow-Origin"),
+  "*"
+);
 
 const body = await response.json();
 
@@ -57,6 +68,10 @@ assert.equal(body.context.context.positiveCount, 1);
 
 console.log("PASS: bridge returns context and CORS headers");
 
+// ------------------------------------------------------
+// 2. OPTIONS PREFLIGHT
+// ------------------------------------------------------
+
 const options = await handleNewsContextRequest(
   new Request("https://bridge.test/api/news-context", {
     method: "OPTIONS"
@@ -65,9 +80,16 @@ const options = await handleNewsContextRequest(
 );
 
 assert.equal(options.status, 204);
-assert.equal(options.headers.get("Access-Control-Allow-Origin"), "*");
+assert.equal(
+  options.headers.get("Access-Control-Allow-Origin"),
+  "*"
+);
 
 console.log("PASS: OPTIONS CORS preflight");
+
+// ------------------------------------------------------
+// 3. METHOD VALIDATION
+// ------------------------------------------------------
 
 const wrongMethod = await handleNewsContextRequest(
   new Request("https://bridge.test/api/news-context", {
@@ -77,22 +99,113 @@ const wrongMethod = await handleNewsContextRequest(
 );
 
 assert.equal(wrongMethod.status, 405);
+
 console.log("PASS: unsupported method rejected");
+
+// ------------------------------------------------------
+// 4. PATH VALIDATION
+// ------------------------------------------------------
+
+const wrongPath = await handleNewsContextRequest(
+  new Request("https://bridge.test/unknown"),
+  fakeFetch
+);
+
+assert.equal(wrongPath.status, 404);
+
+console.log("PASS: unsupported path rejected");
+
+// ------------------------------------------------------
+// 5. UPSTREAM HTTP ERROR
+// ------------------------------------------------------
 
 const upstreamFail = await handleNewsContextRequest(
   new Request("https://bridge.test/api/news-context"),
-  async () => new Response("upstream unavailable", { status: 503 })
+  async () => new Response("upstream unavailable", {
+    status: 503
+  })
 );
 
 assert.equal(upstreamFail.status, 502);
+
+const upstreamFailBody = await upstreamFail.json();
+
+assert.equal(upstreamFailBody.status, "UPSTREAM_ERROR");
+assert.equal(upstreamFailBody.upstreamStatus, 503);
+
 console.log("PASS: upstream HTTP errors handled");
+
+// ------------------------------------------------------
+// 6. INVALID UPSTREAM JSON
+// ------------------------------------------------------
 
 const invalidJson = await handleNewsContextRequest(
   new Request("https://bridge.test/api/news-context"),
-  async () => new Response("not json", { status: 200 })
+  async () => new Response("not json", {
+    status: 200
+  })
 );
 
 assert.equal(invalidJson.status, 502);
+
+const invalidJsonBody = await invalidJson.json();
+
+assert.equal(invalidJsonBody.status, "UPSTREAM_INVALID_JSON");
+
 console.log("PASS: invalid upstream JSON handled");
 
-console.log("ALL MASTER NEWS CONTEXT WORKER TESTS PASSED");
+// ------------------------------------------------------
+// 7. NETWORK FAILURE
+// ------------------------------------------------------
+
+const networkFail = await handleNewsContextRequest(
+  new Request("https://bridge.test/api/news-context"),
+  async () => {
+    throw new Error("Simulated network failure");
+  }
+);
+
+assert.equal(networkFail.status, 502);
+
+const networkFailBody = await networkFail.json();
+
+assert.equal(networkFailBody.status, "FETCH_ERROR");
+assert.equal(networkFailBody.module, "BADAL_SEVERIYA_MASTER_NEWS_CONTEXT_PROXY");
+
+console.log("PASS: network failure handled");
+
+// ------------------------------------------------------
+// 8. UPSTREAM TIMEOUT
+// ------------------------------------------------------
+
+let timeoutSignal = null;
+
+const timeoutResponse = await handleNewsContextRequest(
+  new Request("https://bridge.test/api/news-context"),
+  async (_url, init) => {
+    timeoutSignal = init.signal;
+
+    // Simulate an upstream that never responds.
+    return new Promise(() => {});
+  }
+);
+
+assert.equal(timeoutResponse.status, 504);
+
+const timeoutBody = await timeoutResponse.json();
+
+assert.equal(timeoutBody.ok, false);
+assert.equal(timeoutBody.status, "UPSTREAM_TIMEOUT");
+assert.equal(timeoutBody.timeoutMs, 8000);
+assert.equal(timeoutSignal.aborted, true);
+
+console.log("PASS: upstream timeout returns 504 and aborts request");
+
+// ------------------------------------------------------
+// FINAL
+// ------------------------------------------------------
+
+console.log("");
+console.log("==============================================");
+console.log("ALL 8 MASTER NEWS CONTEXT WORKER TESTS PASSED");
+console.log("==============================================");

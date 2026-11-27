@@ -1,0 +1,4 @@
+name = "badal-severiya-news-intelligence"
+main = "news-intelligence-worker.js"
+compatibility_date = "2026-11-22"
+workers_dev = true

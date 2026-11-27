@@ -283,7 +283,7 @@ test("US mention alone does not qualify as market news", () => {
   assert.equal(result.relevanceScore, 0);
 });
 
-// 17. India financial context
+// 17. India financial context — CORRECTED
 test("India economy news with explicit financial context is relevant", () => {
   const result = isNiftyRelevant({
     title: "India GDP growth and inflation outlook",
@@ -291,7 +291,7 @@ test("India economy news with explicit financial context is relevant", () => {
   });
 
   assert.equal(result.relevant, true);
-  assert.equal(result.relevanceType, "DIRECT_INDIA_MARKET");
+  assert.equal(result.relevanceType, "INDIA_MACRO_FINANCIAL");
 });
 
 // 18. Generic bank wording is insufficient

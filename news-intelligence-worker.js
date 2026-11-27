@@ -1,81 +1,81 @@
-// BADAL SEVERIYA NEWS INTELLIGENCE ENGINE — Phase 1
-// Free-source collection + NIFTY relevance filter + transparent rule-based scoring.
-// No AI inference, fact-check certification, live-trading signal, or prediction is claimed.
+// BADAL SEVERIYA NEWS INTELLIGENCE — Phase 1.1
+// Global news collection + NIFTY relevance + transparent rule scoring.
+// Experimental only. No fact-check certification or trading prediction.
 
 const APP = "BADAL SEVERIYA NEWS INTELLIGENCE";
-const VERSION = "1.0.0-phase1";
+const VERSION = "1.1.0";
+const CACHE_SECONDS = 180;
 const MAX_PER_SOURCE = 35;
 const MAX_OUTPUT = 80;
-const CACHE_SECONDS = 180;
 
 const SOURCES = [
   {
     id: "google-india-market",
-    name: "Google News RSS — India Markets",
+    name: "Google News — India Markets",
     kind: "aggregator",
-    url: "https://news.google.com/rss/search?q=(NIFTY+OR+Indian+stock+market+OR+RBI+OR+SEBI+OR+India+inflation)+when:1d&hl=en-IN&gl=IN&ceid=IN:en"
+    url: "https://news.google.com/rss/search?q=NIFTY+OR+Indian+stock+market+OR+RBI+OR+SEBI+OR+India+inflation&hl=en-IN&gl=IN&ceid=IN:en"
   },
   {
     id: "google-global-macro",
-    name: "Google News RSS — Global Macro",
+    name: "Google News — Global Macro",
     kind: "aggregator",
-    url: "https://news.google.com/rss/search?q=(Federal+Reserve+OR+US+inflation+OR+oil+prices+OR+war+OR+trade+tariff)+when:1d&hl=en&gl=US&ceid=US:en"
+    url: "https://news.google.com/rss/search?q=Federal+Reserve+OR+US+inflation+OR+oil+prices+OR+war+OR+trade+tariff&hl=en&gl=US&ceid=US:en"
   },
   {
-    id: "google-nifty-relevance",
-    name: "Google News RSS — NIFTY Impact Topics",
+    id: "google-nifty-impact",
+    name: "Google News — NIFTY Impact",
     kind: "aggregator",
-    url: "https://news.google.com/rss/search?q=(crude+oil+OR+USD+INR+OR+FII+OR+India+GDP+OR+Indian+economy)+when:1d&hl=en-IN&gl=IN&ceid=IN:en"
+    url: "https://news.google.com/rss/search?q=crude+oil+OR+USD+INR+OR+FII+OR+India+GDP+OR+Indian+economy&hl=en-IN&gl=IN&ceid=IN:en"
   },
   {
     id: "bbc-world",
-    name: "BBC World RSS",
+    name: "BBC World",
     kind: "publisher",
     url: "https://feeds.bbci.co.uk/news/world/rss.xml"
   },
   {
     id: "dw-world",
-    name: "DW World RSS",
+    name: "DW World",
     kind: "publisher",
     url: "https://rss.dw.com/rdf/rss-en-world"
   },
   {
     id: "aljazeera",
-    name: "Al Jazeera RSS",
+    name: "Al Jazeera",
     kind: "publisher",
     url: "https://www.aljazeera.com/xml/rss/all.xml"
   },
   {
     id: "fed",
-    name: "Federal Reserve Press Releases",
+    name: "Federal Reserve",
     kind: "official",
     url: "https://www.federalreserve.gov/feeds/press_all.xml"
   },
   {
     id: "rbi",
-    name: "RBI Press Releases",
+    name: "Reserve Bank of India",
     kind: "official",
     url: "https://rbi.org.in/pressreleases_rss.xml"
   },
   {
-    id: "nse-announcements",
+    id: "nse",
     name: "NSE Corporate Announcements",
     kind: "official",
     url: "https://archives.nseindia.com/content/RSS/Online_announcements.xml"
   },
   {
     id: "gdelt",
-    name: "GDELT Global News Search",
+    name: "GDELT Global News",
     kind: "aggregator",
-    url: "https://api.gdeltproject.org/api/v2/doc/doc?query=(NIFTY%20OR%20India%20stock%20market%20OR%20RBI%20OR%20crude%20oil%20OR%20Federal%20Reserve)&mode=ArtList&format=json&maxrecords=50&sort=DateDesc"
+    url: "https://api.gdeltproject.org/api/v2/doc/doc?query=NIFTY%20OR%20India%20stock%20market%20OR%20RBI%20OR%20crude%20oil%20OR%20Federal%20Reserve&mode=ArtList&format=json&maxrecords=50&sort=DateDesc"
   }
 ];
 
-const NIFTY_TERMS = [
+const RELEVANCE_TERMS = [
   "nifty", "india", "indian", "rbi", "sebi", "nse", "bse",
   "sensex", "rupee", "inr", "fii", "fpi", "dii", "crude",
   "oil", "fed", "federal reserve", "inflation", "cpi", "gdp",
-  "rate", "interest", "tariff", "trade", "war", "sanction",
+  "interest rate", "tariff", "trade", "war", "sanction",
   "bank", "bond", "yield", "vix", "stock", "market", "economy",
   "budget", "tax", "monsoon", "cyclone", "election", "policy",
   "earnings", "index", "liquidity", "recession", "commodity",
@@ -84,13 +84,20 @@ const NIFTY_TERMS = [
 
 const HIGH_IMPACT_TERMS = [
   "war", "invasion", "missile", "attack", "terror", "terrorism",
-  "emergency", "crisis", "default", "crash", "collapse", "sanction",
-  "sanctions", "ceasefire", "blockade", "shutdown", "surprise rate",
+  "emergency", "crisis", "default", "crash", "collapse",
+  "sanction", "sanctions", "ceasefire", "blockade", "shutdown",
   "rate cut", "rate hike", "interest rate", "inflation", "cpi",
   "federal reserve", "rbi", "policy decision", "tariff", "trade war",
   "oil surge", "crude oil", "earthquake", "cyclone", "flood",
   "pandemic", "major disruption", "bank failure", "liquidity crisis",
   "budget", "gdp"
+];
+
+const CRITICAL_TERMS = [
+  "war", "invasion", "missile attack", "terror attack",
+  "terrorism", "liquidity crisis", "bank failure",
+  "financial crisis", "market crash", "default",
+  "emergency", "blockade", "major disruption"
 ];
 
 const BULLISH_TERMS = [
@@ -127,109 +134,54 @@ function cleanText(value = "") {
     .trim();
 }
 
-function tag(xml, name) {
-  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+function escapeRegExp(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
 
-  const m = String(xml).match(
-    new RegExp(
-      `<(?:(?:[\\w.-]+):)?${escaped}\\b[^>]*>([\\s\\S]*?)<\\/(?:(?:[\\w.-]+):)?${escaped}\\s*>`,
-      "i"
-    )
+// Match whole words or phrases, not accidental substrings.
+// Example: "us" won't match "focus"; "rate" won't match "corporate".
+function termMatch(text, term) {
+  const normalized = String(text || "").toLowerCase();
+  const t = String(term).toLowerCase().trim();
+  if (!t) return false;
+
+  const pattern = escapeRegExp(t).replace(/\s+/g, "\\s+");
+  return new RegExp(`(^|[^a-z0-9])${pattern}([^a-z0-9]|$)`, "i")
+    .test(normalized);
+}
+
+function countHits(text, terms) {
+  return terms.filter(term => termMatch(text, term)).length;
+}
+
+function getTag(xml, name) {
+  const escaped = escapeRegExp(name);
+  const regex = new RegExp(
+    `<(?:[\\w.-]+:)?${escaped}\\b[^>]*>([\\s\\S]*?)<\\/(?:[\\w.-]+:)?${escaped}\\s*>`,
+    "i"
   );
 
-  return m ? cleanText(m[1]) : "";
+  const match = String(xml).match(regex);
+  return match ? cleanText(match[1]) : "";
 }
 
-function attr(tagText, name) {
-  const m = String(tagText).match(
-    new RegExp(`\\b${name}\\s*=\\s*[\\"']([^\\"']+)[\\"']`, "i")
+function getAttribute(tagText, name) {
+  const match = String(tagText).match(
+    new RegExp(`\\b${escapeRegExp(name)}\\s*=\\s*["']([^"']+)["']`, "i")
   );
-
-  return m ? cleanText(m[1]) : "";
+  return match ? cleanText(match[1]) : "";
 }
 
-function parseRss(xml, source) {
-  const itemMatches = [
-    ...String(xml).matchAll(
-      /<(?:[\w.-]+:)?item\b[^>]*>([\s\S]*?)<\/(?:[\w.-]+:)?item\s*>/gi
-    )
-  ];
-
-  const entryMatches = itemMatches.length
-    ? itemMatches
-    : [
-        ...String(xml).matchAll(
-          /<(?:[\w.-]+:)?entry\b[^>]*>([\s\S]*?)<\/(?:[\w.-]+:)?entry\s*>/gi
-        )
-      ];
-
-  return entryMatches.slice(0, MAX_PER_SOURCE).map(m => {
-    const entry = m[1];
-
-    const title = tag(entry, "title");
-
-    const description =
-      tag(entry, "description") ||
-      tag(entry, "summary") ||
-      tag(entry, "content");
-
-    const pubDate =
-      tag(entry, "pubDate") ||
-      tag(entry, "published") ||
-      tag(entry, "updated") ||
-      tag(entry, "date");
-
-    const linkTag = (
-      entry.match(/<(?:[\w.-]+:)?link\b[^>]*>/i) || [""]
-    )[0];
-
-    let link = attr(linkTag, "href") || tag(entry, "link");
-
-    try {
-      link = new URL(link, "https://news.invalid").href;
-
-      if (link.startsWith("https://news.invalid")) {
-        link = "";
-      }
-    } catch {
-      link = "";
-    }
-
-    const timestamp = Date.parse(pubDate);
-
-    return {
-      title,
-      description,
-      link,
-      published: Number.isFinite(timestamp)
-        ? new Date(timestamp).toISOString()
-        : null,
-      sourceId: source.id,
-      sourceName: source.name,
-      sourceKind: source.kind,
-      sourceStatus: "FETCHED"
-    };
-  }).filter(item => item.title);
+function safeHttps(value) {
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" ? url.href : "";
+  } catch {
+    return "";
+  }
 }
 
-function parseGdelt(json, source) {
-  const articles = Array.isArray(json?.articles)
-    ? json.articles
-    : [];
-
-  return articles.slice(0, MAX_PER_SOURCE).map(a => ({
-    title: cleanText(a.title),
-    description: cleanText(a.seendate || a.snippet || ""),
-    link: safeHttps(a.url),
-    published: parseGdeltDate(a.seendate),
-    sourceId: source.id,
-    sourceName: cleanText(a.source || source.name),
-    sourceKind: "aggregator",
-    sourceStatus: "FETCHED"
-  })).filter(a => a.title);
-}
-
-function parseGdeltDate(raw) {
+function parsePublished(raw) {
   if (!raw) return null;
 
   const s = String(raw);
@@ -240,26 +192,158 @@ function parseGdeltDate(raw) {
       `T${s.slice(8, 10)}:${s.slice(10, 12)}:${s.slice(12, 14)}Z`;
 
     const d = Date.parse(iso);
-
-    return Number.isFinite(d)
-      ? new Date(d).toISOString()
-      : null;
+    return Number.isFinite(d) ? new Date(d).toISOString() : null;
   }
 
   const d = Date.parse(s);
-
-  return Number.isFinite(d)
-    ? new Date(d).toISOString()
-    : null;
+  return Number.isFinite(d) ? new Date(d).toISOString() : null;
 }
 
-function safeHttps(value) {
-  try {
-    const u = new URL(value);
-    return u.protocol === "https:" ? u.href : "";
-  } catch {
-    return "";
+function parseRss(xml, source) {
+  const rssItems = [
+    ...String(xml).matchAll(
+      /<(?:[\w.-]+:)?item\b[^>]*>([\s\S]*?)<\/(?:[\w.-]+:)?item\s*>/gi
+    )
+  ];
+
+  const atomEntries = rssItems.length
+    ? rssItems
+    : [
+        ...String(xml).matchAll(
+          /<(?:[\w.-]+:)?entry\b[^>]*>([\s\S]*?)<\/(?:[\w.-]+:)?entry\s*>/gi
+        )
+      ];
+
+  return atomEntries.slice(0, MAX_PER_SOURCE).map(match => {
+    const entry = match[1];
+    const linkElement =
+      (entry.match(/<(?:[\w.-]+:)?link\b[^>]*>/i) || [""])[0];
+
+    const rawLink = getAttribute(linkElement, "href") || getTag(entry, "link");
+
+    return {
+      title: getTag(entry, "title"),
+      description:
+        getTag(entry, "description") ||
+        getTag(entry, "summary") ||
+        getTag(entry, "content"),
+      link: safeHttps(rawLink),
+      published: parsePublished(
+        getTag(entry, "pubDate") ||
+        getTag(entry, "published") ||
+        getTag(entry, "updated") ||
+        getTag(entry, "date")
+      ),
+      sourceId: source.id,
+      sourceName: source.name,
+      sourceKind: source.kind,
+      sourceStatus: "FETCHED"
+    };
+  }).filter(item => item.title);
+}
+
+function parseGdelt(json, source) {
+  const articles = Array.isArray(json?.articles) ? json.articles : [];
+
+  return articles.slice(0, MAX_PER_SOURCE).map(article => ({
+    title: cleanText(article.title),
+    description: cleanText(article.snippet || ""),
+    link: safeHttps(article.url),
+    published: parsePublished(article.seendate),
+    sourceId: source.id,
+    sourceName: cleanText(article.source || source.name),
+    sourceKind: "aggregator",
+    sourceStatus: "FETCHED"
+  })).filter(item => item.title);
+}
+
+function isNiftyRelevant(news) {
+  const text = `${news.title || ""} ${news.description || ""}`.toLowerCase();
+  const hits = RELEVANCE_TERMS.filter(term => termMatch(text, term));
+
+  const priorityTerms = [
+    "nifty", "india", "rbi", "crude", "federal reserve",
+    "inflation", "fii", "tariff", "war", "gdp"
+  ];
+
+  const hasPriorityTerm = hits.some(term => priorityTerms.includes(term));
+
+  return {
+    relevant: hits.length > 0,
+    hits: hits.slice(0, 10),
+    relevanceScore: Math.min(
+      100,
+      hits.length * 12 + (hasPriorityTerm ? 28 : 0)
+    )
+  };
+}
+
+function analyzeNewsItem(news) {
+  const text = `${news.title || ""} ${news.description || ""}`.toLowerCase();
+
+  const relevance = isNiftyRelevant(news);
+  const bullishHits = countHits(text, BULLISH_TERMS);
+  const bearishHits = countHits(text, BEARISH_TERMS);
+  const impactHits = countHits(text, HIGH_IMPACT_TERMS);
+  const criticalHits = countHits(text, CRITICAL_TERMS);
+
+  const highImpact = impactHits >= 2;
+  const critical = criticalHits >= 1;
+
+  let direction = "NEUTRAL";
+  if (bullishHits > bearishHits) direction = "BULLISH";
+  if (bearishHits > bullishHits) direction = "BEARISH";
+
+  let bullish = 34;
+  let bearish = 33;
+  let neutral = 33;
+
+  if (direction === "BULLISH") {
+    bullish += Math.min(24, bullishHits * 8);
+    bearish -= Math.min(12, bullishHits * 3);
+  } else if (direction === "BEARISH") {
+    bearish += Math.min(24, bearishHits * 8);
+    bullish -= Math.min(12, bearishHits * 3);
   }
+
+  if (highImpact && direction !== "NEUTRAL") neutral -= 8;
+
+  const total = bullish + bearish + neutral;
+  bullish = Math.round(bullish * 100 / total);
+  bearish = Math.round(bearish * 100 / total);
+  neutral = 100 - bullish - bearish;
+
+  let priority = "P3_MEDIUM";
+  let impactStrength = "LOW";
+
+  if (!relevance.relevant) {
+    priority = "P4_LOW";
+  } else if (critical) {
+    priority = "P1_CRITICAL";
+    impactStrength = "HIGH";
+  } else if (highImpact || relevance.relevanceScore >= 60) {
+    priority = "P2_HIGH";
+    impactStrength = "MEDIUM";
+  }
+
+  const official = news.sourceKind === "official";
+
+  return {
+    ...news,
+    niftyRelevance: relevance.relevanceScore,
+    relevanceTerms: relevance.hits,
+    priority,
+    impactStrength,
+    verification: official
+      ? "OFFICIAL_SOURCE — independent fact-check not completed"
+      : "UNVERIFIED — independent corroboration required",
+    sourceTypeScore: official ? 65 : 45,
+    directionBias: direction,
+    impactProbabilities: { bullish, bearish, neutral },
+    scoringMethod: "transparent whole-word keyword rules; experimental",
+    scoreWarning:
+      "Percentages are experimental rule-based estimates, not calibrated forecasts or trading signals. Source labels do not prove claim truth."
+  };
 }
 
 function normalizeTitle(title) {
@@ -269,142 +353,28 @@ function normalizeTitle(title) {
     .trim();
 }
 
-function isNiftyRelevant(news) {
-  const text = `${news.title} ${news.description}`.toLowerCase();
-
-  const hits = NIFTY_TERMS.filter(term => text.includes(term));
-
-  return {
-    relevant: hits.length > 0,
-    hits: hits.slice(0, 8),
-    relevanceScore: Math.min(
-      100,
-      hits.length * 17 +
-      (hits.some(t =>
-        [
-          "nifty", "india", "rbi", "crude",
-          "federal reserve", "inflation", "fii",
-          "tariff", "war"
-        ].includes(t)
-      ) ? 25 : 0)
-    )
-  };
-}
-
-function countHits(text, terms) {
-  return terms.reduce(
-    (sum, term) => sum + (text.includes(term) ? 1 : 0),
-    0
-  );
-}
-
-function analyzeNewsItem(news) {
-  const text =
-    `${news.title || ""} ${news.description || ""}`.toLowerCase();
-
-  const rel = isNiftyRelevant(news);
-
-  const bull = countHits(text, BULLISH_TERMS);
-  const bear = countHits(text, BEARISH_TERMS);
-  const impactHits = countHits(text, HIGH_IMPACT_TERMS);
-
-  const highImpact =
-    impactHits >= 2 ||
-    /\b(rbi|federal reserve|fed|war|invasion|terror|crisis|tariff|oil|crude|inflation|gdp)\b/i
-      .test(news.title || "");
-
-  let direction = "NEUTRAL";
-
-  if (bull > bear) direction = "BULLISH";
-  else if (bear > bull) direction = "BEARISH";
-
-  let bullish = 34;
-  let bearish = 33;
-  let neutral = 33;
-
-  if (direction === "BULLISH") {
-    bullish += Math.min(24, bull * 8);
-    bearish -= Math.min(12, bull * 3);
-  }
-
-  if (direction === "BEARISH") {
-    bearish += Math.min(24, bear * 8);
-    bullish -= Math.min(12, bear * 3);
-  }
-
-  if (highImpact && direction !== "NEUTRAL") {
-    neutral -= 8;
-  }
-
-  const total = bullish + bearish + neutral;
-
-  bullish = Math.round(bullish * 100 / total);
-  bearish = Math.round(bearish * 100 / total);
-  neutral = 100 - bullish - bearish;
-
-  const sourceConfidence =
-    news.sourceKind === "official" ? 65 : 45;
-
-  return {
-    ...news,
-
-    niftyRelevance: rel.relevanceScore,
-    relevanceTerms: rel.hits,
-
-    priority: !rel.relevant
-      ? "P4_LOW"
-      : highImpact
-        ? "P1_CRITICAL"
-        : rel.relevanceScore >= 60
-          ? "P2_HIGH"
-          : "P3_MEDIUM",
-
-    impactStrength: !rel.relevant
-      ? "LOW"
-      : highImpact
-        ? "HIGH"
-        : rel.relevanceScore >= 60
-          ? "MEDIUM"
-          : "LOW",
-
-    verification: news.sourceKind === "official"
-      ? "OFFICIAL_SOURCE — claim not independently fact-checked"
-      : "UNVERIFIED — corroboration required",
-
-    verificationConfidence: sourceConfidence,
-
-    directionBias: direction,
-
-    impactProbabilities: {
-      bullish,
-      bearish,
-      neutral
-    },
-
-    scoringMethod:
-      "transparent keyword rules; experimental; not calibrated",
-
-    scoreWarning:
-      "These percentages are rule-based experimental estimates, not forecasts or trading signals. They do not establish claim truth."
-  };
-}
-
 function deduplicate(items) {
   const seen = new Set();
 
   return items.filter(item => {
     const key = normalizeTitle(item.title);
-
     if (!key || seen.has(key)) return false;
-
     seen.add(key);
     return true;
   });
 }
 
+function isFresh(news, now = Date.now()) {
+  if (!news.published) return true;
+
+  const age = now - Date.parse(news.published);
+  // Ignore articles with dates older than 48h; retain unknown dates.
+  return !Number.isFinite(age) || age <= 48 * 60 * 60 * 1000;
+}
+
 function prioritize(items) {
   return deduplicate(items.map(analyzeNewsItem))
-    .filter(item => item.niftyRelevance > 0)
+    .filter(item => item.niftyRelevance > 0 && isFresh(item))
     .sort((a, b) =>
       (b.niftyRelevance - a.niftyRelevance) ||
       Date.parse(b.published || 0) - Date.parse(a.published || 0)
@@ -416,36 +386,24 @@ async function fetchSource(source) {
   try {
     const response = await fetch(source.url, {
       headers: {
-        "Accept": source.id === "gdelt"
+        Accept: source.id === "gdelt"
           ? "application/json"
           : "application/rss+xml, application/atom+xml, application/xml, text/xml, */*",
-
-        "User-Agent": "BADAL-SEVERIYA-News-Intelligence/1.0"
-      },
-
-      cf: {
-        cacheTtl: 0,
-        cacheEverything: false
+        "User-Agent": "BADAL-SEVERIYA-News-Intelligence/1.1"
       }
     });
 
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
-    }
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
-    const text = await response.text();
-
-    if (!text.trim()) {
-      throw new Error("Empty source response");
-    }
-
-    if (/^\s*<(?:!doctype html|html\b)/i.test(text)) {
-      throw new Error("HTML response instead of feed/data");
+    const body = await response.text();
+    if (!body.trim()) throw new Error("Empty response");
+    if (/^\s*<(?:!doctype html|html\b)/i.test(body)) {
+      throw new Error("HTML response, not feed/data");
     }
 
     const items = source.id === "gdelt"
-      ? parseGdelt(JSON.parse(text), source)
-      : parseRss(text, source);
+      ? parseGdelt(JSON.parse(body), source)
+      : parseRss(body, source);
 
     return {
       sourceId: source.id,
@@ -455,62 +413,41 @@ async function fetchSource(source) {
       error: null,
       items
     };
-  } catch (e) {
+  } catch (error) {
     return {
       sourceId: source.id,
       sourceName: source.name,
       status: "ERROR",
       count: 0,
-      error: String(e?.message || e),
+      error: String(error?.message || error),
       items: []
     };
   }
 }
 
 async function collectNews() {
-  const sourceResults = await Promise.all(
-    SOURCES.map(fetchSource)
-  );
-
-  const all = sourceResults.flatMap(s => s.items);
-  const relevant = prioritize(all);
+  const sourceResults = await Promise.all(SOURCES.map(fetchSource));
+  const allItems = sourceResults.flatMap(source => source.items);
+  const news = prioritize(allItems);
 
   return {
     app: APP,
     version: VERSION,
     generatedAt: new Date().toISOString(),
-
     sourcesConfigured: SOURCES.length,
-
-    connectedSources:
-      sourceResults.filter(s => s.status === "CONNECTED").length,
-
-    emptySources:
-      sourceResults.filter(s => s.status === "EMPTY").length,
-
-    failedSources:
-      sourceResults.filter(s => s.status === "ERROR").length,
-
-    fetchedItems: all.length,
-
-    deduplicatedNiftyRelevantItems: relevant.length,
-
-    sourceStatus: sourceResults.map(({ items, ...summary }) => summary),
-
-    news: relevant,
-
+    connectedSources: sourceResults.filter(s => s.status === "CONNECTED").length,
+    emptySources: sourceResults.filter(s => s.status === "EMPTY").length,
+    failedSources: sourceResults.filter(s => s.status === "ERROR").length,
+    fetchedItems: allItems.length,
+    niftyRelevantItems: news.length,
+    sourceStatus: sourceResults.map(({ items, ...status }) => status),
+    news,
     methodology: {
-      relevance:
-        "keyword-based filter; terms are transparent and tunable",
-
-      direction:
-        "keyword-based sentiment bias only",
-
-      verification:
-        "source-type label only; independent cross-source claim matching and fact-checking not implemented in phase 1",
-
-      percentages:
-        "experimental rules; not calibrated against outcomes"
+      relevance: "whole-word keyword matching; transparent term list",
+      direction: "rule-based sentiment bias only",
+      verification: "official-source label only; independent claim verification is not implemented",
+      percentages: "experimental and not calibrated against market outcomes",
+      freshness: "known-dated articles older than 48 hours are filtered out"
     }
   };
 }
@@ -525,33 +462,27 @@ function corsHeaders() {
 }
 
 async function cachedCollect() {
-  const cacheKey = new Request(
+  const key = new Request(
     "https://badal-severiya-cache.invalid/news-intelligence-v1"
   );
 
+  // Cache API is available in the Cloudflare Worker runtime.
   const cache = caches.default;
+  const cached = await cache.match(key);
 
-  const existing = await cache.match(cacheKey);
+  if (cached) return cached.json();
 
-  if (existing) {
-    return existing.json();
-  }
+  const data = await collectNews();
 
-  const payload = await collectNews();
-
-  const response = new Response(
-    JSON.stringify(payload),
-    {
-      headers: {
-        "Content-Type": "application/json",
-        "Cache-Control": `public, max-age=${CACHE_SECONDS}`
-      }
+  const response = new Response(JSON.stringify(data), {
+    headers: {
+      "Content-Type": "application/json",
+      "Cache-Control": `public, max-age=${CACHE_SECONDS}`
     }
-  );
+  });
 
-  await cache.put(cacheKey, response.clone());
-
-  return payload;
+  await cache.put(key, response.clone());
+  return data;
 }
 
 export {
@@ -575,51 +506,37 @@ export default {
     }
 
     if (url.pathname === "/api/health") {
-      return Response.json(
-        {
-          ok: true,
-          app: APP,
-          version: VERSION,
-          configuredSources: SOURCES.length,
-          mode: "experimental-rule-based-news-filter"
-        },
-        {
-          headers: corsHeaders()
-        }
-      );
+      return Response.json({
+        ok: true,
+        app: APP,
+        version: VERSION,
+        configuredSources: SOURCES.length,
+        mode: "experimental-rule-based-news-filter"
+      }, { headers: corsHeaders() });
     }
 
     if (url.pathname === "/api/news-intelligence") {
       if (request.method !== "GET") {
-        return Response.json(
-          { error: "GET only" },
-          {
-            status: 405,
-            headers: corsHeaders()
-          }
-        );
+        return Response.json({ error: "GET only" }, {
+          status: 405,
+          headers: corsHeaders()
+        });
       }
 
       try {
-        return Response.json(
-          await cachedCollect(),
-          {
-            headers: corsHeaders()
-          }
-        );
+        return Response.json(await cachedCollect(), {
+          headers: corsHeaders()
+        });
       } catch (error) {
-        return Response.json(
-          {
-            ok: false,
-            error: String(error?.message || error),
-            app: APP,
-            version: VERSION
-          },
-          {
-            status: 502,
-            headers: corsHeaders()
-          }
-        );
+        return Response.json({
+          ok: false,
+          app: APP,
+          version: VERSION,
+          error: String(error?.message || error)
+        }, {
+          status: 502,
+          headers: corsHeaders()
+        });
       }
     }
 

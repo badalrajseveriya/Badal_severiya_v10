@@ -1,4 +1,4 @@
-// BADAL SEVERIYA NEWS INTELLIGENCE — Phase 1.4.0 tests
+// BADAL SEVERIYA NEWS INTELLIGENCE — Phase 1.4.1 tests
 // Run: node news-intelligence-worker.test.js
 
 import assert from "node:assert/strict";
@@ -375,6 +375,52 @@ test("NIFTY 50 falling headline remains index context", () => {
 
   assert.equal(result.relevanceCategory, "INDIA_INDEX_CONTEXT");
   assert.equal(result.niftyRelevant, true);
+});
+
+// Phase 1.4.1 regression tests
+
+test("Index outlook with Sensex, Nifty and GIFT Nifty is India index context", () => {
+  const result = scoreItem({
+    title: "Stock market outlook today: Sensex, Nifty, GIFT Nifty",
+    description: "A daily outlook for Indian benchmark indices",
+    sourceId: "livemint-markets"
+  });
+
+  assert.equal(result.relevanceCategory, "INDIA_INDEX_CONTEXT");
+  assert.equal(result.niftyRelevant, true);
+});
+
+test("Nifty 50 target headline is India index context", () => {
+  const result = scoreItem({
+    title: "Nifty 50 to hit 29,000?",
+    description: "Analysts discuss the benchmark index target",
+    sourceId: "livemint-markets"
+  });
+
+  assert.equal(result.relevanceCategory, "INDIA_INDEX_CONTEXT");
+  assert.equal(result.niftyRelevant, true);
+});
+
+test("Gold-loan finance company share movement is stock-specific", () => {
+  const result = scoreItem({
+    title: "Manappuram, Muthoot Finance stocks gain",
+    description: "Gold-loan finance companies rise in trade",
+    sourceId: "livemint-markets"
+  });
+
+  assert.equal(result.relevanceCategory, "INDIA_STOCK_SPECIFIC");
+  assert.equal(result.niftyRelevant, false);
+});
+
+test("Plural stocks movement is stock-specific despite global gold terms", () => {
+  const result = scoreItem({
+    title: "Gold loan stocks rise as Manappuram and Muthoot Finance gain",
+    description: "Shares of the two listed finance companies advance",
+    sourceId: "livemint-markets"
+  });
+
+  assert.equal(result.relevanceCategory, "INDIA_STOCK_SPECIFIC");
+  assert.equal(result.niftyRelevant, false);
 });
 
 // Phase 1.4.0 regression tests

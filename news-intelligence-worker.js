@@ -1,33 +1,46 @@
-
-// BADAL SEVERIYA NEWS INTELLIGENCE — Phase 1.2
-// India-market focused news relevance with contextual global macro filtering.
+// BADAL SEVERIYA NEWS INTELLIGENCE — Phase 1.3.0
+// Source reliability, retries, fallback feeds, and safer response parsing.
 // Experimental only. No fact-check certification or trading prediction.
 
 const APP = "BADAL SEVERIYA NEWS INTELLIGENCE";
-const VERSION = "1.2.0";
+const VERSION = "1.3.0";
 const CACHE_SECONDS = 180;
 const MAX_PER_SOURCE = 35;
 const MAX_OUTPUT = 80;
 const MAX_AGE_MS = 48 * 60 * 60 * 1000;
+const FETCH_TIMEOUT_MS = 10000;
+const MAX_RETRIES = 2;
 
 const SOURCES = [
   {
     id: "google-india-market",
     name: "Google News — India Markets",
     kind: "aggregator",
-    url: "https://news.google.com/rss/search?q=NIFTY+OR+Indian+stock+market+OR+RBI+OR+SEBI+OR+India+inflation&hl=en-IN&gl=IN&ceid=IN:en"
+    url: "https://news.google.com/rss/search?q=NIFTY+OR+Indian+stock+market+OR+RBI+OR+SEBI+OR+India+inflation&hl=en-IN&gl=IN&ceid=IN:en",
+    fallbackUrls: [
+      "https://news.google.com/rss/search?q=NIFTY+India+market+RBI+SEBI&hl=en-IN&gl=IN&ceid=IN:en",
+      "https://news.google.com/rss/search?q=Indian+stock+market+economy&hl=en-IN&gl=IN&ceid=IN:en"
+    ]
   },
   {
     id: "google-global-macro",
     name: "Google News — Global Macro",
     kind: "aggregator",
-    url: "https://news.google.com/rss/search?q=Federal+Reserve+OR+US+inflation+OR+oil+prices+OR+war+OR+trade+tariff&hl=en&gl=US&ceid=US:en"
+    url: "https://news.google.com/rss/search?q=Federal+Reserve+OR+US+inflation+OR+oil+prices+OR+war+OR+trade+tariff&hl=en&gl=US&ceid=US:en",
+    fallbackUrls: [
+      "https://news.google.com/rss/search?q=Federal+Reserve+inflation+oil+prices+tariffs&hl=en&gl=US&ceid=US:en",
+      "https://news.google.com/rss/search?q=global+economy+central+bank+oil&hl=en&gl=US&ceid=US:en"
+    ]
   },
   {
     id: "google-nifty-impact",
     name: "Google News — NIFTY Impact",
     kind: "aggregator",
-    url: "https://news.google.com/rss/search?q=crude+oil+OR+USD+INR+OR+FII+OR+India+GDP+OR+Indian+economy&hl=en-IN&gl=IN&ceid=IN:en"
+    url: "https://news.google.com/rss/search?q=crude+oil+OR+USD+INR+OR+FII+OR+India+GDP+OR+Indian+economy&hl=en-IN&gl=IN&ceid=IN:en",
+    fallbackUrls: [
+      "https://news.google.com/rss/search?q=crude+oil+USD+INR+FII+India+GDP&hl=en-IN&gl=IN&ceid=IN:en",
+      "https://news.google.com/rss/search?q=India+economy+foreign+investment+rupee&hl=en-IN&gl=IN&ceid=IN:en"
+    ]
   },
   {
     id: "bbc-world",
@@ -69,7 +82,11 @@ const SOURCES = [
     id: "gdelt",
     name: "GDELT Global News",
     kind: "aggregator",
-    url: "https://api.gdeltproject.org/api/v2/doc/doc?query=NIFTY%20OR%20India%20stock%20market%20OR%20RBI%20OR%20crude%20oil%20OR%20Federal%20Reserve&mode=ArtList&format=json&maxrecords=50&sort=DateDesc"
+    url: "https://api.gdeltproject.org/api/v2/doc/doc?query=NIFTY%20OR%20RBI%20OR%20%22India%20stock%20market%22%20OR%20%22crude%20oil%22&mode=ArtList&format=json&maxrecords=50&sort=DateDesc",
+    fallbackUrls: [
+      "https://api.gdeltproject.org/api/v2/doc/doc?query=NIFTY%20OR%20RBI%20OR%20India&mode=ArtList&format=json&maxrecords=50&sort=DateDesc",
+      "https://api.gdeltproject.org/api/v2/doc/doc?query=%22India%20stock%20market%22&mode=ArtList&format=json&maxrecords=50&sort=DateDesc"
+    ]
   }
 ];
 
@@ -84,7 +101,6 @@ const INDIA_MARKET_ANCHORS = [
   "nifty futures", "sensex futures", "india vix"
 ];
 
-// Indian macro/geography terms require an explicit finance/economy context.
 const INDIA_CONTEXT_ANCHORS = [
   "india", "indian", "rbi", "reserve bank"
 ];
@@ -102,7 +118,6 @@ const INDIA_FINANCIAL_CONTEXT = [
   "crude import", "industrial production"
 ];
 
-// Global triggers are relevant only when financial transmission is explicit.
 const GLOBAL_MACRO_ANCHORS = [
   "federal reserve", "fed", "ecb", "bank of england",
   "bank of japan", "central bank", "opec", "crude oil",
@@ -366,7 +381,6 @@ function analyzeNewsItem(news) {
   const text = `${news.title || ""} ${news.description || ""}`;
   const relevance = isNiftyRelevant(news);
 
-  // Sentiment is calculated only after relevance is established.
   const bullishHits = relevance.relevant
     ? countHits(text, BULLISH_TERMS)
     : 0;
@@ -434,10 +448,7 @@ function analyzeNewsItem(news) {
       ? "OFFICIAL_SOURCE — independent fact-check not completed"
       : "UNVERIFIED — independent corroboration required",
     sourceTypeScore: official ? 65 : 45,
-
-    // Compatibility field. This is not factual verification confidence.
     verificationConfidence: official ? 65 : 45,
-
     directionBias: direction,
     impactProbabilities: { bullish, bearish, neutral },
     scoringMethod: "contextual whole-word rules; experimental",
@@ -485,49 +496,142 @@ function prioritize(items) {
     .slice(0, MAX_OUTPUT);
 }
 
-async function fetchSource(source) {
-  try {
-    const response = await fetch(source.url, {
-      headers: {
-        Accept: source.id === "gdelt"
-          ? "application/json"
-          : "application/rss+xml, application/atom+xml, application/xml, text/xml, */*",
-        "User-Agent": `BADAL-SEVERIYA-News-Intelligence/${VERSION}`
+// Fetch with timeout and retry for temporary server/network failures.
+async function fetchWithRetry(url, source) {
+  let lastError = null;
+
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      const response = await fetch(url, {
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+        headers: {
+          Accept: source.id === "gdelt"
+            ? "application/json"
+            : "application/rss+xml, application/atom+xml, application/xml, text/xml, */*",
+          "User-Agent": `BADAL-SEVERIYA-News-Intelligence/${VERSION}`
+        }
+      });
+
+      if (!response.ok) {
+        const retryable =
+          response.status === 429 ||
+          response.status >= 500;
+
+        throw Object.assign(
+          new Error(`HTTP ${response.status}`),
+          { retryable }
+        );
       }
-    });
 
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const body = await response.text();
 
-    const body = await response.text();
+      if (!body.trim()) {
+        throw Object.assign(new Error("Empty response"), {
+          retryable: true
+        });
+      }
 
-    if (!body.trim()) throw new Error("Empty response");
+      if (/^\s*<(?:!doctype html|html\b)/i.test(body)) {
+        throw Object.assign(new Error("HTML response, not feed/data"), {
+          retryable: false
+        });
+      }
 
-    if (/^\s*<(?:!doctype html|html\b)/i.test(body)) {
-      throw new Error("HTML response, not feed/data");
+      return body;
+    } catch (error) {
+      lastError = error;
+
+      const retryable =
+        error?.retryable === true ||
+        error?.name === "TimeoutError" ||
+        error?.name === "AbortError" ||
+        error?.name === "TypeError";
+
+      if (!retryable || attempt >= MAX_RETRIES) break;
+
+      // Small exponential backoff: 400ms, then 800ms.
+      await new Promise(resolve =>
+        setTimeout(resolve, 400 * Math.pow(2, attempt))
+      );
+    }
+  }
+
+  throw lastError || new Error("Fetch failed");
+}
+
+function parseSourceBody(body, source) {
+  if (source.id === "gdelt") {
+    let json;
+
+    try {
+      json = JSON.parse(body);
+    } catch {
+      const preview = cleanText(body).slice(0, 140);
+      throw new Error(
+        `GDELT non-JSON response: ${preview || "empty error response"}`
+      );
     }
 
-    const items = source.id === "gdelt"
-      ? parseGdelt(JSON.parse(body), source)
-      : parseRss(body, source);
+    if (!Array.isArray(json?.articles)) {
+      throw new Error("GDELT JSON missing articles array");
+    }
 
-    return {
-      sourceId: source.id,
-      sourceName: source.name,
-      status: items.length ? "CONNECTED" : "EMPTY",
-      count: items.length,
-      error: null,
-      items
-    };
-  } catch (error) {
-    return {
-      sourceId: source.id,
-      sourceName: source.name,
-      status: "ERROR",
-      count: 0,
-      error: String(error?.message || error),
-      items: []
-    };
+    return parseGdelt(json, source);
   }
+
+  return parseRss(body, source);
+}
+
+async function fetchSource(source) {
+  const urls = [
+    source.url,
+    ...(Array.isArray(source.fallbackUrls) ? source.fallbackUrls : [])
+  ].filter(Boolean);
+
+  const errors = [];
+
+  for (let urlIndex = 0; urlIndex < urls.length; urlIndex++) {
+    const url = urls[urlIndex];
+
+    try {
+      const body = await fetchWithRetry(url, source);
+      const items = parseSourceBody(body, source);
+
+      if (items.length) {
+        return {
+          sourceId: source.id,
+          sourceName: source.name,
+          status: "CONNECTED",
+          count: items.length,
+          error: null,
+          fallbackUsed: urlIndex > 0,
+          items
+        };
+      }
+
+      errors.push(
+        urlIndex === 0
+          ? "Primary feed returned no items"
+          : `Fallback ${urlIndex} returned no items`
+      );
+    } catch (error) {
+      errors.push(
+        `Feed ${urlIndex + 1}: ${String(error?.message || error)}`
+      );
+    }
+  }
+
+  const errorText = errors.join(" | ");
+
+  return {
+    sourceId: source.id,
+    sourceName: source.name,
+    status: "ERROR",
+    count: 0,
+    error: errorText.slice(0, 500),
+    fallbackUsed: urls.length > 1,
+    items: []
+  };
 }
 
 async function collectNews() {
@@ -553,7 +657,8 @@ async function collectNews() {
       priority: "P1 reserved for explicit severe financial or market crisis terms",
       verification: "official-source label only; independent claim verification is not implemented",
       percentages: "experimental and not calibrated against market outcomes",
-      freshness: "known-dated articles older than 48 hours or over 10 minutes in the future are filtered"
+      freshness: "known-dated articles older than 48 hours or over 10 minutes in the future are filtered",
+      reliability: "temporary HTTP failures are retried; configured fallback URLs are attempted; GDELT non-JSON responses are safely reported"
     }
   };
 }
@@ -569,7 +674,7 @@ function corsHeaders() {
 
 async function cachedCollect() {
   const key = new Request(
-    "https://badal-severiya-cache.invalid/news-intelligence-v1"
+    "https://badal-severiya-cache.invalid/news-intelligence-v1.3"
   );
 
   const cache = caches.default;
@@ -618,7 +723,7 @@ export default {
         app: APP,
         version: VERSION,
         configuredSources: SOURCES.length,
-        mode: "experimental-contextual-news-filter"
+        mode: "experimental-contextual-news-filter-with-source-retries"
       }, { headers: corsHeaders() });
     }
 

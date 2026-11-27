@@ -1,9 +1,10 @@
-// BADAL SEVERIYA NEWS INTELLIGENCE — Phase 1.1
-// Global news collection + NIFTY relevance + transparent rule scoring.
+
+// BADAL SEVERIYA NEWS INTELLIGENCE — Phase 1.2
+// India-market focused news relevance with contextual global macro filtering.
 // Experimental only. No fact-check certification or trading prediction.
 
 const APP = "BADAL SEVERIYA NEWS INTELLIGENCE";
-const VERSION = "1.1.1";
+const VERSION = "1.2.0";
 const CACHE_SECONDS = 180;
 const MAX_PER_SOURCE = 35;
 const MAX_OUTPUT = 80;
@@ -72,50 +73,103 @@ const SOURCES = [
   }
 ];
 
-const RELEVANCE_TERMS = [
-  "nifty", "india", "indian", "rbi", "sebi", "nse", "bse",
-  "sensex", "rupee", "inr", "fii", "fpi", "dii", "crude",
-  "oil", "fed", "federal reserve", "inflation", "cpi", "gdp",
-  "interest rate", "tariff", "trade", "war", "sanction",
-  "bank", "bond", "yield", "vix", "stock", "market", "economy",
-  "budget", "tax", "monsoon", "cyclone", "election", "policy",
-  "earnings", "index", "liquidity", "recession", "commodity",
-  "china", "us", "united states", "europe", "opec"
+// Direct Indian market anchors can qualify without broad keyword matching.
+const INDIA_MARKET_ANCHORS = [
+  "nifty", "nifty 50", "bank nifty", "nifty bank",
+  "sensex", "bse sensex", "indian stock market",
+  "india stock market", "indian equities", "indian equity market",
+  "nse", "bse", "sebi", "reserve bank of india",
+  "rbi monetary policy", "fii", "fpi", "dii",
+  "usd inr", "rupee", "indian rupee",
+  "nifty futures", "sensex futures", "india vix"
+];
+
+// Indian macro/geography terms require an explicit finance/economy context.
+const INDIA_CONTEXT_ANCHORS = [
+  "india", "indian", "rbi", "reserve bank"
+];
+
+const INDIA_FINANCIAL_CONTEXT = [
+  "stock market", "equity", "equities", "share market",
+  "shares", "nifty", "sensex", "bse", "nse", "sebi",
+  "rupee", "inr", "forex", "currency", "bond", "bond yield",
+  "yield", "interest rate", "monetary policy", "inflation",
+  "cpi", "wpi", "gdp", "economic growth", "fiscal deficit",
+  "liquidity", "banking", "bank", "credit", "fii", "fpi",
+  "dii", "foreign investment", "capital flows", "market",
+  "financial", "budget", "tax", "government borrowing",
+  "trade deficit", "current account", "oil import",
+  "crude import", "industrial production"
+];
+
+// Global triggers are relevant only when financial transmission is explicit.
+const GLOBAL_MACRO_ANCHORS = [
+  "federal reserve", "fed", "ecb", "bank of england",
+  "bank of japan", "central bank", "opec", "crude oil",
+  "oil prices", "brent crude", "wti crude",
+  "strait of hormuz", "red sea shipping",
+  "shipping disruption", "supply chain disruption",
+  "trade tariff", "tariffs", "sanctions",
+  "global recession", "sovereign default",
+  "us inflation", "china economy", "european economy",
+  "us treasury", "treasury yields"
+];
+
+const GLOBAL_FINANCIAL_CONTEXT = [
+  "stock market", "equity", "equities", "market",
+  "financial market", "bond", "bond yield", "treasury",
+  "yield", "interest rate", "rate cut", "rate hike",
+  "inflation", "cpi", "currency", "forex", "dollar",
+  "exchange rate", "crude", "oil price", "oil supply",
+  "energy price", "commodity", "trade", "tariff",
+  "export", "import", "shipping", "supply chain",
+  "liquidity", "central bank", "monetary policy",
+  "recession", "gdp", "economic growth", "banking",
+  "credit", "capital flow", "investor", "investment",
+  "financial", "risk appetite"
 ];
 
 const HIGH_IMPACT_TERMS = [
-  "war", "invasion", "missile", "attack", "terror", "terrorism",
-  "emergency", "crisis", "default", "crash", "collapse",
-  "sanction", "sanctions", "ceasefire", "blockade", "shutdown",
-  "rate cut", "rate hike", "interest rate", "inflation", "cpi",
-  "federal reserve", "rbi", "policy decision", "tariff", "trade war",
-  "oil surge", "crude oil", "earthquake", "cyclone", "flood",
-  "pandemic", "major disruption", "bank failure", "liquidity crisis",
-  "budget", "gdp"
+  "market crash", "market plunge", "sharp sell-off",
+  "financial crisis", "bank failure", "banking crisis",
+  "liquidity crisis", "sovereign default",
+  "emergency rate hike", "emergency rate cut",
+  "oil supply disruption", "oil supply shock",
+  "strait of hormuz blockade", "exchange outage",
+  "trading halt", "major market disruption",
+  "record inflation", "unexpected rate hike",
+  "unexpected rate cut", "currency crisis",
+  "credit crisis", "systemic risk"
 ];
 
 const CRITICAL_TERMS = [
-  "war", "invasion", "missile attack", "terror attack",
-  "terrorism", "liquidity crisis", "bank failure",
-  "financial crisis", "market crash", "default",
-  "emergency", "blockade", "major disruption"
+  "market crash", "financial crisis", "bank failure",
+  "systemic banking crisis", "liquidity crisis",
+  "sovereign default", "oil supply disruption",
+  "strait of hormuz blockade", "exchange outage",
+  "currency crisis", "credit crisis"
 ];
 
 const BULLISH_TERMS = [
-  "rate cut", "cuts rates", "lower interest", "inflation cool",
-  "inflation falls", "oil falls", "crude falls", "ceasefire",
-  "peace deal", "stimulus", "strong growth", "record profit",
-  "upgrade", "liquidity injection", "tax cut", "trade deal",
-  "reopens", "easing"
+  "rate cut", "cuts rates", "lower interest",
+  "inflation cools", "inflation falls", "oil prices fall",
+  "crude falls", "peace deal", "stimulus",
+  "strong growth", "record profit", "earnings beat",
+  "upgrade", "liquidity injection", "tax cut",
+  "trade deal", "reopens", "easing",
+  "buying returns", "foreign inflows"
 ];
 
 const BEARISH_TERMS = [
-  "rate hike", "raises rates", "inflation rises", "inflation hot",
-  "oil rises", "crude surges", "war", "invasion", "attack",
-  "terror", "sanctions", "tariff", "trade war", "recession",
-  "default", "crash", "collapse", "bank failure", "liquidity crisis",
-  "downgrade", "shutdown", "disruption", "sell-off", "selloff",
-  "outflow"
+  "rate hike", "raises rates", "inflation rises",
+  "inflation accelerates", "oil prices rise",
+  "crude surges", "sanctions", "tariff",
+  "trade war", "recession", "default",
+  "market crash", "market plunge", "bank failure",
+  "liquidity crisis", "downgrade", "shutdown",
+  "supply disruption", "sell-off", "selloff",
+  "outflow", "foreign outflows", "currency crisis",
+  "bond yields rise", "yields surge"
 ];
 
 function cleanText(value = "") {
@@ -261,22 +315,50 @@ function parseGdelt(json, source) {
 
 function isNiftyRelevant(news) {
   const text = `${news.title || ""} ${news.description || ""}`;
-  const hits = RELEVANCE_TERMS.filter(term => termMatch(text, term));
 
-  const priorityTerms = [
-    "nifty", "india", "rbi", "crude", "federal reserve",
-    "inflation", "fii", "tariff", "war", "gdp"
+  const directHits = countHits(text, INDIA_MARKET_ANCHORS);
+  const indiaHits = countHits(text, INDIA_CONTEXT_ANCHORS);
+  const indiaFinanceHits = countHits(text, INDIA_FINANCIAL_CONTEXT);
+  const globalHits = countHits(text, GLOBAL_MACRO_ANCHORS);
+  const globalFinanceHits = countHits(text, GLOBAL_FINANCIAL_CONTEXT);
+
+  const directMatch = directHits > 0;
+  const indiaContextMatch = indiaHits > 0 && indiaFinanceHits > 0;
+  const globalContextMatch = globalHits > 0 && globalFinanceHits > 0;
+
+  const relevant = directMatch || indiaContextMatch || globalContextMatch;
+
+  const hits = [
+    ...INDIA_MARKET_ANCHORS.filter(term => termMatch(text, term)),
+    ...INDIA_CONTEXT_ANCHORS.filter(term => termMatch(text, term)),
+    ...INDIA_FINANCIAL_CONTEXT.filter(term => termMatch(text, term)),
+    ...GLOBAL_MACRO_ANCHORS.filter(term => termMatch(text, term)),
+    ...GLOBAL_FINANCIAL_CONTEXT.filter(term => termMatch(text, term))
   ];
 
-  const hasPriorityTerm = hits.some(term => priorityTerms.includes(term));
+  const uniqueHits = [...new Set(hits)];
+
+  let relevanceScore = 0;
+
+  if (directMatch) {
+    relevanceScore = Math.min(100, 65 + directHits * 8);
+  } else if (indiaContextMatch) {
+    relevanceScore = Math.min(85, 35 + indiaFinanceHits * 10);
+  } else if (globalContextMatch) {
+    relevanceScore = Math.min(75, 25 + globalFinanceHits * 8);
+  }
 
   return {
-    relevant: hits.length > 0,
-    hits: hits.slice(0, 10),
-    relevanceScore: Math.min(
-      100,
-      hits.length * 12 + (hasPriorityTerm ? 28 : 0)
-    )
+    relevant,
+    hits: uniqueHits.slice(0, 12),
+    relevanceScore,
+    relevanceType: directMatch
+      ? "DIRECT_INDIA_MARKET"
+      : indiaContextMatch
+        ? "INDIA_MACRO_FINANCIAL"
+        : globalContextMatch
+          ? "GLOBAL_MACRO_TRANSMISSION"
+          : "NOT_RELEVANT"
   };
 }
 
@@ -284,12 +366,21 @@ function analyzeNewsItem(news) {
   const text = `${news.title || ""} ${news.description || ""}`;
   const relevance = isNiftyRelevant(news);
 
-  const bullishHits = countHits(text, BULLISH_TERMS);
-  const bearishHits = countHits(text, BEARISH_TERMS);
-  const impactHits = countHits(text, HIGH_IMPACT_TERMS);
-  const criticalHits = countHits(text, CRITICAL_TERMS);
+  // Sentiment is calculated only after relevance is established.
+  const bullishHits = relevance.relevant
+    ? countHits(text, BULLISH_TERMS)
+    : 0;
+  const bearishHits = relevance.relevant
+    ? countHits(text, BEARISH_TERMS)
+    : 0;
+  const impactHits = relevance.relevant
+    ? countHits(text, HIGH_IMPACT_TERMS)
+    : 0;
+  const criticalHits = relevance.relevant
+    ? countHits(text, CRITICAL_TERMS)
+    : 0;
 
-  const highImpact = impactHits >= 2;
+  const highImpact = impactHits >= 1;
   const critical = criticalHits >= 1;
 
   let direction = "NEUTRAL";
@@ -325,7 +416,7 @@ function analyzeNewsItem(news) {
   } else if (critical) {
     priority = "P1_CRITICAL";
     impactStrength = "HIGH";
-  } else if (highImpact || relevance.relevanceScore >= 60) {
+  } else if (highImpact || relevance.relevanceScore >= 75) {
     priority = "P2_HIGH";
     impactStrength = "MEDIUM";
   }
@@ -336,6 +427,7 @@ function analyzeNewsItem(news) {
     ...news,
     niftyRelevance: relevance.relevanceScore,
     relevanceTerms: relevance.hits,
+    relevanceType: relevance.relevanceType,
     priority,
     impactStrength,
     verification: official
@@ -343,13 +435,12 @@ function analyzeNewsItem(news) {
       : "UNVERIFIED — independent corroboration required",
     sourceTypeScore: official ? 65 : 45,
 
-    // Legacy compatibility field retained for existing tests/UI.
-    // This is source-type score, NOT factual verification confidence.
+    // Compatibility field. This is not factual verification confidence.
     verificationConfidence: official ? 65 : 45,
 
     directionBias: direction,
     impactProbabilities: { bullish, bearish, neutral },
-    scoringMethod: "transparent whole-word keyword rules; experimental",
+    scoringMethod: "contextual whole-word rules; experimental",
     scoreWarning:
       "Percentages are experimental rule-based estimates, not calibrated forecasts or trading signals. Source labels do not prove claim truth."
   };
@@ -381,7 +472,6 @@ function isFresh(news, now = Date.now()) {
 
   const age = now - published;
 
-  // Filter older than 48 hours and unreasonable future timestamps.
   return age <= MAX_AGE_MS && age >= -10 * 60 * 1000;
 }
 
@@ -458,8 +548,9 @@ async function collectNews() {
     sourceStatus: sourceResults.map(({ items, ...status }) => status),
     news,
     methodology: {
-      relevance: "whole-word keyword matching; transparent term list",
-      direction: "rule-based sentiment bias only",
+      relevance: "direct Indian market anchors, Indian financial context, or global macro with explicit financial transmission context",
+      direction: "rule-based sentiment bias only; unrelated stories are not direction-scored",
+      priority: "P1 reserved for explicit severe financial or market crisis terms",
       verification: "official-source label only; independent claim verification is not implemented",
       percentages: "experimental and not calibrated against market outcomes",
       freshness: "known-dated articles older than 48 hours or over 10 minutes in the future are filtered"
@@ -527,7 +618,7 @@ export default {
         app: APP,
         version: VERSION,
         configuredSources: SOURCES.length,
-        mode: "experimental-rule-based-news-filter"
+        mode: "experimental-contextual-news-filter"
       }, { headers: corsHeaders() });
     }
 

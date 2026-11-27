@@ -22,30 +22,9 @@ function test(name, fn) {
   }
 }
 
-// --------------------------------------------------
-// 1. RSS PARSING
-// --------------------------------------------------
-
 test("RSS parser reads title, description and date", () => {
-  const xml = `
-    <rss>
-      <channel>
-        <item>
-          <title>RBI announces policy update</title>
-          <description>India monetary policy announcement</description>
-          <link>https://example.com/rbi-news</link>
-          <pubDate>Wed, 25 Nov 2026 10:00:00 GMT</pubDate>
-        </item>
-      </channel>
-    </rss>
-  `;
-
-  const source = {
-    id: "test-rss",
-    name: "Test RSS",
-    kind: "publisher"
-  };
-
+  const xml = `<rss><channel><item><title>RBI announces policy update</title><description>India monetary policy announcement</description><link>https://example.com/rbi-news</link><pubDate>Wed, 25 Nov 2026 10:00:00 GMT</pubDate></item></channel></rss>`;
+  const source = { id: "test-rss", name: "Test RSS", kind: "publisher" };
   const result = parseRss(xml, source);
 
   assert.equal(result.length, 1);
@@ -56,28 +35,9 @@ test("RSS parser reads title, description and date", () => {
   assert.ok(result[0].published);
 });
 
-// --------------------------------------------------
-// 2. ATOM PARSING
-// --------------------------------------------------
-
 test("RSS parser handles Atom entry format", () => {
-  const xml = `
-    <feed xmlns="http://www.w3.org/2005/Atom">
-      <entry>
-        <title>India economic growth update</title>
-        <summary>GDP and market information</summary>
-        <link href="https://example.com/economy" />
-        <updated>2026-11-25T09:00:00Z</updated>
-      </entry>
-    </feed>
-  `;
-
-  const source = {
-    id: "test-atom",
-    name: "Test Atom",
-    kind: "publisher"
-  };
-
+  const xml = `<feed xmlns="http://www.w3.org/2005/Atom"><entry><title>India economic growth update</title><summary>GDP and market information</summary><link href="https://example.com/economy" /><updated>2026-11-25T09:00:00Z</updated></entry></feed>`;
+  const source = { id: "test-atom", name: "Test Atom", kind: "publisher" };
   const result = parseRss(xml, source);
 
   assert.equal(result.length, 1);
@@ -86,17 +46,11 @@ test("RSS parser handles Atom entry format", () => {
   assert.ok(result[0].published);
 });
 
-// --------------------------------------------------
-// 3. NIFTY RELEVANCE FILTER
-// --------------------------------------------------
-
 test("RBI India inflation news is relevant", () => {
-  const news = {
+  const result = isNiftyRelevant({
     title: "RBI India inflation policy update",
     description: "Interest rate and Indian market outlook"
-  };
-
-  const result = isNiftyRelevant(news);
+  });
 
   assert.equal(result.relevant, true);
   assert.ok(result.relevanceScore > 0);
@@ -104,40 +58,28 @@ test("RBI India inflation news is relevant", () => {
 });
 
 test("Unrelated celebrity news is filtered out", () => {
-  const news = {
+  const result = isNiftyRelevant({
     title: "Celebrity announces new movie",
     description: "Entertainment event and film premiere"
-  };
-
-  const result = isNiftyRelevant(news);
+  });
 
   assert.equal(result.relevant, false);
   assert.equal(result.relevanceScore, 0);
 });
 
-// --------------------------------------------------
-// 4. OFFICIAL SOURCE LABELING
-// --------------------------------------------------
-
 test("Official source receives official-source label", () => {
-  const news = {
+  const result = analyzeNewsItem({
     title: "RBI announces monetary policy",
     description: "India interest rate policy announcement",
     sourceId: "rbi",
     sourceName: "Reserve Bank of India",
     sourceKind: "official",
     published: new Date().toISOString()
-  };
-
-  const result = analyzeNewsItem(news);
+  });
 
   assert.match(result.verification, /OFFICIAL_SOURCE/);
   assert.equal(result.verificationConfidence, 65);
 });
-
-// --------------------------------------------------
-// 5. PROBABILITY SCORE VALIDATION
-// --------------------------------------------------
 
 test("Experimental percentages always total 100", () => {
   const samples = [
@@ -179,27 +121,17 @@ test("Experimental percentages always total 100", () => {
   }
 });
 
-// --------------------------------------------------
-// 6. NEWS PRIORITY
-// --------------------------------------------------
-
 test("High impact relevant news receives critical priority", () => {
-  const news = {
+  const result = analyzeNewsItem({
     title: "War crisis causes crude oil surge",
     description: "India market and oil prices face disruption",
     sourceKind: "publisher",
     published: new Date().toISOString()
-  };
-
-  const result = analyzeNewsItem(news);
+  });
 
   assert.equal(result.priority, "P1_CRITICAL");
   assert.equal(result.impactStrength, "HIGH");
 });
-
-// --------------------------------------------------
-// 7. DUPLICATE REMOVAL
-// --------------------------------------------------
 
 test("Duplicate headlines are removed", () => {
   const items = [
@@ -222,10 +154,6 @@ test("Duplicate headlines are removed", () => {
   assert.equal(result.length, 1);
 });
 
-// --------------------------------------------------
-// 8. IRRELEVANT NEWS FILTER
-// --------------------------------------------------
-
 test("Irrelevant stories do not appear in prioritized output", () => {
   const items = [
     {
@@ -246,28 +174,42 @@ test("Irrelevant stories do not appear in prioritized output", () => {
   assert.match(result[0].title, /RBI/i);
 });
 
-// --------------------------------------------------
-// 9. GDELT DATE CONVERSION
-// --------------------------------------------------
-
 test("GDELT compact timestamp is converted to ISO", () => {
-  const result = parseGdeltDate("20261125103000");
+  const result = parseGdelt({
+    articles: [{
+      title: "India market timestamp test",
+      url: "https://example.com/date-test",
+      seendate: "20261125103000",
+      source: "Example"
+    }]
+  }, {
+    id: "gdelt-test",
+    name: "GDELT Test",
+    kind: "aggregator"
+  });
 
   assert.equal(
-    result,
+    result[0].published,
     "2026-11-25T10:30:00.000Z"
   );
 });
 
-test("GDELT invalid date returns null", () => {
-  const result = parseGdeltDate("invalid-date");
+test("GDELT invalid date is safely represented as null", () => {
+  const result = parseGdelt({
+    articles: [{
+      title: "India market invalid timestamp test",
+      url: "https://example.com/date-invalid",
+      seendate: "invalid-date",
+      source: "Example"
+    }]
+  }, {
+    id: "gdelt-test",
+    name: "GDELT Test",
+    kind: "aggregator"
+  });
 
-  assert.equal(result, null);
+  assert.equal(result[0].published, null);
 });
-
-// --------------------------------------------------
-// 10. GDELT ARTICLE PARSING
-// --------------------------------------------------
 
 test("GDELT parser reads article data", () => {
   const source = {
@@ -277,54 +219,29 @@ test("GDELT parser reads article data", () => {
   };
 
   const json = {
-    articles: [
-      {
-        title: "India stock market reacts to crude oil",
-        url: "https://example.com/market-news",
-        seendate: "20261125103000",
-        source: "Example News"
-      }
-    ]
+    articles: [{
+      title: "India stock market reacts to crude oil",
+      url: "https://example.com/market-news",
+      seendate: "20261125103000",
+      source: "Example News"
+    }]
   };
 
   const result = parseGdelt(json, source);
 
   assert.equal(result.length, 1);
   assert.match(result[0].title, /India stock market/i);
-  assert.equal(
-    result[0].link,
-    "https://example.com/market-news"
-  );
+  assert.equal(result[0].link, "https://example.com/market-news");
   assert.equal(result[0].sourceKind, "aggregator");
-  assert.equal(
-    result[0].published,
-    "2026-11-25T10:30:00.000Z"
-  );
+  assert.equal(result[0].published, "2026-11-25T10:30:00.000Z");
 });
-
-// --------------------------------------------------
-// 11. SOURCE CONFIGURATION
-// --------------------------------------------------
 
 test("News engine has multiple configured sources", () => {
   assert.ok(SOURCES.length >= 8);
-
-  assert.ok(
-    SOURCES.some(source => source.kind === "official")
-  );
-
-  assert.ok(
-    SOURCES.some(source => source.kind === "publisher")
-  );
-
-  assert.ok(
-    SOURCES.some(source => source.kind === "aggregator")
-  );
+  assert.ok(SOURCES.some(source => source.kind === "official"));
+  assert.ok(SOURCES.some(source => source.kind === "publisher"));
+  assert.ok(SOURCES.some(source => source.kind === "aggregator"));
 });
-
-// --------------------------------------------------
-// FINAL
-// --------------------------------------------------
 
 console.log("");
 console.log("======================================");

@@ -1,17 +1,25 @@
 
 /*
  * BADAL SEVERIYA V12
- * HISTORICAL MASTER — NEWS CONTEXT BRIDGE v1.0
+ * HISTORICAL MASTER — NEWS CONTEXT BRIDGE v1.1
  *
  * Converts News Intelligence API output into a safe,
  * structured market-context object for Master Dashboard.
  *
  * Context only. No forecasts, trading signals,
  * future probabilities, or investment recommendations.
+ *
+ * Security:
+ * - HTTPS article links only.
+ * - Reject malformed URLs and credentials in URLs.
+ * - Defensive input normalization.
+ *
+ * Accuracy:
+ * - Excluded article counts are calculated once.
  */
 
 const MODULE = "HISTORICAL_MASTER_NEWS_CONTEXT";
-const VERSION = "1.0.0";
+const VERSION = "1.1.0";
 
 const ALLOWED_CATEGORIES = new Set([
   "INDIA_INDEX_CONTEXT",
@@ -27,6 +35,15 @@ const ALLOWED_SENTIMENTS = new Set([
   "NEGATIVE",
   "MIXED",
   "NEUTRAL"
+]);
+
+const ALLOWED_FRESHNESS = new Set([
+  "FRESH",
+  "MISSING_DATE",
+  "STALE_FALLBACK",
+  "STALE_OLD",
+  "INVALID_DATE",
+  "FUTURE_DATE"
 ]);
 
 const NOTE =
@@ -49,15 +66,48 @@ function safeScore(value) {
   return Math.max(0, Math.min(100, value));
 }
 
+/*
+ * Only HTTPS article URLs are accepted.
+ * URLs containing username/password are rejected.
+ */
+function normalizeSecureLink(value) {
+  const link = safeText(value, 1000);
+
+  if (!link) return "";
+
+  try {
+    const parsed = new URL(link);
+
+    if (parsed.protocol !== "https:") {
+      return "";
+    }
+
+    if (parsed.username || parsed.password) {
+      return "";
+    }
+
+    if (!parsed.hostname) {
+      return "";
+    }
+
+    return parsed.href;
+  } catch {
+    return "";
+  }
+}
+
 function normalizeArticle(item) {
   if (!isObject(item)) return null;
 
   const title = safeText(item.title, 300);
-  const link = safeText(item.link, 1000);
+  const link = normalizeSecureLink(item.link);
 
+  // Reject invalid title or unsafe/malformed article URL.
   if (!title || !link) return null;
 
-  const category = ALLOWED_CATEGORIES.has(item.relevanceCategory)
+  const category = ALLOWED_CATEGORIES.has(
+    item.relevanceCategory
+  )
     ? item.relevanceCategory
     : "GENERAL_NOISE";
 
@@ -65,11 +115,20 @@ function normalizeArticle(item) {
     ? item.sentiment
     : "NEUTRAL";
 
-  const freshness = safeText(item.freshness, 30).toUpperCase();
+  const rawFreshness = safeText(
+    item.freshness,
+    30
+  ).toUpperCase();
+
+  const freshness = ALLOWED_FRESHNESS.has(rawFreshness)
+    ? rawFreshness
+    : "INVALID_DATE";
 
   const niftyRelevant = item.niftyRelevant === true;
 
-  const relevanceScore = safeScore(item.relevanceScore);
+  const relevanceScore = safeScore(
+    item.relevanceScore
+  );
 
   return {
     title,
@@ -107,24 +166,33 @@ function createEmptyCounts() {
 }
 
 function countArticle(counts, article) {
-  if (article.sentiment === "POSITIVE") counts.positive++;
-  else if (article.sentiment === "NEGATIVE") counts.negative++;
-  else if (article.sentiment === "MIXED") counts.mixed++;
-  else counts.neutral++;
+  if (article.sentiment === "POSITIVE") {
+    counts.positive++;
+  } else if (article.sentiment === "NEGATIVE") {
+    counts.negative++;
+  } else if (article.sentiment === "MIXED") {
+    counts.mixed++;
+  } else {
+    counts.neutral++;
+  }
 
   switch (article.category) {
     case "INDIA_INDEX_CONTEXT":
       counts.indiaIndex++;
       break;
+
     case "INDIA_MACRO":
       counts.indiaMacro++;
       break;
+
     case "INDIA_REGULATORY":
       counts.regulatory++;
       break;
+
     case "INDIA_STOCK_SPECIFIC":
       counts.stockSpecific++;
       break;
+
     case "GLOBAL_MARKET_CONTEXT":
       counts.global++;
       break;
@@ -168,7 +236,10 @@ function buildContext({
 
   let contextLabel = "NO_CLEAR_NEWS_CONTEXT";
 
-  if (relevantPositive.length && relevantNegative.length) {
+  if (
+    relevantPositive.length &&
+    relevantNegative.length
+  ) {
     contextLabel = "MIXED_NEWS_CONTEXT";
   } else if (relevantPositive.length) {
     contextLabel = "POSITIVE_NEWS_CONTEXT";
@@ -179,6 +250,18 @@ function buildContext({
   } else if (relevantNeutral.length) {
     contextLabel = "NEUTRAL_NEWS_CONTEXT";
   }
+
+  /*
+   * Count each article exactly once:
+   * all - active - stale = excluded.
+   * Do not add excluded articles again elsewhere.
+   */
+  const excludedCount = Math.max(
+    0,
+    allArticles.length -
+      activeArticles.length -
+      staleArticles.length
+  );
 
   return {
     status: "OK",
@@ -201,18 +284,18 @@ function buildContext({
       freshness: {
         activeArticleCount: activeArticles.length,
         staleArticleCount: staleArticles.length,
-        excludedNoiseCount: allArticles.length -
-          activeArticles.length -
-          staleArticles.length,
+        excludedNoiseCount: excludedCount,
         usedFallbackWindow: usedFallbackWindow === true
       }
     },
 
     articles: {
       relevant: relevant.slice(0, 20),
+
       otherContext: activeArticles
         .filter(article => !article.niftyRelevant)
         .slice(0, 15),
+
       stale: staleArticles.slice(0, 10)
     },
 
@@ -253,8 +336,17 @@ export function analyzeHistoricalMasterNewsContext(
     };
   }
 
+  const requestedLimit = Number.isFinite(maxArticles)
+    ? Math.floor(maxArticles)
+    : 100;
+
+  const articleLimit = Math.max(
+    1,
+    Math.min(requestedLimit, 500)
+  );
+
   const articles = payload.news
-    .slice(0, Math.max(1, Math.min(maxArticles, 500)))
+    .slice(0, articleLimit)
     .map(normalizeArticle)
     .filter(Boolean);
 
@@ -279,27 +371,23 @@ export function analyzeHistoricalMasterNewsContext(
     article.freshness === "STALE_FALLBACK"
   );
 
-  const excluded = articles.filter(article =>
-    article.freshness === "STALE_OLD" ||
-    article.freshness === "INVALID_DATE" ||
-    article.freshness === "FUTURE_DATE"
-  );
-
   const safeDiagnostics = Array.isArray(payload.sourceStatus)
-    ? payload.sourceStatus.map(source => ({
-        sourceId: safeText(source?.sourceId, 100),
-        sourceName: safeText(source?.sourceName, 150),
-        status: safeText(source?.status, 40),
-        fetchedItems: Number.isFinite(source?.fetchedItems)
-          ? Math.max(0, source.fetchedItems)
-          : 0,
-        errorCount: Array.isArray(source?.errors)
-          ? source.errors.length
-          : 0
-      }))
+    ? payload.sourceStatus
+        .filter(isObject)
+        .map(source => ({
+          sourceId: safeText(source.sourceId, 100),
+          sourceName: safeText(source.sourceName, 150),
+          status: safeText(source.status, 40),
+          fetchedItems: Number.isFinite(source.fetchedItems)
+            ? Math.max(0, source.fetchedItems)
+            : 0,
+          errorCount: Array.isArray(source.errors)
+            ? source.errors.length
+            : 0
+        }))
     : [];
 
-  const result = buildContext({
+  return buildContext({
     activeArticles,
     staleArticles,
     allArticles: articles,
@@ -308,10 +396,6 @@ export function analyzeHistoricalMasterNewsContext(
     usedFallbackWindow:
       payload.freshnessPolicy?.usedFallbackWindow === true
   });
-
-  result.context.freshness.excludedNoiseCount += excluded.length;
-
-  return result;
 }
 
 export function getHistoricalMasterNewsContextConfig() {
@@ -319,16 +403,20 @@ export function getHistoricalMasterNewsContextConfig() {
     module: MODULE,
     version: VERSION,
     input: "BADAL_SEVERIYA_NEWS_INTELLIGENCE_API",
+
     acceptedFreshness: [
       "FRESH",
       "MISSING_DATE"
     ],
+
     staleHandling: "DISPLAY_ONLY_NOT_ACTIVE_CONTEXT",
     invalidFutureOldHandling: "EXCLUDED",
     output: "NEWS_CONTEXT_ONLY",
+
     forecastsEnabled: false,
     tradingSignalsEnabled: false,
     futureProbabilitiesEnabled: false,
+
     note: NOTE
   };
 }

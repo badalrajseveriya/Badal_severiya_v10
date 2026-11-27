@@ -16,6 +16,7 @@
  *
  * Accuracy:
  * - Excluded article counts are calculated once.
+ * - Source errors support both array and string formats.
  */
 
 const MODULE = "HISTORICAL_MASTER_NEWS_CONTEXT";
@@ -308,6 +309,36 @@ function buildContext({
   };
 }
 
+/*
+ * Normalize source error diagnostics.
+ *
+ * News Intelligence worker currently emits `error` as a string,
+ * while some callers/tests use `errors` as an array.
+ * Support both formats without exposing error text to the UI.
+ */
+function getSourceErrorCount(source) {
+  if (Array.isArray(source.errors)) {
+    return source.errors.length;
+  }
+
+  if (typeof source.error === "string") {
+    const errorText = source.error.trim();
+
+    if (!errorText) {
+      return 0;
+    }
+
+    // The News Intelligence worker joins individual URL errors
+    // using " | ". Count those entries for accurate diagnostics.
+    return errorText
+      .split(/\s+\|\s+/)
+      .filter(Boolean)
+      .length;
+  }
+
+  return 0;
+}
+
 export function analyzeHistoricalMasterNewsContext(
   payload,
   {
@@ -381,9 +412,7 @@ export function analyzeHistoricalMasterNewsContext(
           fetchedItems: Number.isFinite(source.fetchedItems)
             ? Math.max(0, source.fetchedItems)
             : 0,
-          errorCount: Array.isArray(source.errors)
-            ? source.errors.length
-            : 0
+          errorCount: getSourceErrorCount(source)
         }))
     : [];
 

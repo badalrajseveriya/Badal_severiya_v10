@@ -1,5 +1,5 @@
 
-// BADAL SEVERIYA NEWS INTELLIGENCE — Phase 1.3.8 tests
+// BADAL SEVERIYA NEWS INTELLIGENCE — Phase 1.3.9 tests
 // Run: node news-intelligence-worker.test.js
 
 import assert from "node:assert/strict";
@@ -306,6 +306,76 @@ test("Sentiment does not create NIFTY relevance", () => {
 
   assert.equal(result.sentiment, "POSITIVE");
   assert.equal(result.niftyRelevant, false);
+});
+
+// Phase 1.3.9 regression tests
+
+test("Park Medi healthcare stock headline is not index context", () => {
+  const result = scoreItem({
+    title: "Park Medi World shares show resilience against the Indian stock market crash; should you buy? Target, stop-loss",
+    description: "Healthcare stock shows resilience",
+    sourceId: "livemint-markets"
+  });
+
+  assert.equal(result.relevanceCategory, "INDIA_STOCK_SPECIFIC");
+  assert.equal(result.niftyRelevant, false);
+});
+
+test("Nifty Bank index movement is not classified as single-stock news", () => {
+  const result = scoreItem({
+    title: "Banking stocks hit the accelerator! Nifty Bank index up 18% in 1 month; HDFC Bank, SBI, ICICI Bank - 9 best stocks to buy",
+    description: "Nifty Bank index advances strongly",
+    sourceId: "livemint-markets"
+  });
+
+  assert.equal(result.relevanceCategory, "INDIA_INDEX_CONTEXT");
+  assert.equal(result.niftyRelevant, true);
+});
+
+test("Generic stock recommendations are not India macro", () => {
+  const result = scoreItem({
+    title: "Stock recommendations for 27 November from MarketSmith India",
+    description: "Today's stock recommendations and market picks",
+    sourceId: "livemint-markets"
+  });
+
+  assert.notEqual(result.relevanceCategory, "INDIA_MACRO");
+  assert.equal(result.niftyRelevant, false);
+});
+
+test("Global climate loss and damage fund is not India stock-specific", () => {
+  const result = scoreItem({
+    title: "Climate loss and damage fund exists, but the money doesn't",
+    description: "International climate finance and funding",
+    sourceId: "dw-business"
+  });
+
+  assert.notEqual(result.relevanceCategory, "INDIA_STOCK_SPECIFIC");
+  assert.equal(result.niftyRelevant, false);
+});
+
+test("Japan bank funding cost and unwind headline is not positive sentiment", () => {
+  const result = scoreItem({
+    title: "Japan Bank Shares Risk Further Unwind as Funding Cost Bites",
+    description: "Funding costs create pressure for banking shares",
+    sourceId: "bbc-business"
+  });
+
+  assert.notEqual(result.sentiment, "POSITIVE");
+  assert.ok(
+    result.sentiment === "NEGATIVE" || result.sentiment === "MIXED"
+  );
+});
+
+test("NIFTY 50 falling headline remains index context", () => {
+  const result = scoreItem({
+    title: "Nifty 50 falls as selling pressure increases",
+    description: "Indian benchmark index declines",
+    sourceId: "livemint-markets"
+  });
+
+  assert.equal(result.relevanceCategory, "INDIA_INDEX_CONTEXT");
+  assert.equal(result.niftyRelevant, true);
 });
 
 test("Fresh item is classified correctly", () => {

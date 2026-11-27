@@ -1,3 +1,4 @@
+
 import { test, expect } from "@playwright/test";
 import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
@@ -55,74 +56,72 @@ const CORS_HEADERS = {
   "access-control-allow-origin": "*"
 };
 
+function getContentType(filePath) {
+  const extension = path.extname(filePath).toLowerCase();
+
+  const types = {
+    ".html": "text/html; charset=utf-8",
+    ".js": "text/javascript; charset=utf-8",
+    ".css": "text/css; charset=utf-8",
+    ".json": "application/json; charset=utf-8",
+    ".svg": "image/svg+xml"
+  };
+
+  return types[extension] || "application/octet-stream";
+}
+
 test.beforeAll(async () => {
   server = createServer(async (request, response) => {
     try {
-      const pathname = new URL(
+      const requestUrl = new URL(
         request.url,
         "http://localhost"
-      ).pathname;
+      );
+
+      let pathname = decodeURIComponent(requestUrl.pathname);
 
       if (pathname === "/") {
-        response.writeHead(200, {
-          "content-type": "text/html; charset=utf-8"
-        });
-
-        response.end(`
-          <!doctype html>
-          <html lang="en">
-            <head>
-              <meta charset="utf-8">
-              <meta name="viewport" content="width=device-width, initial-scale=1">
-              <title>News Context Browser Test</title>
-            </head>
-            <body>
-              <section id="master-summary-1d">
-                <div class="master-eight-container"></div>
-              </section>
-
-              <section id="master-summary-15m">
-                <div class="master-eight-container"></div>
-              </section>
-
-              <script
-                type="module"
-                src="/historical-master-news-context-ui.js"
-              ></script>
-            </body>
-          </html>
-        `);
-
-        return;
+        pathname = "/index.html";
       }
 
-      const allowedFiles = new Set([
-        "/historical-master-news-context-ui.js",
-        "/historical-master-news-context.js"
-      ]);
-
-      if (!allowedFiles.has(pathname)) {
-        response.writeHead(404);
-        response.end("Not found");
-        return;
-      }
-
-      const filePath = path.join(
+      const filePath = path.resolve(
         ROOT,
-        pathname.slice(1)
+        `.${pathname}`
       );
+
+      const rootPrefix = ROOT.endsWith(path.sep)
+        ? ROOT
+        : ROOT + path.sep;
+
+      if (
+        filePath !== ROOT &&
+        !filePath.startsWith(rootPrefix)
+      ) {
+        response.writeHead(403);
+        response.end("Forbidden");
+        return;
+      }
 
       const content = await readFile(filePath);
 
       response.writeHead(200, {
-        "content-type": "text/javascript; charset=utf-8",
+        "content-type": getContentType(filePath),
         "cache-control": "no-store"
       });
 
       response.end(content);
-    } catch {
-      response.writeHead(500);
-      response.end("Browser test server error");
+    } catch (error) {
+      const status = error.code === "ENOENT" ? 404 : 500;
+
+      response.writeHead(status, {
+        "content-type": "text/plain; charset=utf-8"
+      });
+
+      response.end(
+        status === 404
+          ? "Not found"
+          : "Browser test server error"
+      );
     }
   });
 
@@ -132,6 +131,7 @@ test.beforeAll(async () => {
   });
 
   const address = server.address();
+
   baseUrl = `http://127.0.0.1:${address.port}`;
 });
 
@@ -146,7 +146,7 @@ test.afterAll(async () => {
   });
 });
 
-async function openDashboard(page) {
+async function mockNewsApi(page, payload = fixture) {
   await page.route(
     "**/api/news-intelligence**",
     async route => {
@@ -154,12 +154,91 @@ async function openDashboard(page) {
         status: 200,
         contentType: "application/json",
         headers: CORS_HEADERS,
-        body: JSON.stringify(fixture)
+        body: JSON.stringify(payload)
       });
     }
   );
+}
+
+async function mockHistoricalApi(page) {
+  await page.route(
+    "**/badal-severiya-data.mrstarrdbs.workers.dev/**",
+    async route => {
+      const url = new URL(route.request().url());
+
+      if (url.pathname === "/api/health") {
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({
+            status: "OK"
+          })
+        });
+
+        return;
+      }
+
+      if (url.pathname === "/api/data/candles") {
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({
+            app: "BADAL SEVERIYA DATA V11",
+            index: url.searchParams.get("index") || "NIFTY",
+            timeframe: url.searchParams.get("timeframe") || "1d",
+            candles: [],
+            hasMore: false,
+            count: 0
+          })
+        });
+
+        return;
+      }
+
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          status: "OK",
+          candles: [],
+          hasMore: false
+        })
+      });
+    }
+  );
+}
+
+async function openNewsTestPage(page) {
+  await mockNewsApi(page);
 
   await page.goto(baseUrl);
+
+  await expect(
+    page.locator(
+      "#master-summary-1d .historical-master-news-context-panel"
+    )
+  ).toBeVisible();
+
+  await expect(
+    page.locator(
+      "#master-summary-15m .historical-master-news-context-panel"
+    )
+  ).toBeVisible();
+}
+
+async function openRealDashboard(page) {
+  await mockNewsApi(page);
+  await mockHistoricalApi(page);
+
+  await page.goto(`${baseUrl}/index.html`);
+
+  await expect(
+    page.locator("#master-summary-1d .master-eight-container")
+  ).toBeVisible();
+
+  await expect(
+    page.locator("#master-summary-15m .master-eight-container")
+  ).toBeVisible();
 
   await expect(
     page.locator(
@@ -177,12 +256,10 @@ async function openDashboard(page) {
 test(
   "creates separate 1D and 15M news context panels",
   async ({ page }) => {
-    await openDashboard(page);
+    await openNewsTestPage(page);
 
     await expect(
-      page.locator(
-        ".historical-master-news-context-panel"
-      )
+      page.locator(".historical-master-news-context-panel")
     ).toHaveCount(2);
 
     await expect(
@@ -202,7 +279,7 @@ test(
 test(
   "renders active news and keeps stale news display-only",
   async ({ page }) => {
-    await openDashboard(page);
+    await openNewsTestPage(page);
 
     const panel = page.locator(
       "#master-summary-1d .historical-master-news-context-panel"
@@ -256,18 +333,7 @@ test(
       ]
     };
 
-    await page.route(
-      "**/api/news-intelligence**",
-      async route => {
-        await route.fulfill({
-          status: 200,
-          contentType: "application/json",
-          headers: CORS_HEADERS,
-          body: JSON.stringify(payload)
-        });
-      }
-    );
-
+    await mockNewsApi(page, payload);
     await page.goto(baseUrl);
 
     const panel = page.locator(
@@ -290,15 +356,11 @@ test(
     );
 
     await expect(
-      panel.locator(
-        'a[href^="javascript:"]'
-      )
+      panel.locator('a[href^="javascript:"]')
     ).toHaveCount(0);
 
     await expect(
-      panel.locator(
-        'a[href*="user:password"]'
-      )
+      panel.locator('a[href*="user:password"]')
     ).toHaveCount(0);
 
     await expect(
@@ -351,5 +413,67 @@ test(
     await expect(button).toHaveText(
       "REFRESH NEWS CONTEXT"
     );
+  }
+);
+
+test(
+  "real index.html initializes both eight-panels and both news panels",
+  async ({ page }) => {
+    const pageErrors = [];
+
+    page.on("pageerror", error => {
+      pageErrors.push(error.message);
+    });
+
+    await openRealDashboard(page);
+
+    for (const timeframe of ["1d", "15m"]) {
+      const summary = page.locator(
+        `#master-summary-${timeframe}`
+      );
+
+      const eightPanel = summary.locator(
+        ".master-eight-container"
+      );
+
+      const newsPanel = summary.locator(
+        ".historical-master-news-context-panel"
+      );
+
+      await expect(eightPanel).toBeVisible();
+      await expect(newsPanel).toBeVisible();
+
+      const order = await summary.evaluate(element => {
+        const percentage = element.querySelector(".percentage-grid");
+        const eight = element.querySelector(".master-eight-container");
+        const news = element.querySelector(
+          ".historical-master-news-context-panel"
+        );
+
+        return {
+          percentageBeforeEight: Boolean(
+            percentage &&
+            eight &&
+            percentage.compareDocumentPosition(eight) &
+              Node.DOCUMENT_POSITION_FOLLOWING
+          ),
+          eightBeforeNews: Boolean(
+            eight &&
+            news &&
+            eight.compareDocumentPosition(news) &
+              Node.DOCUMENT_POSITION_FOLLOWING
+          )
+        };
+      });
+
+      expect(order.percentageBeforeEight).toBe(true);
+      expect(order.eightBeforeNews).toBe(true);
+
+      await expect(
+        newsPanel.locator(".news-context-status")
+      ).toContainText("News Context तैयार");
+    }
+
+    expect(pageErrors).toEqual([]);
   }
 );

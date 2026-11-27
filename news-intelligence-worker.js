@@ -1,14 +1,17 @@
-// BADAL SEVERIYA NEWS INTELLIGENCE — Phase 1.3.2
-// RSS source recovery, source isolation, stricter India-market relevance,
-// safer parsing, and corrected collection metrics. Experimental context only.
+
+// BADAL SEVERIYA NEWS INTELLIGENCE — Phase 1.3.3
+// Feed recovery, robust RSS/Atom parsing, relevance improvements,
+// source diagnostics, corrected metrics, and cache refresh support.
+// Experimental news context only. No signals, predictions, or advice.
 
 const APP = "BADAL SEVERIYA NEWS INTELLIGENCE";
-const VERSION = "1.3.2";
+const VERSION = "1.3.3";
+
 const CACHE_SECONDS = 120;
-const MAX_PER_SOURCE = 30;
+const MAX_PER_SOURCE = 40;
 const MAX_OUTPUT = 100;
 const MAX_AGE_MS = 48 * 60 * 60 * 1000;
-const FETCH_TIMEOUT_MS = 7000;
+const FETCH_TIMEOUT_MS = 9000;
 const MAX_RETRIES = 1;
 
 const SOURCES = [
@@ -17,49 +20,66 @@ const SOURCES = [
     name: "Livemint — Markets",
     type: "rss",
     retryLimit: 1,
-    urls: ["https://www.livemint.com/rss/marketsRSS"]
+    urls: [
+      "https://www.livemint.com/rss/markets",
+      "https://www.livemint.com/rss/marketsRSS"
+    ]
   },
   {
     id: "bbc-business",
     name: "BBC News — Business",
     type: "rss",
     retryLimit: 1,
-    urls: ["https://feeds.bbci.co.uk/news/business/rss.xml"]
+    urls: [
+      "https://feeds.bbci.co.uk/news/business/rss.xml",
+      "https://feeds.bbci.co.uk/news/rss.xml"
+    ]
   },
   {
     id: "dw-business",
-    name: "DW News — Business",
+    name: "DW News — English",
     type: "rss",
-    retryLimit: 0,
-    urls: ["https://rss.dw.com/rdf/rss-en-business"]
+    retryLimit: 1,
+    urls: [
+      "https://rss.dw.com/xml/rss-en-all",
+      "https://rss.dw.com/rdf/rss-en-all"
+    ]
   },
   {
     id: "aljazeera",
     name: "Al Jazeera — News",
     type: "rss",
     retryLimit: 1,
-    urls: ["https://www.aljazeera.com/xml/rss/all.xml"]
+    urls: [
+      "https://www.aljazeera.com/xml/rss/all.xml"
+    ]
   },
   {
     id: "federal-reserve",
     name: "Federal Reserve — Press Releases",
     type: "rss",
     retryLimit: 1,
-    urls: ["https://www.federalreserve.gov/feeds/press_all.xml"]
+    urls: [
+      "https://www.federalreserve.gov/feeds/press_all.xml"
+    ]
   },
   {
     id: "rbi-press",
     name: "Reserve Bank of India — Press Releases",
     type: "rss",
     retryLimit: 1,
-    urls: ["https://www.rbi.org.in/pressreleases_rss.xml"]
+    urls: [
+      "https://www.rbi.org.in/pressreleases_rss.xml"
+    ]
   },
   {
     id: "rbi-notifications",
     name: "Reserve Bank of India — Notifications",
     type: "rss",
     retryLimit: 1,
-    urls: ["https://www.rbi.org.in/notifications_rss.xml"]
+    urls: [
+      "https://www.rbi.org.in/notifications_rss.xml"
+    ]
   },
   {
     id: "nse-announcements",
@@ -75,7 +95,9 @@ const SOURCES = [
     name: "BSE — Notices",
     type: "rss",
     retryLimit: 1,
-    urls: ["https://www.bseindia.com/data/xml/notices.xml"]
+    urls: [
+      "https://www.bseindia.com/data/xml/notices.xml"
+    ]
   },
   {
     id: "gdelt",
@@ -83,7 +105,7 @@ const SOURCES = [
     type: "json",
     retryLimit: 0,
     urls: [
-      "https://api.gdeltproject.org/api/v2/doc/doc?query=(India%20OR%20NIFTY%20OR%20RBI%20OR%20Indian%20markets)%20AND%20(crude%20OR%20inflation%20OR%20stocks%20OR%20economy)&mode=ArtList&format=json&maxrecords=15&sort=DateDesc"
+      "https://api.gdeltproject.org/api/v2/doc/doc?query=India%20OR%20NIFTY%20OR%20RBI%20OR%20Indian%20markets%20OR%20Sensex&mode=ArtList&format=json&maxrecords=15&sort=DateDesc"
     ]
   }
 ];
@@ -93,7 +115,7 @@ const POSITIVE_TERMS = [
   "record high", "bullish", "rally", "rallies", "strong growth",
   "profit", "profits", "upgrade", "upgraded", "inflow", "inflows",
   "cuts rates", "rate cut", "eases", "easing", "beat estimates",
-  "higher than expected"
+  "higher than expected", "positive outlook"
 ];
 
 const NEGATIVE_TERMS = [
@@ -101,109 +123,182 @@ const NEGATIVE_TERMS = [
   "crash", "selloff", "sell-off", "bearish", "loss", "losses",
   "downgrade", "downgraded", "outflow", "outflows", "rate hike",
   "hikes rates", "inflation surge", "war", "conflict", "sanction",
-  "weak growth", "miss estimates", "lower than expected"
+  "weak growth", "miss estimates", "lower than expected",
+  "default", "fraud", "bankruptcy"
 ];
 
 const INDIA_MARKET_TERMS = [
-  "nifty", "sensex", "nse", "bse", "indian stock",
-  "india stock market", "indian market", "india markets",
+  "nifty", "sensex", "nse", "bse", "bank nifty", "finnifty",
+  "indian stock market", "india stock market", "indian markets",
+  "india markets", "indian equities", "india equity market",
   "rupee", "inr", "rbi", "reserve bank of india",
-  "fii", "fpi", "dii", "foreign investor", "foreign investment",
-  "bank nifty", "india equity", "indian equities", "sebi",
-  "indian economy", "india economy"
+  "fii", "fpi", "dii", "foreign investors",
+  "sebi", "indian economy", "india economy",
+  "stock exchange india", "indian shares"
 ];
 
 const GLOBAL_MACRO_TERMS = [
   "federal reserve", "fed rate", "interest rate", "inflation",
   "crude oil", "oil price", "usd", "dollar", "bond yield",
   "geopolitical", "tariff", "trade war", "china", "global market",
-  "commodity", "gold", "ecb", "central bank", "recession"
+  "commodity", "gold", "ecb", "central bank", "recession",
+  "economic growth", "treasury yield", "monetary policy"
 ];
 
-const INDIA_LINK_TERMS = [
+const INDIA_CONTEXT_TERMS = [
   "india", "indian", "rupee", "inr", "nifty", "sensex",
-  "rbi", "fii", "fpi"
+  "rbi", "fii", "fpi", "dii", "sebi", "mumbai"
 ];
 
-function stripHtml(value = "") {
+const INDIA_CORPORATE_EVENT_TERMS = [
+  "quarterly results", "financial results", "earnings",
+  "dividend", "buyback", "merger", "acquisition",
+  "share split", "stock split", "bonus shares",
+  "board meeting", "order win", "contract win",
+  "fund raising", "fundraising", "debt", "default",
+  "rating downgrade", "rating upgrade", "ipo", "listing",
+  "promoter", "pledge", "shareholding", "insider trading"
+];
+
+function decodeEntities(value = "") {
   return String(value)
-    .replace(/<script[\s\S]*?<\/script>/gi, " ")
-    .replace(/<style[\s\S]*?<\/style>/gi, " ")
-    .replace(/<[^>]+>/g, " ")
-    .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, "$1")
     .replace(/&nbsp;/gi, " ")
     .replace(/&amp;/gi, "&")
     .replace(/&quot;/gi, '"')
+    .replace(/&apos;/gi, "'")
     .replace(/&#39;/gi, "'")
     .replace(/&lt;/gi, "<")
     .replace(/&gt;/gi, ">")
-    .replace(/&#(\d+);/g, (_, n) =>
-      String.fromCodePoint(Number(n))
-    )
-    .replace(/&#x([\da-f]+);/gi, (_, n) =>
-      String.fromCodePoint(parseInt(n, 16))
-    )
+    .replace(/&#(\d+);/g, (_, n) => {
+      const code = Number(n);
+      return code > 0 && code <= 0x10ffff
+        ? String.fromCodePoint(code)
+        : "";
+    })
+    .replace(/&#x([\da-f]+);/gi, (_, n) => {
+      const code = parseInt(n, 16);
+      return code > 0 && code <= 0x10ffff
+        ? String.fromCodePoint(code)
+        : "";
+    });
+}
+
+function stripHtml(value = "") {
+  return decodeEntities(
+    String(value)
+      .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/gi, "$1")
+      .replace(/<script[\s\S]*?<\/script>/gi, " ")
+      .replace(/<style[\s\S]*?<\/style>/gi, " ")
+      .replace(/<[^>]*>/g, " ")
+  )
     .replace(/\s+/g, " ")
     .trim();
 }
 
-function xmlTag(item, tag) {
-  const re = new RegExp(
-    `<${tag}(?:\\s[^>]*)?>([\\s\\S]*?)<\\/${tag}>`,
+function getXmlTag(item, tagName) {
+  const escaped = tagName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+  const pattern = new RegExp(
+    `<(?:[a-z0-9_-]+:)?${escaped}(?:\\s[^>]*)?>([\\s\\S]*?)<\\/(?:[a-z0-9_-]+:)?${escaped}\\s*>`,
     "i"
   );
 
-  const match = item.match(re);
+  const match = item.match(pattern);
   return match ? stripHtml(match[1]) : "";
 }
 
-function validDate(dateText) {
-  if (!dateText) return null;
+function getXmlAttribute(item, tagName, attribute) {
+  const escapedTag = tagName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const escapedAttribute = attribute.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
-  const date = new Date(dateText);
+  const pattern = new RegExp(
+    `<(?:[a-z0-9_-]+:)?${escapedTag}\\b[^>]*\\b${escapedAttribute}\\s*=\\s*["']([^"']+)["']`,
+    "i"
+  );
+
+  const match = item.match(pattern);
+  return match ? decodeEntities(match[1].trim()) : "";
+}
+
+function parseDate(value) {
+  if (!value) return null;
+
+  const text = String(value).trim();
+
+  // GDELT timestamp: YYYYMMDDTHHmmssZ
+  const gdelt = text.match(
+    /^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z?$/i
+  );
+
+  if (gdelt) {
+    const iso =
+      `${gdelt[1]}-${gdelt[2]}-${gdelt[3]}T` +
+      `${gdelt[4]}:${gdelt[5]}:${gdelt[6]}Z`;
+
+    const date = new Date(iso);
+
+    return Number.isFinite(date.getTime())
+      ? date.toISOString()
+      : null;
+  }
+
+  const date = new Date(text);
+
   return Number.isFinite(date.getTime())
     ? date.toISOString()
     : null;
 }
 
 function parseRss(xml, source, url) {
-  const entries =
-    xml.match(/<(item|entry)\b[\s\S]*?<\/(?:item|entry)>/gi) || [];
+  const entries = [
+    ...(xml.match(
+      /<(?:[a-z0-9_-]+:)?item\b[\s\S]*?<\/(?:[a-z0-9_-]+:)?item\s*>/gi
+    ) || []),
+    ...(xml.match(
+      /<(?:[a-z0-9_-]+:)?entry\b[\s\S]*?<\/(?:[a-z0-9_-]+:)?entry\s*>/gi
+    ) || [])
+  ].slice(0, MAX_PER_SOURCE);
 
-  return entries.slice(0, MAX_PER_SOURCE).map((entry) => {
-    const title = xmlTag(entry, "title");
+  const items = entries.map((entry) => {
+    const title = getXmlTag(entry, "title");
 
     const description =
-      xmlTag(entry, "description") ||
-      xmlTag(entry, "summary") ||
-      xmlTag(entry, "content");
+      getXmlTag(entry, "description") ||
+      getXmlTag(entry, "summary") ||
+      getXmlTag(entry, "content:encoded") ||
+      getXmlTag(entry, "encoded") ||
+      getXmlTag(entry, "content");
 
-    let link = xmlTag(entry, "link");
+    const textLink = getXmlTag(entry, "link");
 
-    if (!link) {
-      const href = entry.match(
-        /<link[^>]+href=["']([^"']+)["']/i
-      );
+    const hrefLink =
+      getXmlAttribute(entry, "link", "href") ||
+      getXmlAttribute(entry, "guid", "href");
 
-      if (href) link = href[1];
-    }
+    const link = textLink || hrefLink;
 
     const dateText =
-      xmlTag(entry, "pubDate") ||
-      xmlTag(entry, "published") ||
-      xmlTag(entry, "updated") ||
-      xmlTag(entry, "date");
+      getXmlTag(entry, "pubDate") ||
+      getXmlTag(entry, "published") ||
+      getXmlTag(entry, "updated") ||
+      getXmlTag(entry, "dc:date") ||
+      getXmlTag(entry, "date");
 
     return {
       title,
       description,
       link,
-      publishedAt: validDate(dateText),
+      publishedAt: parseDate(dateText),
       sourceId: source.id,
       sourceName: source.name,
       sourceUrl: url
     };
   }).filter((item) => item.title && item.link);
+
+  return {
+    items,
+    entryCount: entries.length
+  };
 }
 
 function parseGdelt(json, source, url) {
@@ -211,55 +306,73 @@ function parseGdelt(json, source, url) {
     ? json.articles
     : [];
 
-  return articles.slice(0, MAX_PER_SOURCE).map((article) => ({
+  const items = articles.slice(0, MAX_PER_SOURCE).map((article) => ({
     title: stripHtml(article.title || ""),
     description: stripHtml(
-      article.seendate || article.description || ""
+      article.description || article.seendate || ""
     ),
     link: article.url || "",
-    publishedAt: validDate(article.seendate),
+    publishedAt: parseDate(article.seendate),
     sourceId: source.id,
-    sourceName: article.source?.name || source.name,
+    sourceName: article.domain || source.name,
     sourceUrl: url
-  })).filter((article) => article.title && article.link);
+  })).filter((item) => item.title && item.link);
+
+  return {
+    items,
+    entryCount: articles.length
+  };
+}
+
+function countTerms(text, terms) {
+  return terms.filter((term) => text.includes(term)).length;
 }
 
 function scoreItem(item) {
   const text =
     `${item.title} ${item.description}`.toLowerCase();
 
-  const directHits = INDIA_MARKET_TERMS.filter(
-    (term) => text.includes(term)
-  ).length;
+  const directHits = countTerms(text, INDIA_MARKET_TERMS);
+  const macroHits = countTerms(text, GLOBAL_MACRO_TERMS);
+  const indiaContextHits = countTerms(text, INDIA_CONTEXT_TERMS);
+  const corporateEventHits = countTerms(
+    text,
+    INDIA_CORPORATE_EVENT_TERMS
+  );
 
-  const macroHits = GLOBAL_MACRO_TERMS.filter(
-    (term) => text.includes(term)
-  ).length;
+  const positiveHits = countTerms(text, POSITIVE_TERMS);
+  const negativeHits = countTerms(text, NEGATIVE_TERMS);
 
-  const indiaContextHits = INDIA_LINK_TERMS.filter(
-    (term) => text.includes(term)
-  ).length;
+  const isExchangeSource =
+    item.sourceId === "nse-announcements" ||
+    item.sourceId === "bse-notices";
 
-  const positiveHits = POSITIVE_TERMS.filter(
-    (term) => text.includes(term)
-  ).length;
+  const hasIndianCorporateEvent =
+    isExchangeSource && corporateEventHits > 0;
 
-  const negativeHits = NEGATIVE_TERMS.filter(
-    (term) => text.includes(term)
-  ).length;
+  const globalMacroWithIndia =
+    macroHits > 0 && indiaContextHits > 0;
 
   const relevant =
     directHits > 0 ||
-    (macroHits > 0 && indiaContextHits > 0);
+    globalMacroWithIndia ||
+    hasIndianCorporateEvent;
 
-  const score = Math.min(
-    100,
-    directHits * 20 +
-    (directHits ? 15 : 0) +
-    (macroHits && indiaContextHits
-      ? Math.min(25, macroHits * 7)
-      : 0)
-  );
+  let score = 0;
+
+  if (directHits > 0) {
+    score += Math.min(65, directHits * 20);
+  }
+
+  if (globalMacroWithIndia) {
+    score += Math.min(25, macroHits * 7);
+  }
+
+  if (hasIndianCorporateEvent) {
+    score += Math.min(40, corporateEventHits * 10);
+  }
+
+  score = Math.min(100, score);
 
   const sentimentScore = positiveHits - negativeHits;
 
@@ -283,7 +396,7 @@ function scoreItem(item) {
 
   return {
     ...item,
-    relevanceScore: score,
+    relevanceScore: relevant ? score : 0,
     sentiment,
     sentimentScore,
     impact,
@@ -294,25 +407,46 @@ function scoreItem(item) {
 function isRecent(item) {
   if (!item.publishedAt) return true;
 
-  const age =
-    Date.now() - new Date(item.publishedAt).getTime();
+  const time = new Date(item.publishedAt).getTime();
+
+  if (!Number.isFinite(time)) return false;
+
+  const age = Date.now() - time;
 
   return age <= MAX_AGE_MS &&
     age >= -5 * 60 * 1000;
 }
 
+function normalizeTitle(title = "") {
+  return String(title)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
 function dedupe(items) {
-  const seen = new Set();
+  const seenTitles = new Set();
+  const seenLinks = new Set();
 
   return items.filter((item) => {
-    const key =
-      `${item.title.toLowerCase()
-        .replace(/[^a-z0-9]+/g, " ")
-        .trim()}|${item.link}`;
+    const titleKey = normalizeTitle(item.title);
+    const linkKey = String(item.link || "")
+      .trim()
+      .toLowerCase()
+      .replace(/[?#].*$/, "");
 
-    if (!key || seen.has(key)) return false;
+    if (!titleKey && !linkKey) return false;
 
-    seen.add(key);
+    if (
+      (titleKey && seenTitles.has(titleKey)) ||
+      (linkKey && seenLinks.has(linkKey))
+    ) {
+      return false;
+    }
+
+    if (titleKey) seenTitles.add(titleKey);
+    if (linkKey) seenLinks.add(linkKey);
+
     return true;
   });
 }
@@ -340,7 +474,7 @@ async function fetchWithRetry(url, source) {
             `Mozilla/5.0 (compatible; BADAL-SEVERIYA-News/${VERSION})`,
           "Accept": source.type === "json"
             ? "application/json,text/plain,*/*"
-            : "application/rss+xml,application/xml,text/xml,text/plain,*/*",
+            : "application/rss+xml,application/atom+xml,application/xml,text/xml,text/plain,*/*",
           "Accept-Language": "en-IN,en;q=0.8"
         }
       });
@@ -385,47 +519,58 @@ async function fetchWithRetry(url, source) {
 
 async function fetchSource(source) {
   const errors = [];
+  let parsedCount = 0;
+  let lastEntryCount = 0;
 
   for (const url of source.urls) {
     try {
       const fetched = await fetchWithRetry(url, source);
 
-      const items = source.type === "json"
+      const parsed = source.type === "json"
         ? parseGdelt(fetched.data, source, url)
         : parseRss(fetched.data, source, url);
 
-      if (items.length) {
+      parsedCount = parsed.items.length;
+      lastEntryCount = parsed.entryCount;
+
+      if (parsed.items.length > 0) {
         return {
           sourceId: source.id,
           sourceName: source.name,
           status: "CONNECTED",
-          fetchedItems: items.length,
-          items,
+          fetchedItems: parsed.items.length,
+          parsedEntries: parsed.entryCount,
+          items: parsed.items,
           url
         };
       }
 
-      return {
-        sourceId: source.id,
-        sourceName: source.name,
-        status: "EMPTY",
-        fetchedItems: 0,
-        items: [],
-        error: `${url}: feed returned no valid parsed entries`,
-        url
-      };
+      errors.push(
+        `${url}: parser returned 0 valid items ` +
+        `(entries detected: ${parsed.entryCount})`
+      );
     } catch (error) {
       errors.push(`${url}: ${error.message}`);
     }
   }
 
+  const hasParseAttempt = lastEntryCount > 0 || parsedCount > 0;
+
   return {
     sourceId: source.id,
     sourceName: source.name,
-    status: "ERROR",
+    status: errors.length && errors.every(
+      (error) => /HTTP \d+|Timeout|Network error/i.test(error)
+    )
+      ? "ERROR"
+      : "EMPTY",
     fetchedItems: 0,
+    parsedEntries: lastEntryCount,
     items: [],
-    error: errors.join(" | ")
+    error: errors.join(" | "),
+    diagnostic: hasParseAttempt
+      ? "Feed returned entries but none passed item validation."
+      : "No valid items were parsed from the attempted feed URLs."
   };
 }
 
@@ -434,7 +579,7 @@ async function collectNews() {
     SOURCES.map(fetchSource)
   );
 
-  const fetchedItems = results.reduce(
+  const rawFetchedItems = results.reduce(
     (sum, result) => sum + result.fetchedItems,
     0
   );
@@ -444,6 +589,7 @@ async function collectNews() {
     .map(scoreItem);
 
   const recent = allParsed.filter(isRecent);
+  const oldOrInvalidItems = allParsed.length - recent.length;
 
   const unique = dedupe(recent).sort((a, b) =>
     b.relevanceScore - a.relevanceScore ||
@@ -466,19 +612,26 @@ async function collectNews() {
     (result) => result.status === "ERROR"
   ).length;
 
+  const relevantCount = unique.filter(
+    (item) => item.niftyRelevant
+  ).length;
+
   return {
     app: APP,
     version: VERSION,
     generatedAt: new Date().toISOString(),
+
     sourcesConfigured: SOURCES.length,
     connectedSources,
     emptySources,
     failedSources,
-    fetchedItems,
+
+    fetchedItems: rawFetchedItems,
+    parsedItems: allParsed.length,
+    filteredOldOrInvalidItems: oldOrInvalidItems,
     uniqueItems: unique.length,
-    niftyRelevantItems: output.filter(
-      (item) => item.niftyRelevant
-    ).length,
+    outputItems: output.length,
+    niftyRelevantItems: relevantCount,
 
     sourceStatus: results.map(
       ({ items, ...status }) => status
@@ -487,11 +640,11 @@ async function collectNews() {
     news: output,
 
     methodology: {
-      mode: "experimental-rule-based-news-filter",
+      mode: "experimental-rule-based-news-filter-v1.3.3",
       disclaimer:
         "Educational news context only. Not live trading signals, predictions, or investment advice.",
       reliability:
-        "Google News search feeds removed after repeated Worker HTTP 503 failures. Official RBI/NSE/BSE feeds and publisher RSS feeds are used. Feed fetch failures are isolated per source. India-market relevance requires direct India-market terms or a global macro term together with India context. Sentiment and relevance remain keyword-based and imperfect."
+        "Feed failures are isolated per source. RSS and Atom parsing supports common item/entry, CDATA, namespace, and link formats. India-market relevance uses direct Indian market terms, global macro terms combined with India context, or market-related events from NSE/BSE feeds. Sentiment and relevance remain keyword-based and imperfect."
     }
   };
 }
@@ -506,14 +659,17 @@ function jsonResponse(data, status = 200) {
   });
 }
 
-async function getCachedNews(cache) {
+async function getCachedNews(cache, forceRefresh = false) {
   const key = new Request(
-    "https://badal-severiya-cache.local/news-intelligence-v1.3.2"
+    `https://badal-severiya-cache.local/news-intelligence-${VERSION}`
   );
 
-  const cached = await cache.match(key);
-
-  if (cached) return cached;
+  if (forceRefresh) {
+    await cache.delete(key);
+  } else {
+    const cached = await cache.match(key);
+    if (cached) return cached;
+  }
 
   const response = jsonResponse(await collectNews());
 
@@ -528,10 +684,11 @@ function health() {
     app: APP,
     version: VERSION,
     configuredSources: SOURCES.length,
-    mode: "experimental-rss-recovery-strict-india-market-relevance",
+    mode: "experimental-rss-atom-recovery-india-market-relevance-v1.3.3",
     endpoints: [
       "/api/health",
-      "/api/news-intelligence"
+      "/api/news-intelligence",
+      "/api/news-intelligence?refresh=1"
     ],
     note:
       "Experimental news context only; no trading signals, predictions, or advice."
@@ -561,7 +718,13 @@ export default {
     if (path === "/api/news-intelligence" ||
         path === "/news-intelligence") {
       try {
-        return await getCachedNews(caches.default);
+        const forceRefresh =
+          url.searchParams.get("refresh") === "1";
+
+        return await getCachedNews(
+          caches.default,
+          forceRefresh
+        );
       } catch (error) {
         return jsonResponse({
           ok: false,
@@ -580,7 +743,8 @@ export default {
       error: "Not found",
       available: [
         "/api/health",
-        "/api/news-intelligence"
+        "/api/news-intelligence",
+        "/api/news-intelligence?refresh=1"
       ]
     }, 404);
   }

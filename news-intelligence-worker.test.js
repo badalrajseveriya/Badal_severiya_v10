@@ -1,5 +1,5 @@
 
-// BADAL SEVERIYA NEWS INTELLIGENCE — Phase 1.3.7 tests
+// BADAL SEVERIYA NEWS INTELLIGENCE — Phase 1.3.8 tests
 // Run: node news-intelligence-worker.test.js
 
 import assert from "node:assert/strict";
@@ -12,7 +12,8 @@ import {
   scoreItem,
   classifyFreshness,
   isRecent,
-  dedupe
+  dedupe,
+  classifySourceFailure
 } from "./news-intelligence-worker.js";
 
 let passed = 0;
@@ -153,6 +154,17 @@ test("Direct NIFTY headline is index context", () => {
   assert.equal(result.niftyRelevant, true);
 });
 
+test("Nifty Bank movement is index context", () => {
+  const result = scoreItem({
+    title: "Nifty Bank rises 1.2% as banking shares advance",
+    description: "Banking benchmark gains during the session",
+    sourceId: "livemint-markets"
+  });
+
+  assert.equal(result.relevanceCategory, "INDIA_INDEX_CONTEXT");
+  assert.equal(result.niftyRelevant, true);
+});
+
 test("Company stock movement is stock-specific despite NIFTY mention", () => {
   const result = scoreItem({
     title: "Park Medi World shares rise as Nifty falls",
@@ -161,6 +173,28 @@ test("Company stock movement is stock-specific despite NIFTY mention", () => {
   });
 
   assert.equal(result.relevanceCategory, "INDIA_STOCK_SPECIFIC");
+  assert.equal(result.niftyRelevant, false);
+});
+
+test("Nifty mention in a single-stock headline is not index context", () => {
+  const result = scoreItem({
+    title: "ABC Ltd shares rise while Nifty 50 falls",
+    description: "Company-specific quarterly results drive the move",
+    sourceId: "livemint-markets"
+  });
+
+  assert.equal(result.relevanceCategory, "INDIA_STOCK_SPECIFIC");
+  assert.equal(result.niftyRelevant, false);
+});
+
+test("Nifty Bank constituent compliance notice is not index movement", () => {
+  const result = scoreItem({
+    title: "Nifty Bank constituent receives compliance notice",
+    description: "The company disclosed a regulatory filing",
+    sourceId: "livemint-markets"
+  });
+
+  assert.notEqual(result.relevanceCategory, "INDIA_INDEX_CONTEXT");
   assert.equal(result.niftyRelevant, false);
 });
 
@@ -219,6 +253,17 @@ test("Global inflation without India context is not India macro", () => {
   assert.equal(result.niftyRelevant, false);
 });
 
+test("Global climate finance story is not India macro", () => {
+  const result = scoreItem({
+    title: "Global climate finance deal expands funding",
+    description: "International lenders announce a new programme",
+    sourceId: "dw-business"
+  });
+
+  assert.notEqual(result.relevanceCategory, "INDIA_MACRO");
+  assert.equal(result.niftyRelevant, false);
+});
+
 test("Indian company dividend announcement is stock-specific", () => {
   const result = scoreItem({
     title: "Indian company announces dividend and buyback",
@@ -227,6 +272,17 @@ test("Indian company dividend announcement is stock-specific", () => {
   });
 
   assert.equal(result.relevanceCategory, "INDIA_STOCK_SPECIFIC");
+  assert.equal(result.niftyRelevant, false);
+});
+
+test("Generic NSE announcement is not stock-specific only due to source", () => {
+  const result = scoreItem({
+    title: "Exchange announces revised operational schedule",
+    description: "A general notice for market participants",
+    sourceId: "nse-announcements"
+  });
+
+  assert.equal(result.relevanceCategory, "GENERAL_NOISE");
   assert.equal(result.niftyRelevant, false);
 });
 
@@ -309,6 +365,28 @@ test("Duplicate headlines are removed", () => {
   ]);
 
   assert.equal(result.length, 1);
+});
+
+test("HTTP 429 is distinguished from other source failures", () => {
+  assert.equal(
+    classifySourceFailure(["https://feed.test: HTTP 429"]),
+    "RATE_LIMITED"
+  );
+
+  assert.equal(
+    classifySourceFailure(["https://feed.test: HTTP 503"]),
+    "ERROR"
+  );
+
+  assert.equal(
+    classifySourceFailure(["https://feed.test: Timeout after 12000ms"]),
+    "ERROR"
+  );
+
+  assert.equal(
+    classifySourceFailure(["https://feed.test: parser returned 0 valid items"]),
+    "EMPTY"
+  );
 });
 
 test("Ten source definitions remain configured", () => {

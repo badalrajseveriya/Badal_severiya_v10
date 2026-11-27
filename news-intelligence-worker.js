@@ -1,17 +1,18 @@
 
-// BADAL SEVERIYA NEWS INTELLIGENCE — Phase 1.3.6
-// News freshness diagnostics and controlled stale-feed fallback.
+// BADAL SEVERIYA NEWS INTELLIGENCE — Phase 1.3.7
+// IST timestamp normalization and stricter India-market classification.
 // Educational context only. No trading signals, predictions, or advice.
 
 const APP = "BADAL SEVERIYA NEWS INTELLIGENCE";
-const VERSION = "1.3.6";
+const VERSION = "1.3.7";
 const CACHE_SECONDS = 120;
 const MAX_PER_SOURCE = 40;
 const MAX_OUTPUT = 100;
 const MAX_AGE_MS = 48 * 60 * 60 * 1000;
 const FALLBACK_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 const FUTURE_TOLERANCE_MS = 5 * 60 * 1000;
-const FETCH_TIMEOUT_MS = 9000;
+const FETCH_TIMEOUT_MS = 12000;
+const IST_OFFSET = "+05:30";
 
 const SOURCES = [
   { id: "livemint-markets", name: "Livemint — Markets", type: "rss", urls: ["https://www.livemint.com/rss/markets"] },
@@ -25,6 +26,10 @@ const SOURCES = [
   { id: "bse-notices", name: "BSE — Notices", type: "rss", urls: ["https://www.bseindia.com/data/xml/notices.xml"] },
   { id: "gdelt", name: "GDELT — Global News Monitor", type: "json", urls: ["https://api.gdeltproject.org/api/v2/doc/doc?query=India%20OR%20NIFTY%20OR%20RBI%20OR%20Indian%20markets%20OR%20Sensex&mode=ArtList&format=json&maxrecords=15&sort=DateDesc"] }
 ];
+
+const INDIA_SOURCE_IDS = new Set([
+  "rbi-press", "rbi-notifications", "nse-announcements", "bse-notices"
+]);
 
 const POSITIVE_TERMS = [
   "gain", "gains", "rise", "rises", "rising", "surge", "surges",
@@ -77,8 +82,8 @@ function getTag(xml, tag) {
     `<(?:(?:[\\w.-]+):)?${safe}(?:\\s[^>]*)?>([\\s\\S]*?)<\\/(?:(?:[\\w.-]+):)?${safe}\\s*>`,
     "i"
   );
-  const m = String(xml).match(re);
-  return m ? stripHtml(m[1]) : "";
+  const match = String(xml).match(re);
+  return match ? stripHtml(match[1]) : "";
 }
 
 function getAttribute(xml, tag, attr) {
@@ -88,19 +93,47 @@ function getAttribute(xml, tag, attr) {
     `<(?:(?:[\\w.-]+):)?${safeTag}\\b[^>]*\\b${safeAttr}\\s*=\\s*["']([^"']+)["']`,
     "i"
   );
-  const m = String(xml).match(re);
-  return m ? decodeEntities(m[1].trim()) : "";
+  const match = String(xml).match(re);
+  return match ? decodeEntities(match[1].trim()) : "";
 }
 
-function parseDate(value) {
+function hasExplicitTimezone(value) {
+  const s = String(value).trim();
+
+  return (
+    /(?:Z|[+-]\d{2}:?\d{2})$/i.test(s) ||
+    /\b(?:GMT|UTC)\b/i.test(s) ||
+    /\b(?:EST|EDT|CST|CDT|MST|MDT|PST|PDT)\b/i.test(s)
+  );
+}
+
+// Compact GDELT timestamps are UTC.
+// For India RSS sources, a timestamp with no timezone is interpreted as IST.
+// Explicit timezone information is always preserved.
+function parseDate(value, options = {}) {
   if (!value) return null;
 
   const s = String(value).trim();
   const compact = s.match(/^(\d{4})(\d{2})(\d{2})T?(\d{2})(\d{2})(\d{2})Z?$/i);
 
-  const input = compact
-    ? `${compact[1]}-${compact[2]}-${compact[3]}T${compact[4]}:${compact[5]}:${compact[6]}Z`
-    : s;
+  if (compact) {
+    const iso = `${compact[1]}-${compact[2]}-${compact[3]}T${compact[4]}:${compact[5]}:${compact[6]}Z`;
+    const d = new Date(iso);
+    return Number.isFinite(d.getTime()) ? d.toISOString() : null;
+  }
+
+  let input = s;
+
+  if (options.defaultTimezone === "IST" && !hasExplicitTimezone(s)) {
+    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+      input = `${s}T00:00:00${IST_OFFSET}`;
+    } else if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?$/.test(s)) {
+      input = `${s}${IST_OFFSET}`;
+    } else {
+      // RFC-style or other textual date without a zone.
+      input = `${s} ${IST_OFFSET}`;
+    }
+  }
 
   const date = new Date(input);
   return Number.isFinite(date.getTime()) ? date.toISOString() : null;
@@ -136,7 +169,9 @@ function parseRss(xml, source = {}, url = "") {
       title,
       description,
       link,
-      publishedAt: parseDate(dateText),
+      publishedAt: parseDate(dateText, {
+        defaultTimezone: INDIA_SOURCE_IDS.has(source.id) ? "IST" : undefined
+      }),
       sourceId: source.id || "unknown",
       sourceName: source.name || "Unknown source",
       sourceUrl: url,
@@ -182,16 +217,24 @@ function hasAny(text, terms) {
 }
 
 function scoreItem(item) {
-  const text = `${item.title || ""} ${item.description || ""}`.toLowerCase();
+  const title = String(item.title || "").toLowerCase();
+  const description = String(item.description || "").toLowerCase();
+  const text = `${title} ${description}`;
   const sourceId = item.sourceId || "";
 
-  const directIndex = [
+  const directIndexTerms = [
     "nifty", "nifty 50", "sensex", "bank nifty", "finnifty",
     "indian stock market", "india stock market",
     "indian equity market", "indian equities", "market breadth"
   ];
 
-  const indiaMacro = [
+  const indexFocusTerms = [
+    "nifty", "nifty 50", "sensex", "bank nifty", "finnifty",
+    "indian stock market", "india stock market",
+    "indian equity market", "indian equities", "market breadth"
+  ];
+
+  const indiaMacroTerms = [
     "rupee", "inr", "fii", "fpi", "dii", "sebi",
     "indian economy", "india economy", "indian markets",
     "india markets", "gdp", "inflation", "bond yield",
@@ -246,25 +289,48 @@ function scoreItem(item) {
     "share split", "stock split", "bonus shares",
     "board meeting", "order win", "contract win",
     "fund raising", "fundraising", "ipo", "listing",
-    "promoter", "pledge", "shareholding"
+    "promoter", "pledge", "shareholding", "share price",
+    "shares jump", "shares fall", "shares rise",
+    "stock jumps", "stock falls", "stock rises",
+    "company shares", "company stock"
   ];
 
   const isRbi = sourceId === "rbi-press" || sourceId === "rbi-notifications";
   const isExchange = sourceId === "nse-announcements" || sourceId === "bse-notices";
+
   const rbiRegulatory = isRbi && hasAny(text, regulatoryTerms);
   const rbiLiquidity = isRbi && hasAny(text, liquidityTerms);
   const rbiPolicy = isRbi && hasAny(text, policyTerms);
-  const explicitIndex = hasAny(text, directIndex);
-  const indiaMacroHit = hasAny(text, indiaMacro);
-  const globalMarket = hasAny(text, globalTerms) && hasAny(text, marketTerms);
-  const companyContext =
-    (isExchange || hasAny(text, ["india", "indian", "nse", "bse"])) &&
-    hasAny(text, corporateTerms);
+
+  const companySignal =
+    hasAny(text, corporateTerms) ||
+    /\b(?:shares?|stock)\s+(?:jump|surge|rise|rally|fall|drop|decline|gain|lose|slide)/i.test(text) ||
+    /\b(?:share price|stock price|scrip code|listed company)\b/i.test(text);
+
+  const indexMention = hasAny(text, directIndexTerms);
+  const indexFocused =
+    hasAny(title, indexFocusTerms) &&
+    !companySignal;
+
+  const indiaMacroSignal =
+    hasAny(text, indiaMacroTerms) &&
+    hasAny(text, [
+      "indian economy", "india economy", "indian markets",
+      "india markets", "rupee", "inr", "fii", "fpi",
+      "dii", "sebi", "indian gdp", "india's gdp",
+      "india inflation", "indian inflation", "rbi"
+    ]);
+
+  const globalMarket =
+    hasAny(text, globalTerms) &&
+    hasAny(text, marketTerms);
 
   let category = "GENERAL_NOISE";
   let niftyRelevant = false;
   let relevanceScore = 0;
 
+  // Classification priority: regulatory > RBI policy/liquidity >
+  // company-specific > index-wide > India macro > global context.
   if (rbiRegulatory) {
     category = "INDIA_REGULATORY";
     relevanceScore = 30;
@@ -272,32 +338,29 @@ function scoreItem(item) {
     category = "INDIA_MACRO";
     niftyRelevant = true;
     relevanceScore = rbiLiquidity ? 75 : 65;
-  } else if (explicitIndex) {
+  } else if (companySignal || (isExchange && !indexFocused)) {
+    category = "INDIA_STOCK_SPECIFIC";
+    relevanceScore = 55;
+  } else if (indexFocused) {
     category = "INDIA_INDEX_CONTEXT";
     niftyRelevant = true;
     relevanceScore = 85;
-  } else if (
-    indiaMacroHit &&
-    hasAny(text, [
-      "indian economy", "india economy", "indian markets",
-      "india markets", "rupee", "inr", "fii", "fpi",
-      "dii", "sebi", "gdp", "inflation", "bond yield",
-      "forex reserves", "current account"
-    ])
-  ) {
+  } else if (indiaMacroSignal) {
     category = "INDIA_MACRO";
     niftyRelevant = true;
     relevanceScore = 65;
-  } else if (companyContext) {
-    category = "INDIA_STOCK_SPECIFIC";
-    relevanceScore = 55;
   } else if (globalMarket) {
     category = "GLOBAL_MARKET_CONTEXT";
     relevanceScore = 45;
+  } else if (indexMention && hasAny(text, ["nifty", "sensex", "bank nifty"])) {
+    // A passing mention is not enough for index relevance.
+    category = "GENERAL_NOISE";
+    relevanceScore = 0;
   }
 
   const positive = countTerms(text, POSITIVE_TERMS);
   const negative = countTerms(text, NEGATIVE_TERMS);
+
   const sentiment =
     positive && negative ? "MIXED" :
     positive ? "POSITIVE" :
@@ -354,7 +417,6 @@ function dedupe(items) {
 
     if (title) titles.add(title);
     if (link) links.add(link);
-
     return true;
   });
 }
@@ -378,11 +440,7 @@ async function fetchWithTimeout(url, source) {
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
     const body = await response.text();
-
-    return {
-      data: source.type === "json" ? JSON.parse(body) : body,
-      url
-    };
+    return { data: source.type === "json" ? JSON.parse(body) : body, url };
   } catch (error) {
     if (error?.name === "AbortError") {
       throw new Error(`Timeout after ${FETCH_TIMEOUT_MS}ms`);
@@ -474,25 +532,18 @@ async function collectNews() {
     const freshness = classifyFreshness(item, now);
     const stats = freshnessBySource[item.sourceId];
 
-    if (freshness === "FRESH") {
-      freshnessCounts.fresh++;
-      stats.fresh++;
-    } else if (freshness === "STALE_FALLBACK") {
-      freshnessCounts.staleFallback++;
-      stats.staleFallback++;
-    } else if (freshness === "STALE_OLD") {
-      freshnessCounts.staleOld++;
-      stats.staleOld++;
-    } else if (freshness === "MISSING_DATE") {
-      freshnessCounts.missingDate++;
-      stats.missingDate++;
-    } else if (freshness === "INVALID_DATE") {
-      freshnessCounts.invalidDate++;
-      stats.invalidDate++;
-    } else if (freshness === "FUTURE_DATE") {
-      freshnessCounts.futureDate++;
-      stats.futureDate++;
-    }
+    const keyMap = {
+      FRESH: "fresh",
+      STALE_FALLBACK: "staleFallback",
+      STALE_OLD: "staleOld",
+      MISSING_DATE: "missingDate",
+      INVALID_DATE: "invalidDate",
+      FUTURE_DATE: "futureDate"
+    };
+
+    const key = keyMap[freshness];
+    freshnessCounts[key]++;
+    stats[key]++;
 
     if (
       item.publishedAt &&
@@ -530,8 +581,7 @@ async function collectNews() {
   const news = primary.slice(0, MAX_OUTPUT);
 
   const categoryCounts = unique.reduce((counts, item) => {
-    counts[item.relevanceCategory] =
-      (counts[item.relevanceCategory] || 0) + 1;
+    counts[item.relevanceCategory] = (counts[item.relevanceCategory] || 0) + 1;
     return counts;
   }, {});
 
@@ -554,10 +604,12 @@ async function collectNews() {
     freshnessPolicy: {
       normalWindowHours: 48,
       fallbackWindowDays: 7,
+      futureToleranceMinutes: 5,
+      indiaNaiveTimestampsDefaultTimezone: "Asia/Kolkata",
       usedFallbackWindow,
       note: usedFallbackWindow
         ? "No items were inside 48 hours; output uses items aged 48 hours to 7 days and labels them STALE_FALLBACK."
-        : "Output uses items inside 48 hours plus items with missing publication dates. Older items are excluded."
+        : "Output uses items inside 48 hours plus items with missing publication dates. Older and future-dated items are excluded."
     },
     filteredOldOrInvalidItems: parsed.length - eligible.length,
     duplicateItems: eligible.length - unique.length,
@@ -570,9 +622,9 @@ async function collectNews() {
     sourceStatus,
     news,
     methodology: {
-      mode: "experimental-news-classification-market-context-v1.3.6",
+      mode: "experimental-news-classification-market-context-v1.3.7",
       disclaimer: "Educational news context only. Not live trading signals, predictions, or investment advice.",
-      reliability: "Rule-based keyword classification. Freshness is separately labelled. GENERAL_NOISE is excluded from the primary news list. Global market context is not automatically NIFTY-relevant. Sentiment and context priority are not verified facts, measured market impact, or market-direction probabilities."
+      reliability: "Rule-based keyword classification. India-source timestamps without explicit timezone are interpreted as IST. Explicit timezone timestamps are preserved. Freshness is separately labelled. GENERAL_NOISE is excluded from the primary news list. Sentiment and context priority are not verified facts, measured market impact, or market-direction probabilities."
     }
   };
 }
@@ -593,7 +645,7 @@ function health() {
     app: APP,
     version: VERSION,
     configuredSources: SOURCES.length,
-    mode: "experimental-rss-atom-news-classification-v1.3.6",
+    mode: "experimental-rss-atom-news-classification-v1.3.7",
     endpoints: [
       "/api/health",
       "/api/news-intelligence",

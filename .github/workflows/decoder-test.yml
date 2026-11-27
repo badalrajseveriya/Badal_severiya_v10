@@ -1,4 +1,3 @@
-
 name: BADAL SEVERIYA V12 - Code Checks
 
 on:
@@ -7,32 +6,44 @@ on:
       - main
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   test:
+    name: Full JavaScript and Regression Checks
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
+      - name: Setup Node.js 22
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: "22"
 
       - name: Install dependencies
         run: npm install
 
-      - name: Check JavaScript Syntax
+      - name: Check all JavaScript syntax
+        shell: bash
         run: |
-          node --check data-worker.js
-          node --check angelone-converter.js
-          node --check market-data.js
-          node --check market-structure.js
-          node --check support-resistance.js
-          node --check fibonacci-engine.js
-          node --check candle-patterns.js
-          node --check websocket-decoder.js
+          set -e
 
-      - name: Run All Tests
+          for file in *.js; do
+            echo "Checking syntax: $file"
+            node --check "$file"
+          done
+
+      - name: Run complete main test suite
         run: npm test
+
+      - name: Run tests missing from main test suite
+        run: |
+          node angelone-historical-import-controller.test.js
+          node angelone-historical-import-pipeline.test.js
+          node angelone-historical-import-ui.test.js
+          node historical-candle-pagination-cache.test.js
+          node historical-master-news-context-worker.test.js
+          node news-intelligence-worker.test.js

@@ -1,4 +1,3 @@
-
 // ======================================================
 // BADAL SEVERIYA V12
 // MASTER EIGHT-PANEL HISTORICAL UI
@@ -789,8 +788,8 @@ function analyzeTimeframe(timeframe, candles) {
   const status = getElement(TIMEFRAMES[timeframe].status);
 
   if (status) {
-    status.textContent +=
-      ` | Master Analysis: ${candles.length} ऐतिहासिक कैंडल्स जाँची गईं।`;
+    status.textContent =
+      `Master Analysis: ${candles.length} ऐतिहासिक कैंडल्स जाँची गईं।`;
   }
 
   return {
@@ -819,6 +818,25 @@ function parseCandles(candles, timeframe, filename) {
   return imported.candles;
 }
 
+function saveImportedData(timeframe, candles, filename) {
+  const config = TIMEFRAMES[timeframe];
+
+  const savedData = {
+    version: 1,
+    timeframe,
+    filename,
+    savedAt: new Date().toISOString(),
+    candles
+  };
+
+  localStorage.setItem(
+    config.storageKey,
+    JSON.stringify(savedData)
+  );
+
+  return savedData;
+}
+
 function loadSavedData(timeframe) {
   const config = TIMEFRAMES[timeframe];
 
@@ -843,6 +861,15 @@ function loadSavedData(timeframe) {
     );
 
     analyzeTimeframe(timeframe, candles);
+
+    const status = getElement(config.status);
+
+    if (status) {
+      status.textContent =
+        `Saved historical data loaded: ${candles.length} candles` +
+        (saved.filename ? ` | ${saved.filename}` : "");
+    }
+
     return true;
   } catch (error) {
     console.warn(`${timeframe} saved master data error:`, error);
@@ -882,8 +909,9 @@ async function loadCloudflareData(timeframe) {
   const status = getElement(TIMEFRAMES[timeframe].status);
 
   if (status) {
-    status.textContent +=
-      ` | API Pages: ${fetched.pageCount} | ${fetched.candleCount} कैंडल्स` +
+    status.textContent =
+      `Cloudflare historical data: ${fetched.candleCount} candles` +
+      ` | API Pages: ${fetched.pageCount}` +
       (fetched.truncated
         ? " | पुराने डेटा के कुछ पेज बाकी हैं"
         : " | सभी उपलब्ध पेज लोड");
@@ -935,6 +963,8 @@ function setupFileImport(timeframe) {
     const file = event.target.files?.[0];
     if (!file) return;
 
+    const status = getElement(config.status);
+
     try {
       const imported = parseHistoricalDataText(
         await file.text(),
@@ -947,16 +977,61 @@ function setupFileImport(timeframe) {
         throw new Error(imported.error);
       }
 
-      analyzeTimeframe(timeframe, imported.candles);
-    } catch (error) {
-      console.error(`${timeframe} master import error:`, error);
-      renderWaitingState(timeframe);
+      // Analyze first. Do not persist data unless analysis succeeds.
+      const analysis = analyzeTimeframe(
+        timeframe,
+        imported.candles
+      );
 
-      const status = getElement(config.status);
+      if (analysis.status !== "OK") {
+        throw new Error("Historical analysis did not complete successfully.");
+      }
+
+      // Persist the validated candles only after successful analysis.
+      let savedSuccessfully = false;
+      let saveError = null;
+
+      try {
+        saveImportedData(
+          timeframe,
+          imported.candles,
+          file.name
+        );
+
+        savedSuccessfully = true;
+      } catch (error) {
+        saveError = error;
+        console.warn(
+          `${timeframe} local storage save error:`,
+          error
+        );
+      }
 
       if (status) {
-        status.textContent = `Import error: ${error.message}`;
+        status.textContent =
+          `Import successful: ${file.name}` +
+          ` | ${imported.candles.length} candles analyzed` +
+          (savedSuccessfully
+            ? " | Saved locally — available after refresh"
+            : " | Local save failed — analysis is displayed but may not survive refresh") +
+          (saveError
+            ? ` | Storage error: ${saveError.message}`
+            : "");
       }
+    } catch (error) {
+      console.error(`${timeframe} master import error:`, error);
+
+      // Important: do NOT replace the last valid dashboard with WAITING.
+      // The previous successful display remains untouched on import failure.
+
+      if (status) {
+        status.textContent =
+          `Import failed: ${error.message}` +
+          " | Previous valid dashboard data preserved.";
+      }
+    } finally {
+      // Allows selecting the same file again after an import attempt.
+      input.value = "";
     }
   });
 }

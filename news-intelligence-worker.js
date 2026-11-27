@@ -1,10 +1,9 @@
-
-// BADAL SEVERIYA NEWS INTELLIGENCE — Phase 1.3.9
-// Refined index/company/macro classification and risk-aware sentiment.
+// BADAL SEVERIYA NEWS INTELLIGENCE — Phase 1.4.0
+// Stricter India macro gating, exchange disclosure classification, and mixed-context sentiment.
 // Educational context only. No trading signals, predictions, or advice.
 
 const APP = "BADAL SEVERIYA NEWS INTELLIGENCE";
-const VERSION = "1.3.9";
+const VERSION = "1.4.0";
 const CACHE_SECONDS = 120;
 const MAX_PER_SOURCE = 40;
 const MAX_OUTPUT = 100;
@@ -12,6 +11,7 @@ const MAX_AGE_MS = 48 * 60 * 60 * 1000;
 const FALLBACK_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 const FUTURE_TOLERANCE_MS = 5 * 60 * 1000;
 const FETCH_TIMEOUT_MS = 12000;
+const GDELT_TIMEOUT_MS = 9000;
 const IST_OFFSET = "+05:30";
 
 const SOURCES = [
@@ -24,7 +24,15 @@ const SOURCES = [
   { id: "rbi-notifications", name: "Reserve Bank of India — Notifications", type: "rss", urls: ["https://www.rbi.org.in/notifications_rss.xml"] },
   { id: "nse-announcements", name: "NSE India — Announcements", type: "rss", urls: ["https://nsearchives.nseindia.com/content/RSS/Online_announcements.xml"] },
   { id: "bse-notices", name: "BSE — Notices", type: "rss", urls: ["https://www.bseindia.com/data/xml/notices.xml"] },
-  { id: "gdelt", name: "GDELT — Global News Monitor", type: "json", urls: ["https://api.gdeltproject.org/api/v2/doc/doc?query=India%20OR%20NIFTY%20OR%20RBI%20OR%20Indian%20markets%20OR%20Sensex&mode=ArtList&format=json&maxrecords=15&sort=DateDesc"] }
+  {
+    id: "gdelt",
+    name: "GDELT — Global News Monitor",
+    type: "json",
+    urls: [
+      "https://api.gdeltproject.org/api/v2/doc/doc?query=India%20OR%20NIFTY%20OR%20RBI%20OR%20Indian%20markets%20OR%20Sensex&mode=ArtList&format=json&maxrecords=15&sort=DateDesc",
+      "https://api.gdeltproject.org/api/v2/doc/doc?query=India%20OR%20NIFTY%20OR%20Sensex%20OR%20RBI&mode=ArtList&format=json&maxrecords=8&sort=DateDesc&timespan=1d"
+    ]
+  }
 ];
 
 const INDIA_SOURCE_IDS = new Set([
@@ -46,7 +54,8 @@ const NEGATIVE_TERMS = [
   "hikes rates", "inflation surge", "weak growth", "miss estimates",
   "lower than expected", "default", "fraud", "bankruptcy",
   "risk", "risks", "risky", "unwind", "weakness", "pressure",
-  "funding cost", "funding costs", "cost bites", "less of a boost"
+  "down", "downside", "funding cost", "funding costs",
+  "cost bites", "less of a boost"
 ];
 
 function decodeEntities(value = "") {
@@ -245,13 +254,16 @@ function scoreItem(item) {
     "rally", "rallies", "selloff", "sell-off", "outperform", "crash"
   ];
 
+  // Only India-specific anchors qualify an item as India macro.
+  // Commodity-only and global inflation terms are intentionally excluded.
   const indiaMacroTerms = [
     "rupee", "inr", "fii", "fpi", "dii", "sebi", "rbi",
     "indian economy", "india economy", "indian gdp", "india gdp",
-    "indian inflation", "india inflation", "exports", "imports",
-    "forex reserves", "current account", "fiscal deficit",
-    "trade deficit", "industrial production", "bond yield",
-    "monetary policy", "interest rate", "crude oil"
+    "indian inflation", "india inflation", "indian exports",
+    "indian imports", "forex reserves", "foreign exchange reserves",
+    "current account", "fiscal deficit", "trade deficit",
+    "industrial production", "india bond yield", "indian bond yield",
+    "monetary policy of india", "rbi policy", "reserve bank policy"
   ];
 
   const globalTerms = [
@@ -307,7 +319,10 @@ function scoreItem(item) {
     "stop-loss", "stop loss", "should you buy",
     "stock recommendation", "stock recommendations",
     "stock picks", "buy sell or hold", "company shares",
-    "company stock"
+    "company stock", "disclosure under regulation",
+    "informed the exchange regarding", "exchange regarding",
+    "insider trading", "new isin number", "acquisition window",
+    "settlement schedule offer", "regulation 7"
   ];
 
   const isRbi = sourceId === "rbi-press" || sourceId === "rbi-notifications";
@@ -320,28 +335,38 @@ function scoreItem(item) {
     /\b[a-z][a-z0-9&.'-]*(?:\s+[a-z][a-z0-9&.'-]*){0,3}\s+(?:shares?|stock)\s+(?:jump|jumps|surge|surges|rise|rises|rising|rally|rallies|fall|falls|drop|drops|decline|declines|gain|gains|slide|slides|shows?|showed)\b/i.test(title) ||
     /\b(?:healthcare|banking|technology|metal|auto|pharma|cement|energy)\s+stocks?\s+(?:jump|surge|rise|rally|fall|drop|decline|gain|slide|show)\b/i.test(title);
 
+  // NSE/BSE disclosure titles often contain only the company name.
+  // Use source identity plus explicit disclosure language in the item body.
+  const exchangeDisclosureSignal =
+    (sourceId === "nse-announcements" || sourceId === "bse-notices") &&
+    hasAny(text, [
+      "disclosure under regulation", "informed the exchange",
+      "exchange regarding", "insider trading", "new isin number",
+      "acquisition window", "settlement schedule offer",
+      "regulation 7", "share split", "bonus shares", "board meeting"
+    ]) &&
+    !hasAny(title, ["operational schedule", "trading holiday", "market timings"]);
+
   const companySignal =
-    hasAny(title, corporateTerms) || companyMovement ||
+    hasAny(title, corporateTerms) || companyMovement || exchangeDisclosureSignal ||
     /\b(?:shares?|stock)\s+(?:jump|surge|rise|rally|fall|drop|decline|gain|lose|slide)/i.test(title) ||
     /\b(?:share price|stock price|scrip code|listed company)\b/i.test(title);
 
   const indexMention = hasAny(text, directIndexTerms);
 
-  // A benchmark name alone is not an index move. Require both a
-  // benchmark reference and an explicit movement/action in the headline.
   const indexFocused =
     hasAny(title, indexFocusTerms) &&
     hasAny(title, indexMovementTerms) &&
     !companySignal;
 
   const indiaMacroMovementTerms = [
-    "rupee", "inr", "fii", "fpi", "dii", "sebi", "rbi",
-    "indian economy", "india economy", "indian gdp", "india gdp",
-    "indian inflation", "india inflation", "forex reserves",
-    "current account", "fiscal deficit", "trade deficit",
-    "industrial production", "bond yield", "monetary policy",
-    "interest rate", "crude oil", "exports", "imports",
-    "growth", "inflation"
+    "rise", "rises", "rising", "gain", "gains", "fell", "fall",
+    "falls", "falling", "decline", "declines", "drop", "drops",
+    "surge", "surges", "up", "down", "higher", "lower",
+    "increase", "increases", "cuts", "hike", "hikes",
+    "tightens", "eases", "growth", "inflation", "pressure",
+    "inflow", "outflow", "record high", "record low",
+    "policy", "auction", "liquidity", "reserves"
   ];
 
   const indiaMacroSignal =
@@ -357,8 +382,6 @@ function scoreItem(item) {
   let niftyRelevant = false;
   let relevanceScore = 0;
 
-  // Classification priority: regulatory > RBI policy/liquidity >
-  // company-specific > index-wide > India macro > global context.
   if (rbiRegulatory) {
     category = "INDIA_REGULATORY";
     relevanceScore = 30;
@@ -381,7 +404,6 @@ function scoreItem(item) {
     category = "GLOBAL_MARKET_CONTEXT";
     relevanceScore = 45;
   } else if (indexMention && hasAny(text, ["nifty", "sensex", "bank nifty"])) {
-    // A passing mention is not enough for index relevance.
     category = "GENERAL_NOISE";
     relevanceScore = 0;
   }
@@ -451,7 +473,8 @@ function dedupe(items) {
 
 async function fetchWithTimeout(url, source) {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+  const timeoutMs = source.id === "gdelt" ? GDELT_TIMEOUT_MS : FETCH_TIMEOUT_MS;
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
     const response = await fetch(url, {
@@ -471,7 +494,7 @@ async function fetchWithTimeout(url, source) {
     return { data: source.type === "json" ? JSON.parse(body) : body, url };
   } catch (error) {
     if (error?.name === "AbortError") {
-      throw new Error(`Timeout after ${FETCH_TIMEOUT_MS}ms`);
+      throw new Error(`Timeout after ${source.id === "gdelt" ? GDELT_TIMEOUT_MS : FETCH_TIMEOUT_MS}ms`);
     }
     throw error;
   } finally {
@@ -658,7 +681,7 @@ async function collectNews() {
     sourceStatus,
     news,
     methodology: {
-      mode: "experimental-news-classification-market-context-v1.3.9",
+      mode: "experimental-news-classification-market-context-v1.4.0",
       disclaimer: "Educational news context only. Not live trading signals, predictions, or investment advice.",
       reliability: "Rule-based keyword classification. India-source timestamps without explicit timezone are interpreted as IST. Explicit timezone timestamps are preserved. Freshness is separately labelled. GENERAL_NOISE is excluded from the primary news list. Sentiment and context priority are not verified facts, measured market impact, or market-direction probabilities."
     }
@@ -681,7 +704,7 @@ function health() {
     app: APP,
     version: VERSION,
     configuredSources: SOURCES.length,
-    mode: "experimental-rss-atom-news-classification-v1.3.9",
+    mode: "experimental-rss-atom-news-classification-v1.4.0",
     endpoints: [
       "/api/health",
       "/api/news-intelligence",

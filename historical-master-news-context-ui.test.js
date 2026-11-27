@@ -1,15 +1,6 @@
 
-/*
- * BADAL SEVERIYA V12
- * HISTORICAL MASTER — NEWS CONTEXT UI INTEGRITY TESTS
- *
- * Verifies dashboard UI wiring, safe article links,
- * timeframe coverage, refresh handling and context-only
- * restrictions.
- *
- * Run:
- * node historical-master-news-context-ui.test.js
- */
+// BADAL SEVERIYA V12
+// HISTORICAL MASTER — NEWS CONTEXT UI INTEGRITY TESTS
 
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -34,10 +25,7 @@ function test(name, callback) {
 
 // 1. Bridge import
 test("Bridge module import is present", () => {
-  assert.match(
-    ui,
-    /from\s+["']\.\/historical-master-news-context\.js["']/
-  );
+  assert.match(ui, /from\s+["']\.\/historical-master-news-context\.js["']/);
 });
 
 // 2. API endpoint
@@ -50,221 +38,124 @@ test("News Intelligence API endpoint is configured", () => {
 
 // 3. Dual timeframe coverage
 test("Only 1D and 15M timeframes are configured", () => {
-  assert.match(
-    ui,
-    /TIMEFRAMES\s*=\s*\[\s*"1d"\s*,\s*"15m"\s*\]/
-  );
+  assert.match(ui, /TIMEFRAMES\s*=\s*\[\s*"1d"\s*,\s*"15m"\s*\]/);
 });
 
-// 4. 1D summary target
-test("1D summary container ID is used", () => {
-  assert.match(
-    ui,
-    /master-summary-\$\{timeframe\}/
-  );
+// 4. Summary container
+test("Summary container ID is used", () => {
+  assert.match(ui, /master-summary-\$\{timeframe\}/);
 });
 
 // 5. Panel creation
 test("News context panel is created", () => {
-  assert.match(
-    ui,
-    /function\s+createPanel\s*\(timeframe\)/
-  );
-
-  assert.match(
-    ui,
-    /historical-master-news-context-panel/
-  );
+  assert.match(ui, /function\s+createPanel\s*\(timeframe\)/);
+  assert.match(ui, /historical-master-news-context-panel/);
 });
 
 // 6. Eight-panel placement
-test("News panel is placed after eight-panel container when available", () => {
-  assert.match(
-    ui,
-    /\.master-eight-container/
-  );
-
-  assert.match(
-    ui,
-    /eightPanel\.after\(panel\)/
-  );
+test("News panel is placed after eight-panel container", () => {
+  assert.match(ui, /\.master-eight-container/);
+  assert.match(ui, /eightPanel\.after\(panel\)/);
 });
 
 // 7. Safe URL helper
 test("Safe article URL validator exists", () => {
-  assert.match(
-    ui,
-    /function\s+getSafeArticleUrl\s*\(value\)/
-  );
+  assert.match(ui, /function\s+getSafeArticleUrl\s*\(value\)/);
 });
 
 // 8. HTTPS-only links
 test("Non-HTTPS article URLs are rejected", () => {
-  assert.match(
-    ui,
-    /parsed\.protocol\s*!==\s*"https:"/
-  );
+  assert.match(ui, /parsed\.protocol\s*!==\s*"https:"/);
 });
 
 // 9. Credential rejection
 test("Article URL credentials are rejected", () => {
-  assert.match(
-    ui,
-    /parsed\.username\s*\|\|\s*parsed\.password/
-  );
+  assert.match(ui, /parsed\.username\s*\|\|\s*parsed\.password/);
 });
 
 // 10. Hostname validation
 test("Article URL hostname is validated", () => {
-  assert.match(
-    ui,
-    /!parsed\.hostname/
-  );
+  assert.match(ui, /!parsed\.hostname/);
 });
 
 // 11. Invalid links are not clickable
 test("Unsafe article links render unavailable text", () => {
-  assert.match(
-    ui,
-    /Article link unavailable or unsafe/
-  );
-
-  assert.match(
-    ui,
-    /if\s*\(safeArticleUrl\)/
-  );
+  assert.match(ui, /Article link unavailable or unsafe/);
+  assert.match(ui, /if\s*\(safeArticleUrl\)/);
 });
 
 // 12. New-tab security
 test("External article links use noopener noreferrer", () => {
-  assert.match(
-    ui,
-    /articleLinkElement\.target\s*=\s*"_blank"/
-  );
-
-  assert.match(
-    ui,
-    /articleLinkElement\.rel\s*=\s*"noopener noreferrer"/
-  );
+  assert.match(ui, /articleLinkElement\.target\s*=\s*"_blank"/);
+  assert.match(ui, /articleLinkElement\.rel\s*=\s*"noopener noreferrer"/);
 });
 
 // 13. Text safety
 test("Dynamic text is assigned through textContent", () => {
-  assert.match(
-    ui,
-    /element\.textContent\s*=\s*String\(text\)/
-  );
+  assert.match(ui, /element\.textContent\s*=\s*String\(text\)/);
 });
 
 // 14. No dynamic HTML insertion
 test("UI does not use innerHTML", () => {
-  assert.doesNotMatch(
-    ui,
-    /\.innerHTML\s*=/
-  );
+  assert.doesNotMatch(ui, /\.innerHTML\s*=/);
 });
 
-// 15. Summary rendering
+// 15. Summary renderer
 test("Summary renderer exists", () => {
-  assert.match(
-    ui,
-    /function\s+renderSummary\s*\(panel,\s*result\)/
-  );
+  assert.match(ui, /function\s+renderSummary\s*\(panel,\s*result\)/);
 });
 
-// 16. Article rendering
+// 16. Article renderer
 test("Article renderer exists", () => {
-  assert.match(
-    ui,
-    /function\s+renderArticles\s*\(panel,\s*result\)/
-  );
+  assert.match(ui, /function\s+renderArticles\s*\(panel,\s*result\)/);
 });
 
 // 17. Relevant articles
 test("NIFTY relevant articles are rendered", () => {
-  assert.match(
-    ui,
-    /result\.articles\.relevant/
-  );
+  assert.match(ui, /result\.articles\.relevant/);
 });
 
 // 18. Global context
 test("Other and global context articles are supported", () => {
-  assert.match(
-    ui,
-    /result\.articles\.otherContext/
-  );
+  assert.match(ui, /result\.articles\.otherContext/);
 });
 
 // 19. Stale display-only articles
 test("Stale fallback articles remain display-only", () => {
-  assert.match(
-    ui,
-    /result\.articles\.stale/
-  );
-
-  assert.match(
-    ui,
-    /DISPLAY ONLY/
-  );
+  assert.match(ui, /result\.articles\.stale/);
+  assert.match(ui, /DISPLAY ONLY/);
 });
 
 // 20. API refresh
 test("Refresh uses refresh query parameter", () => {
-  assert.match(
-    ui,
-    /\$\{NEWS_API\}\?refresh=1/
-  );
+  assert.match(ui, /\$\{NEWS_API\}\?refresh=1/);
 });
 
 // 21. HTTP error handling
 test("Non-OK API responses throw an error", () => {
-  assert.match(
-    ui,
-    /if\s*\(!response\.ok\)/
-  );
-
-  assert.match(
-    ui,
-    /News API HTTP \$\{response\.status\}/
-  );
+  assert.match(ui, /if\s*\(!response\.ok\)/);
+  assert.match(ui, /News API HTTP \$\{response\.status\}/);
 });
 
 // 22. JSON parsing
 test("API response JSON is parsed", () => {
-  assert.match(
-    ui,
-    /await response\.json\(\)/
-  );
+  assert.match(ui, /await response\.json\(\)/);
 });
 
 // 23. Bridge analysis
 test("API payload is passed through bridge analysis", () => {
-  assert.match(
-    ui,
-    /analyzeHistoricalMasterNewsContext\s*\(\s*payload/
-  );
+  assert.match(ui, /analyzeHistoricalMasterNewsContext\s*\(\s*payload/);
 });
 
 // 24. Refresh button handler
 test("Refresh button click handler is connected", () => {
-  assert.match(
-    ui,
-    /button\.addEventListener\("click"/
-  );
-
-  assert.match(
-    ui,
-    /refresh:\s*true/
-  );
+  assert.match(ui, /button\.addEventListener\("click"/);
+  assert.match(ui, /refresh:\s*true/);
 });
 
 // 25. Loading state
 test("Refresh button is disabled while loading", () => {
-  assert.match(
-    ui,
-    /button\.disabled\s*=\s*true/
-  );
+  assert.match(ui, /button\.disabled\s*=\s*true/);
 });
 
 // 26. Loading recovery
@@ -277,15 +168,8 @@ test("Refresh button is restored in finally block", () => {
 
 // 27. Error status
 test("API failures are displayed in the UI", () => {
-  assert.match(
-    ui,
-    /catch\s*\(error\)/
-  );
-
-  assert.match(
-    ui,
-    /News API connection error/
-  );
+  assert.match(ui, /catch\s*\(error\)/);
+  assert.match(ui, /News API connection error/);
 });
 
 // 28. Both panels initialize
@@ -298,29 +182,40 @@ test("Every configured timeframe initializes", () => {
 
 // 29. Dashboard script integration
 test("Index HTML loads the News Context UI module", () => {
-  assert.match(
-    html,
-    /historical-master-news-context-ui\.js/
-  );
+  assert.match(html, /historical-master-news-context-ui\.js/);
 });
 
 // 30. Context-only restriction
 test("UI explicitly prohibits forecasts and trading signals", () => {
-  assert.match(
-    ui,
-    /No forecasts, trading signals, or future probabilities/
-  );
+  assert.match(ui, /No forecasts, trading signals, or future probabilities/);
 });
 
 // 31. Conflict marker check
 test("UI source contains no merge conflict markers", () => {
-  assert.doesNotMatch(
-    ui,
-    /^(<<<<<<<|=======|>>>>>>>)/m
-  );
+  assert.doesNotMatch(ui, /^(<<<<<<<|=======|>>>>>>>)/m);
+});
+
+// 32. Timeout constant
+test("UI defines a finite News API timeout", () => {
+  assert.match(ui, /NEWS_API_TIMEOUT_MS\s*=\s*\d+/);
+});
+
+// 33. Abort controller
+test("News API request uses AbortController", () => {
+  assert.match(ui, /new\s+AbortController\s*\(/);
+  assert.match(ui, /signal:\s*controller\.signal/);
+});
+
+// 34. Timer cleanup
+test("Timeout timer is cleared after request settles", () => {
+  assert.match(ui, /clearTimeout\s*\(\s*timeoutId\s*\)/);
+});
+
+// 35. Timeout message
+test("Timeout is reported distinctly from generic network errors", () => {
+  assert.match(ui, /timed?\s*out|timeout/i);
+  assert.match(ui, /NEWS_API_TIMEOUT_MS/);
 });
 
 console.log("");
-console.log(
-  `ALL ${passed} NEWS CONTEXT UI INTEGRITY TESTS PASSED`
-);
+console.log(`ALL ${passed} NEWS CONTEXT UI INTEGRITY TESTS PASSED`);

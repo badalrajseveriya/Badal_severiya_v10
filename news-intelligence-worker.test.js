@@ -1,5 +1,5 @@
 
-// BADAL SEVERIYA NEWS INTELLIGENCE — Phase 1.3.6 tests
+// BADAL SEVERIYA NEWS INTELLIGENCE — Phase 1.3.7 tests
 // Run: node news-intelligence-worker.test.js
 
 import assert from "node:assert/strict";
@@ -28,10 +28,7 @@ function test(name, fn) {
   }
 }
 
-const source = {
-  id: "test",
-  name: "Test source"
-};
+const source = { id: "test", name: "Test source" };
 
 test("RSS item fields and date parse", () => {
   const xml = `<rss><channel><item>
@@ -46,7 +43,7 @@ test("RSS item fields and date parse", () => {
   assert.equal(result.entryCount, 1);
   assert.equal(result.items.length, 1);
   assert.match(result.items[0].description, /NIFTY/);
-  assert.ok(result.items[0].publishedAt);
+  assert.equal(result.items[0].publishedAt, "2026-11-25T10:00:00.000Z");
 });
 
 test("Atom entry and href link parse", () => {
@@ -65,7 +62,7 @@ test("Atom entry and href link parse", () => {
   assert.equal(result.items[0].link, "https://example.com/b");
 });
 
-test("GDELT compact timestamp parses", () => {
+test("GDELT compact timestamp is UTC", () => {
   const result = parseGdelt({
     articles: [{
       title: "NIFTY update",
@@ -74,25 +71,108 @@ test("GDELT compact timestamp parses", () => {
     }]
   }, source, "feed");
 
-  assert.equal(
-    result.items[0].publishedAt,
-    "2026-11-25T10:30:00.000Z"
-  );
+  assert.equal(result.items[0].publishedAt, "2026-11-25T10:30:00.000Z");
 });
 
-test("Invalid date is not silently accepted", () => {
+test("Invalid date is rejected", () => {
   assert.equal(parseDate("not-a-real-date"), null);
 });
 
-test("Direct NIFTY article is index context", () => {
+test("India RSS naive ISO timestamp is interpreted as IST", () => {
+  const xml = `<rss><channel><item>
+    <title>RBI update</title>
+    <link>https://example.com/rbi</link>
+    <pubDate>2026-11-27T10:25:00</pubDate>
+  </item></channel></rss>`;
+
+  const result = parseRss(
+    xml,
+    { id: "rbi-press", name: "RBI" },
+    "feed"
+  );
+
+  assert.equal(result.items[0].publishedAt, "2026-11-27T04:55:00.000Z");
+});
+
+test("India RSS RFC timestamp without timezone is interpreted as IST", () => {
+  const xml = `<rss><channel><item>
+    <title>NSE update</title>
+    <link>https://example.com/nse</link>
+    <pubDate>Fri, 27 Nov 2026 13:43:58</pubDate>
+  </item></channel></rss>`;
+
+  const result = parseRss(
+    xml,
+    { id: "nse-announcements", name: "NSE" },
+    "feed"
+  );
+
+  assert.equal(result.items[0].publishedAt, "2026-11-27T08:13:58.000Z");
+});
+
+test("Explicit timezone on India RSS is preserved", () => {
+  const xml = `<rss><channel><item>
+    <title>RBI update</title>
+    <link>https://example.com/rbi-explicit</link>
+    <pubDate>Fri, 27 Nov 2026 10:25:00 +0530</pubDate>
+  </item></channel></rss>`;
+
+  const result = parseRss(
+    xml,
+    { id: "rbi-press", name: "RBI" },
+    "feed"
+  );
+
+  assert.equal(result.items[0].publishedAt, "2026-11-27T04:55:00.000Z");
+});
+
+test("Non-India RSS without timezone is not forced to IST", () => {
+  const xml = `<rss><channel><item>
+    <title>BBC update</title>
+    <link>https://example.com/bbc</link>
+    <pubDate>2026-11-27T10:25:00Z</pubDate>
+  </item></channel></rss>`;
+
+  const result = parseRss(
+    xml,
+    { id: "bbc-business", name: "BBC" },
+    "feed"
+  );
+
+  assert.equal(result.items[0].publishedAt, "2026-11-27T10:25:00.000Z");
+});
+
+test("Direct NIFTY headline is index context", () => {
   const result = scoreItem({
-    title: "NIFTY 50 rises",
-    description: "Indian stock market gains",
+    title: "NIFTY 50 rises after strong market breadth",
+    description: "Indian benchmark index advances",
     sourceId: "livemint-markets"
   });
 
   assert.equal(result.relevanceCategory, "INDIA_INDEX_CONTEXT");
   assert.equal(result.niftyRelevant, true);
+});
+
+test("Company stock movement is stock-specific despite NIFTY mention", () => {
+  const result = scoreItem({
+    title: "Park Medi World shares rise as Nifty falls",
+    description: "Healthcare stock gains during the Indian market session",
+    sourceId: "livemint-markets"
+  });
+
+  assert.equal(result.relevanceCategory, "INDIA_STOCK_SPECIFIC");
+  assert.equal(result.niftyRelevant, false);
+});
+
+test("APL Apollo company news is not India macro", () => {
+  const result = scoreItem({
+    title: "APL Apollo Tubes shares jump after Tata Steel deal",
+    description: "The company's share price rises in morning trade",
+    sourceId: "livemint-markets"
+  });
+
+  assert.equal(result.relevanceCategory, "INDIA_STOCK_SPECIFIC");
+  assert.equal(result.niftyRelevant, false);
 });
 
 test("RBI VRR liquidity auction is India macro", () => {
@@ -117,7 +197,7 @@ test("RBI sanctions circular is regulatory", () => {
   assert.equal(result.niftyRelevant, false);
 });
 
-test("Global gold and Fed article is global context", () => {
+test("Global gold and Fed story is not NIFTY relevant", () => {
   const result = scoreItem({
     title: "Gold rates after US Fed FOMC meeting",
     description: "Investors watch interest rates and dollar impact on gold markets",
@@ -128,7 +208,18 @@ test("Global gold and Fed article is global context", () => {
   assert.equal(result.niftyRelevant, false);
 });
 
-test("Single Indian company event is stock-specific", () => {
+test("Global inflation without India context is not India macro", () => {
+  const result = scoreItem({
+    title: "US inflation rises as bond yields climb",
+    description: "Federal Reserve officials assess the latest economic data",
+    sourceId: "bbc-business"
+  });
+
+  assert.notEqual(result.relevanceCategory, "INDIA_MACRO");
+  assert.equal(result.niftyRelevant, false);
+});
+
+test("Indian company dividend announcement is stock-specific", () => {
   const result = scoreItem({
     title: "Indian company announces dividend and buyback",
     description: "Quarterly results and board meeting",
@@ -150,7 +241,7 @@ test("Unrelated sports story is general noise", () => {
   assert.equal(result.niftyRelevant, false);
 });
 
-test("Sentiment does not overwrite relevance", () => {
+test("Sentiment does not create NIFTY relevance", () => {
   const result = scoreItem({
     title: "Company shares surge",
     description: "Indian company order win",
@@ -177,7 +268,7 @@ test("48-hour to 7-day item gets fallback label", () => {
   }, now), "STALE_FALLBACK");
 });
 
-test("Older than 7 days is classified stale old", () => {
+test("Older than 7 days is stale old", () => {
   const now = Date.parse("2026-11-27T12:00:00.000Z");
 
   assert.equal(classifyFreshness({
@@ -187,9 +278,7 @@ test("Older than 7 days is classified stale old", () => {
 
 test("Future-dated item is rejected", () => {
   const now = Date.parse("2026-11-27T12:00:00.000Z");
-  const item = {
-    publishedAt: "2026-11-27T13:00:00.000Z"
-  };
+  const item = { publishedAt: "2026-11-27T13:00:00.000Z" };
 
   assert.equal(classifyFreshness(item, now), "FUTURE_DATE");
   assert.equal(isRecent(item, now), false);

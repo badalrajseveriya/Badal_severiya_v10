@@ -616,10 +616,91 @@ test("Excluded article count includes each excluded article once", () => {
 });
 
 // ------------------------------------------------------
+// 24. SINGLE SOURCE ERROR STRING
+// ------------------------------------------------------
+
+test("Source diagnostic counts a single error string", () => {
+  const result = analyzeHistoricalMasterNewsContext(
+    createPayload(
+      [createArticle()],
+      {
+        sourceStatus: [
+          {
+            sourceId: "source-single",
+            sourceName: "Single Error Source",
+            status: "FAILED",
+            fetchedItems: 0,
+            error: "Fetch failed"
+          }
+        ]
+      }
+    )
+  );
+
+  assert.equal(result.status, "OK");
+  assert.equal(result.sourceDiagnostics.length, 1);
+  assert.equal(result.sourceDiagnostics[0].errorCount, 1);
+});
+
+// ------------------------------------------------------
+// 25. MULTIPLE SOURCE ERRORS IN JOINED STRING
+// ------------------------------------------------------
+
+test("Source diagnostic counts multiple joined errors", () => {
+  const result = analyzeHistoricalMasterNewsContext(
+    createPayload(
+      [createArticle()],
+      {
+        sourceStatus: [
+          {
+            sourceId: "source-multiple",
+            sourceName: "Multiple Error Source",
+            status: "FAILED",
+            fetchedItems: 0,
+            error: "First fetch failed | Second fetch failed | Third fetch failed"
+          }
+        ]
+      }
+    )
+  );
+
+  assert.equal(result.status, "OK");
+  assert.equal(result.sourceDiagnostics.length, 1);
+  assert.equal(result.sourceDiagnostics[0].errorCount, 3);
+});
+
+// ------------------------------------------------------
+// 26. EMPTY SOURCE ERROR STRING
+// ------------------------------------------------------
+
+test("Empty source error string produces zero errors", () => {
+  const result = analyzeHistoricalMasterNewsContext(
+    createPayload(
+      [createArticle()],
+      {
+        sourceStatus: [
+          {
+            sourceId: "source-empty",
+            sourceName: "Empty Error Source",
+            status: "CONNECTED",
+            fetchedItems: 10,
+            error: ""
+          }
+        ]
+      }
+    )
+  );
+
+  assert.equal(result.status, "OK");
+  assert.equal(result.sourceDiagnostics.length, 1);
+  assert.equal(result.sourceDiagnostics[0].errorCount, 0);
+});
+
+// ------------------------------------------------------
 // FINAL
 // ------------------------------------------------------
 
 console.log("");
 console.log("==============================================");
-console.log("ALL 23 NEWS CONTEXT BRIDGE TESTS PASSED");
+console.log("ALL 26 NEWS CONTEXT BRIDGE TESTS PASSED");
 console.log("==============================================");

@@ -1,3 +1,4 @@
+
 /*
  * BADAL SEVERIYA V12
  * HISTORICAL MASTER — NEWS CONTEXT BRIDGE TESTS
@@ -67,7 +68,7 @@ test("Valid news payload is normalized successfully", () => {
   assert.equal(result.status, "OK");
   assert.equal(result.module, "HISTORICAL_MASTER_NEWS_CONTEXT");
   assert.equal(result.dataType, "NEWS_CONTEXT_ONLY");
-  assert.equal(result.version, "1.0.0");
+  assert.equal(result.version, "1.1.0");
 
   assert.equal(result.context.label, "POSITIVE_NEWS_CONTEXT");
   assert.equal(result.context.relevantArticleCount, 1);
@@ -531,10 +532,94 @@ test("Forecasts and trading signals remain disabled", () => {
 });
 
 // ------------------------------------------------------
+// 21. HTTPS LINK SECURITY
+// ------------------------------------------------------
+
+test("Non-HTTPS and malformed article links are rejected", () => {
+  const result = analyzeHistoricalMasterNewsContext(
+    createPayload([
+      createArticle({
+        title: "HTTP article",
+        link: "http://example.com/article"
+      }),
+      createArticle({
+        title: "JavaScript URL",
+        link: "javascript:alert(1)"
+      }),
+      createArticle({
+        title: "Malformed URL",
+        link: "not-a-valid-url"
+      })
+    ])
+  );
+
+  assert.equal(result.status, "WAITING_FOR_DATA");
+  assert.match(result.error, /valid news articles/i);
+});
+
+// ------------------------------------------------------
+// 22. URL CREDENTIAL REJECTION
+// ------------------------------------------------------
+
+test("Article URLs containing credentials are rejected", () => {
+  const result = analyzeHistoricalMasterNewsContext(
+    createPayload([
+      createArticle({
+        title: "Credential URL",
+        link: "https://user:password@example.com/article"
+      })
+    ])
+  );
+
+  assert.equal(result.status, "WAITING_FOR_DATA");
+});
+
+// ------------------------------------------------------
+// 23. EXCLUDED COUNT IS NOT DOUBLE COUNTED
+// ------------------------------------------------------
+
+test("Excluded article count includes each excluded article once", () => {
+  const result = analyzeHistoricalMasterNewsContext(
+    createPayload([
+      createArticle({
+        title: "Old article",
+        freshness: "STALE_OLD",
+        link: "https://example.com/old"
+      }),
+      createArticle({
+        title: "Invalid date article",
+        freshness: "INVALID_DATE",
+        link: "https://example.com/invalid-date"
+      }),
+      createArticle({
+        title: "Future article",
+        freshness: "FUTURE_DATE",
+        link: "https://example.com/future"
+      }),
+      createArticle({
+        title: "Active article",
+        freshness: "FRESH",
+        link: "https://example.com/active"
+      }),
+      createArticle({
+        title: "Stale fallback article",
+        freshness: "STALE_FALLBACK",
+        link: "https://example.com/fallback"
+      })
+    ])
+  );
+
+  assert.equal(result.status, "OK");
+  assert.equal(result.context.freshness.activeArticleCount, 1);
+  assert.equal(result.context.freshness.staleArticleCount, 1);
+  assert.equal(result.context.freshness.excludedNoiseCount, 3);
+});
+
+// ------------------------------------------------------
 // FINAL
 // ------------------------------------------------------
 
 console.log("");
 console.log("==============================================");
-console.log("ALL 20 NEWS CONTEXT BRIDGE TESTS PASSED");
+console.log("ALL 23 NEWS CONTEXT BRIDGE TESTS PASSED");
 console.log("==============================================");

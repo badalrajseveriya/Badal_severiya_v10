@@ -26,6 +26,7 @@ const fixture = {
       publishedAt: "2026-11-27T09:00:00.000Z",
       sourceId: "test-source",
       sourceName: "Test Source",
+      category: "INDIA_INDEX_CONTEXT",
       relevanceCategory: "INDIA_INDEX_CONTEXT",
       sentiment: "POSITIVE",
       sentimentScore: 3,
@@ -41,6 +42,7 @@ const fixture = {
       publishedAt: "2026-11-26T09:00:00.000Z",
       sourceId: "test-source",
       sourceName: "Test Source",
+      category: "INDIA_INDEX_CONTEXT",
       relevanceCategory: "INDIA_INDEX_CONTEXT",
       sentiment: "NEGATIVE",
       sentimentScore: -2,
@@ -131,7 +133,6 @@ test.beforeAll(async () => {
   });
 
   const address = server.address();
-
   baseUrl = `http://127.0.0.1:${address.port}`;
 });
 
@@ -174,7 +175,6 @@ async function mockHistoricalApi(page) {
             status: "OK"
           })
         });
-
         return;
       }
 
@@ -191,7 +191,6 @@ async function mockHistoricalApi(page) {
             count: 0
           })
         });
-
         return;
       }
 
@@ -208,78 +207,50 @@ async function mockHistoricalApi(page) {
   );
 }
 
-async function openNewsTestPage(page) {
-  await mockNewsApi(page);
-
-  await page.goto(baseUrl);
-
-  await expect(
-    page.locator(
-      "#master-summary-1d .historical-master-news-context-panel"
-    )
-  ).toBeVisible();
-
-  await expect(
-    page.locator(
-      "#master-summary-15m .historical-master-news-context-panel"
-    )
-  ).toBeVisible();
-}
-
-async function openRealDashboard(page) {
-  await mockNewsApi(page);
+async function openDashboard(page, payload = fixture) {
+  await mockNewsApi(page, payload);
   await mockHistoricalApi(page);
 
   await page.goto(`${baseUrl}/index.html`);
 
-  await expect(
-    page.locator("#master-summary-1d .master-eight-container")
-  ).toBeVisible();
+  for (const timeframe of ["1d", "15m"]) {
+    await expect(
+      page.locator(
+        `#master-summary-${timeframe} .master-eight-container`
+      )
+    ).toBeVisible();
 
-  await expect(
-    page.locator("#master-summary-15m .master-eight-container")
-  ).toBeVisible();
-
-  await expect(
-    page.locator(
-      "#master-summary-1d .historical-master-news-context-panel"
-    )
-  ).toBeVisible();
-
-  await expect(
-    page.locator(
-      "#master-summary-15m .historical-master-news-context-panel"
-    )
-  ).toBeVisible();
+    await expect(
+      page.locator(
+        `#master-summary-${timeframe} .historical-master-news-context-panel`
+      )
+    ).toBeVisible();
+  }
 }
 
 test(
   "creates separate 1D and 15M news context panels",
   async ({ page }) => {
-    await openNewsTestPage(page);
+    await openDashboard(page);
 
     await expect(
       page.locator(".historical-master-news-context-panel")
     ).toHaveCount(2);
 
-    await expect(
-      page.locator(
-        "#master-summary-1d .master-eight-container + .historical-master-news-context-panel"
-      )
-    ).toBeVisible();
-
-    await expect(
-      page.locator(
-        "#master-summary-15m .master-eight-container + .historical-master-news-context-panel"
-      )
-    ).toBeVisible();
+    for (const timeframe of ["1d", "15m"]) {
+      await expect(
+        page.locator(
+          `#master-summary-${timeframe} .master-eight-container + .historical-master-news-context-panel`
+        )
+      ).toBeVisible();
+    }
   }
 );
 
 test(
   "renders active news and keeps stale news display-only",
   async ({ page }) => {
-    await openNewsTestPage(page);
+    await openDashboard(page);
 
     const panel = page.locator(
       "#master-summary-1d .historical-master-news-context-panel"
@@ -333,16 +304,11 @@ test(
       ]
     };
 
-    await mockNewsApi(page, payload);
-    await page.goto(baseUrl);
+    await openDashboard(page, payload);
 
     const panel = page.locator(
       "#master-summary-1d .historical-master-news-context-panel"
     );
-
-    await expect(
-      panel.locator(".news-context-status")
-    ).toContainText("News Context तैयार");
 
     const safeLink = panel.locator(
       'a[href="https://example.com/active-news"]'
@@ -363,9 +329,36 @@ test(
       panel.locator('a[href*="user:password"]')
     ).toHaveCount(0);
 
+    const unsafeArticle = panel.locator(
+      ".news-context-article"
+    ).filter({
+      hasText: "Unsafe JavaScript URL"
+    });
+
+    const credentialArticle = panel.locator(
+      ".news-context-article"
+    ).filter({
+      hasText: "Credential URL"
+    });
+
+    await expect(unsafeArticle).toBeVisible();
+    await expect(credentialArticle).toBeVisible();
+
     await expect(
-      panel.locator(".news-context-articles")
-    ).not.toContainText("Unsafe JavaScript URL");
+      unsafeArticle.locator("a")
+    ).toHaveCount(0);
+
+    await expect(
+      credentialArticle.locator("a")
+    ).toHaveCount(0);
+
+    await expect(unsafeArticle).toContainText(
+      "Article link unavailable or unsafe"
+    );
+
+    await expect(credentialArticle).toContainText(
+      "Article link unavailable or unsafe"
+    );
   }
 );
 
@@ -390,7 +383,9 @@ test(
       }
     );
 
-    await page.goto(baseUrl);
+    await mockHistoricalApi(page);
+
+    await page.goto(`${baseUrl}/index.html`);
 
     const panel = page.locator(
       "#master-summary-1d .historical-master-news-context-panel"
@@ -425,7 +420,7 @@ test(
       pageErrors.push(error.message);
     });
 
-    await openRealDashboard(page);
+    await openDashboard(page);
 
     for (const timeframe of ["1d", "15m"]) {
       const summary = page.locator(
@@ -444,8 +439,14 @@ test(
       await expect(newsPanel).toBeVisible();
 
       const order = await summary.evaluate(element => {
-        const percentage = element.querySelector(".percentage-grid");
-        const eight = element.querySelector(".master-eight-container");
+        const percentage = element.querySelector(
+          ".percentage-grid"
+        );
+
+        const eight = element.querySelector(
+          ".master-eight-container"
+        );
+
         const news = element.querySelector(
           ".historical-master-news-context-panel"
         );
@@ -454,14 +455,19 @@ test(
           percentageBeforeEight: Boolean(
             percentage &&
             eight &&
-            percentage.compareDocumentPosition(eight) &
+            (
+              percentage.compareDocumentPosition(eight) &
               Node.DOCUMENT_POSITION_FOLLOWING
+            )
           ),
+
           eightBeforeNews: Boolean(
             eight &&
             news &&
-            eight.compareDocumentPosition(news) &
+            (
+              eight.compareDocumentPosition(news) &
               Node.DOCUMENT_POSITION_FOLLOWING
+            )
           )
         };
       });

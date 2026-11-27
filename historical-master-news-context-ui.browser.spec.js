@@ -1,4 +1,3 @@
-
 import { test, expect } from "@playwright/test";
 import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
@@ -471,6 +470,115 @@ test(
       ).toContainText("News Context तैयार");
     }
 
+    expect(pageErrors).toEqual([]);
+  }
+);
+
+/*
+ * Real UI timeout integration test.
+ *
+ * Initial API requests are returned normally.
+ * Only refresh=1 is deliberately delayed beyond the
+ * UI's configured 12-second timeout.
+ *
+ * The delayed fulfill is guarded because the browser's
+ * AbortController may cancel the request before the route
+ * handler attempts to fulfill it.
+ */
+test(
+  "refresh timeout is displayed and button recovers",
+  async ({ page }) => {
+    test.setTimeout(30000);
+
+    const pageErrors = [];
+    let refreshRequests = 0;
+
+    page.on("pageerror", error => {
+      pageErrors.push(error.message);
+    });
+
+    await page.route(
+      "**/api/news-intelligence**",
+      async route => {
+        const url = new URL(route.request().url());
+
+        if (url.searchParams.get("refresh") !== "1") {
+          await route.fulfill({
+            status: 200,
+            contentType: "application/json",
+            headers: CORS_HEADERS,
+            body: JSON.stringify(fixture)
+          });
+
+          return;
+        }
+
+        refreshRequests++;
+
+        // Delay beyond the UI's 12-second request timeout.
+        await new Promise(resolve => {
+          setTimeout(resolve, 14000);
+        });
+
+        try {
+          await route.fulfill({
+            status: 200,
+            contentType: "application/json",
+            headers: CORS_HEADERS,
+            body: JSON.stringify(fixture)
+          });
+        } catch {
+          // Expected if the browser aborted the request
+          // after the UI timeout fired.
+        }
+      }
+    );
+
+    await mockHistoricalApi(page);
+
+    await page.goto(`${baseUrl}/index.html`);
+
+    const panel = page.locator(
+      "#master-summary-1d .historical-master-news-context-panel"
+    );
+
+    const status = panel.locator(
+      ".news-context-status"
+    );
+
+    const button = panel.locator(
+      ".news-context-refresh"
+    );
+
+    // Ensure the initial API load succeeded before refresh.
+    await expect(status).toContainText(
+      "News Context तैयार"
+    );
+
+    await expect(button).toBeEnabled();
+
+    await button.click();
+
+    await expect.poll(
+      () => refreshRequests
+    ).toBe(1);
+
+    // The real UI timeout is configured for 12,000 ms.
+    await expect(status).toContainText(
+      "News API request timed out after 12000 ms",
+      {
+        timeout: 18000
+      }
+    );
+
+    // Timeout must not leave the refresh button stuck.
+    await expect(button).toBeEnabled();
+
+    await expect(button).toHaveText(
+      "REFRESH NEWS CONTEXT"
+    );
+
+    // No unhandled browser JavaScript errors.
     expect(pageErrors).toEqual([]);
   }
 );

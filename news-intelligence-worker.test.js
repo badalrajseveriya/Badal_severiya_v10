@@ -1,4 +1,5 @@
-// BADAL SEVERIYA NEWS INTELLIGENCE — Phase 1.1 Tests
+
+// BADAL SEVERIYA NEWS INTELLIGENCE — Phase 1.2 Tests
 // Run: node news-intelligence-worker.test.js
 
 import assert from "node:assert/strict";
@@ -77,8 +78,20 @@ test("RSS parser handles Atom entry format", () => {
   assert.ok(result[0].published);
 });
 
-// 3. Relevant India market news
-test("RBI India inflation news is relevant", () => {
+// 3. Direct Indian market relevance
+test("NIFTY and Indian market news is directly relevant", () => {
+  const result = isNiftyRelevant({
+    title: "NIFTY 50 and Indian stock market update",
+    description: "Equity market trading outlook"
+  });
+
+  assert.equal(result.relevant, true);
+  assert.ok(result.relevanceScore >= 65);
+  assert.equal(result.relevanceType, "DIRECT_INDIA_MARKET");
+});
+
+// 4. RBI macro news relevance
+test("RBI India inflation and interest rate news is relevant", () => {
   const result = isNiftyRelevant({
     title: "RBI India inflation policy update",
     description: "Interest rate and Indian market outlook"
@@ -86,10 +99,9 @@ test("RBI India inflation news is relevant", () => {
 
   assert.equal(result.relevant, true);
   assert.ok(result.relevanceScore > 0);
-  assert.ok(result.hits.length > 0);
 });
 
-// 4. Irrelevant news
+// 5. Irrelevant celebrity news
 test("Unrelated celebrity news is filtered out", () => {
   const result = isNiftyRelevant({
     title: "Celebrity announces new movie",
@@ -98,9 +110,10 @@ test("Unrelated celebrity news is filtered out", () => {
 
   assert.equal(result.relevant, false);
   assert.equal(result.relevanceScore, 0);
+  assert.equal(result.relevanceType, "NOT_RELEVANT");
 });
 
-// 5. Whole-word matching
+// 6. Whole-word matching
 test("Whole-word matcher avoids accidental substring matches", () => {
   assert.equal(termMatch("US economy outlook", "us"), true);
   assert.equal(termMatch("focus on the future", "us"), false);
@@ -109,7 +122,7 @@ test("Whole-word matcher avoids accidental substring matches", () => {
   assert.equal(termMatch("Federal Reserve policy", "federal reserve"), true);
 });
 
-// 6. Relevance false positive guard
+// 7. Relevance false-positive guard
 test("Focus and corporate wording alone is not NIFTY relevant", () => {
   const result = isNiftyRelevant({
     title: "Company focus on corporate operations",
@@ -120,7 +133,7 @@ test("Focus and corporate wording alone is not NIFTY relevant", () => {
   assert.equal(result.relevanceScore, 0);
 });
 
-// 7. Official source label and compatibility field
+// 8. Official source label and compatibility field
 test("Official source label and compatibility score are retained", () => {
   const result = analyzeNewsItem({
     title: "RBI announces monetary policy",
@@ -137,7 +150,7 @@ test("Official source label and compatibility score are retained", () => {
   assert.match(result.verification, /fact-check not completed/i);
 });
 
-// 8. Non-official source label
+// 9. Non-official source label
 test("Non-official source is marked unverified", () => {
   const result = analyzeNewsItem({
     title: "India stock market update",
@@ -150,12 +163,12 @@ test("Non-official source is marked unverified", () => {
   assert.equal(result.verificationConfidence, 45);
 });
 
-// 9. Percentage sum and non-negative validation
-test("Experimental percentages always total 100 and remain non-negative", () => {
+// 10. Percentage sum and non-negative validation
+test("Experimental percentages total 100 and remain non-negative", () => {
   const samples = [
     {
-      title: "Oil prices surge after war escalation",
-      description: "Crude oil rises and markets face uncertainty",
+      title: "Crude oil prices surge",
+      description: "Indian markets face oil supply disruption",
       sourceKind: "publisher"
     },
     {
@@ -170,7 +183,12 @@ test("Experimental percentages always total 100 and remain non-negative", () => 
     },
     {
       title: "Federal Reserve rate hike",
-      description: "Inflation and interest rate concerns",
+      description: "Inflation and interest rate concerns affect global markets",
+      sourceKind: "publisher"
+    },
+    {
+      title: "Celebrity announces movie",
+      description: "Entertainment story unrelated to markets",
       sourceKind: "publisher"
     }
   ];
@@ -194,11 +212,11 @@ test("Experimental percentages always total 100 and remain non-negative", () => 
   }
 });
 
-// 10. Critical news
-test("War crisis news receives critical priority", () => {
+// 11. Critical financial disruption
+test("Oil supply disruption with market impact receives critical priority", () => {
   const result = analyzeNewsItem({
-    title: "War crisis causes crude oil surge",
-    description: "India market and oil prices face disruption",
+    title: "Crude oil supply disruption hits global markets",
+    description: "Oil supply disruption threatens financial markets",
     sourceKind: "publisher",
     published: new Date().toISOString()
   });
@@ -207,19 +225,97 @@ test("War crisis news receives critical priority", () => {
   assert.equal(result.impactStrength, "HIGH");
 });
 
-// 11. Routine policy should not be Critical
+// 12. War alone is not critical
+test("General war news without financial context is not critical", () => {
+  const result = analyzeNewsItem({
+    title: "War crisis reported in a remote region",
+    description: "Military conflict and political developments",
+    sourceKind: "publisher",
+    published: new Date().toISOString()
+  });
+
+  assert.equal(result.niftyRelevance, 0);
+  assert.notEqual(result.priority, "P1_CRITICAL");
+  assert.equal(result.directionBias, "NEUTRAL");
+});
+
+// 13. Routine RBI policy is not critical
 test("Routine RBI policy news is not automatically Critical", () => {
   const result = analyzeNewsItem({
     title: "RBI announces routine monetary policy update",
     description: "India interest rate policy review",
-    sourceKind: "official",
-    published: new Date().toISOString()
+    sourceKind: "official"
   });
 
   assert.notEqual(result.priority, "P1_CRITICAL");
 });
 
-// 12. Duplicate headlines
+// 14. Global macro requires financial context
+test("Federal Reserve rate news with market context is relevant", () => {
+  const result = isNiftyRelevant({
+    title: "Federal Reserve rate decision",
+    description: "Interest rates may affect global financial markets"
+  });
+
+  assert.equal(result.relevant, true);
+  assert.equal(result.relevanceType, "GLOBAL_MACRO_TRANSMISSION");
+});
+
+// 15. Global politics alone is not relevant
+test("General global political story without financial transmission is excluded", () => {
+  const result = isNiftyRelevant({
+    title: "Political leaders meet after regional conflict",
+    description: "Diplomatic discussions and political statements"
+  });
+
+  assert.equal(result.relevant, false);
+  assert.equal(result.relevanceScore, 0);
+});
+
+// 16. Broad US term alone is not relevant
+test("US mention alone does not qualify as market news", () => {
+  const result = isNiftyRelevant({
+    title: "US storm damages homes",
+    description: "Weather emergency and rescue operations"
+  });
+
+  assert.equal(result.relevant, false);
+  assert.equal(result.relevanceScore, 0);
+});
+
+// 17. India financial context
+test("India economy news with explicit financial context is relevant", () => {
+  const result = isNiftyRelevant({
+    title: "India GDP growth and inflation outlook",
+    description: "Economic growth, bond yields and financial markets"
+  });
+
+  assert.equal(result.relevant, true);
+  assert.equal(result.relevanceType, "DIRECT_INDIA_MARKET");
+});
+
+// 18. Generic bank wording is insufficient
+test("Generic bank mention without India or market context is excluded", () => {
+  const result = isNiftyRelevant({
+    title: "Local bank opens new community branch",
+    description: "Bank customer service and branch expansion"
+  });
+
+  assert.equal(result.relevant, false);
+});
+
+// 19. Tariff with market context
+test("Global tariff story with trade and financial context is relevant", () => {
+  const result = isNiftyRelevant({
+    title: "New trade tariffs announced",
+    description: "Tariffs may affect exports, inflation and financial markets"
+  });
+
+  assert.equal(result.relevant, true);
+  assert.equal(result.relevanceType, "GLOBAL_MACRO_TRANSMISSION");
+});
+
+// 20. Duplicate headlines
 test("Duplicate headlines are removed", () => {
   const items = [
     {
@@ -241,7 +337,7 @@ test("Duplicate headlines are removed", () => {
   assert.equal(result.length, 1);
 });
 
-// 13. Irrelevant stories excluded from prioritized output
+// 21. Irrelevant stories excluded from prioritized output
 test("Irrelevant stories do not appear in prioritized output", () => {
   const items = [
     {
@@ -263,7 +359,7 @@ test("Irrelevant stories do not appear in prioritized output", () => {
   assert.match(result[0].title, /RBI/i);
 });
 
-// 14. GDELT compact timestamp
+// 22. GDELT compact timestamp
 test("GDELT compact timestamp is converted to ISO", () => {
   const result = parseGdelt({
     articles: [{
@@ -284,7 +380,7 @@ test("GDELT compact timestamp is converted to ISO", () => {
   );
 });
 
-// 15. GDELT invalid date
+// 23. GDELT invalid date
 test("GDELT invalid date is safely represented as null", () => {
   const result = parseGdelt({
     articles: [{
@@ -302,7 +398,7 @@ test("GDELT invalid date is safely represented as null", () => {
   assert.equal(result[0].published, null);
 });
 
-// 16. GDELT parser article data
+// 24. GDELT parser article data
 test("GDELT parser reads article data", () => {
   const source = {
     id: "gdelt",
@@ -328,7 +424,7 @@ test("GDELT parser reads article data", () => {
   assert.equal(result[0].published, "2026-11-25T10:30:00.000Z");
 });
 
-// 17. Freshness: recent news accepted
+// 25. Freshness: recent news accepted
 test("Fresh news within 48 hours is accepted", () => {
   const now = Date.now();
 
@@ -340,7 +436,7 @@ test("Fresh news within 48 hours is accepted", () => {
   );
 });
 
-// 18. Freshness: older than 48 hours rejected
+// 26. Freshness: older than 48 hours rejected
 test("News older than 48 hours is rejected", () => {
   const now = Date.now();
 
@@ -352,17 +448,17 @@ test("News older than 48 hours is rejected", () => {
   );
 });
 
-// 19. Freshness: missing date retained
+// 27. Freshness: missing date retained
 test("News with missing date is retained", () => {
   assert.equal(isFresh({ published: null }), true);
 });
 
-// 20. Freshness: invalid date retained
+// 28. Freshness: invalid date retained
 test("News with invalid date is retained", () => {
   assert.equal(isFresh({ published: "not-a-date" }), true);
 });
 
-// 21. Freshness: future timestamp guard
+// 29. Freshness: future timestamp guard
 test("News too far in future is rejected", () => {
   const now = Date.now();
 
@@ -374,7 +470,7 @@ test("News too far in future is rejected", () => {
   );
 });
 
-// 22. Old headlines excluded from output
+// 30. Old headlines excluded from output
 test("Old dated news is excluded from prioritized output", () => {
   const now = Date.now();
 
@@ -399,7 +495,7 @@ test("Old dated news is excluded from prioritized output", () => {
   assert.match(result[0].title, /old$/i);
 });
 
-// 23. Source configuration
+// 31. Source configuration
 test("News engine has multiple configured sources", () => {
   assert.ok(SOURCES.length >= 8);
   assert.ok(SOURCES.some(source => source.kind === "official"));

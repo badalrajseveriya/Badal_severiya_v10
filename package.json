@@ -1,3 +1,4 @@
+
 {
   "name": "badal-severiya-v12",
   "version": "12.0.0",
@@ -18,6 +19,7 @@
     "test:historical-master-api-integration": "node historical-master-api-integration.test.js",
     "test:historical-master-dashboard-integration": "node historical-master-dashboard-integration.test.js",
     "test:historical-master-news-context": "node historical-master-news-context.test.js",
+    "test:historical-master-news-context-ui": "node historical-master-news-context-ui.test.js",
     "test:report": "node historical-analysis-report.test.js",
     "test:comparison": "node timeframe-comparison.test.js",
     "test:candle-composition": "node historical-candle-composition.test.js",
@@ -40,6 +42,6 @@
     "test:import-controller": "node historical-data-import-controller.test.js",
     "test:api-uploader": "node historical-candle-api-uploader.test.js",
     "test:api-verifier": "node historical-candle-api-verifier.test.js",
-    "test": "npm run test:decoder && npm run test:market && npm run test:structure && npm run test:support && npm run test:fibonacci && npm run test:candles && npm run test:integration && npm run test:data-quality && npm run test:intraday-gap && npm run test:intraday-gap-api-runner && npm run test:historical-api-pipeline && npm run test:historical-master-api-integration && npm run test:historical-master-dashboard-integration && npm run test:historical-master-news-context && npm run test:report && npm run test:comparison && npm run test:candle-composition && npm run test:candle-stability && npm run test:master-analysis && npm run test:dashboard && npm run test:dashboard-display && npm run test:dashboard-ui && npm run test:dashboard-renderer && npm run test:pipeline && npm run test:validation && npm run test:consistency && npm run test:panel-integrity && npm run test:ui-integrity && npm run test:import && npm run test:worker && npm run test:angelone && npm run test:candle-merge && npm run test:candle-batch-import && npm run test:import-controller && npm run test:api-uploader && npm run test:api-verifier"
+    "test": "npm run test:decoder && npm run test:market && npm run test:structure && npm run test:support && npm run test:fibonacci && npm run test:candles && npm run test:integration && npm run test:data-quality && npm run test:intraday-gap && npm run test:intraday-gap-api-runner && npm run test:historical-api-pipeline && npm run test:historical-master-api-integration && npm run test:historical-master-dashboard-integration && npm run test:historical-master-news-context && npm run test:historical-master-news-context-ui && npm run test:report && npm run test:comparison && npm run test:candle-composition && npm run test:candle-stability && npm run test:master-analysis && npm run test:dashboard && npm run test:dashboard-display && npm run test:dashboard-ui && npm run test:dashboard-renderer && npm run test:pipeline && npm run test:validation && npm run test:consistency && npm run test:panel-integrity && npm run test:ui-integrity && npm run test:import && npm run test:worker && npm run test:angelone && npm run test:candle-merge && npm run test:candle-batch-import && npm run test:import-controller && npm run test:api-uploader && npm run test:api-verifier"
   }
 }

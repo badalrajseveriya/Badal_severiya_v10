@@ -1,11 +1,10 @@
 
-// BADAL SEVERIYA NEWS INTELLIGENCE — Phase 1.3.3
-// Feed recovery, robust RSS/Atom parsing, relevance improvements,
-// source diagnostics, corrected metrics, and cache refresh support.
+// BADAL SEVERIYA NEWS INTELLIGENCE — Phase 1.3.4
+// Feed recovery, relevance filtering, source diagnostics, safer metrics.
 // Experimental news context only. No signals, predictions, or advice.
 
 const APP = "BADAL SEVERIYA NEWS INTELLIGENCE";
-const VERSION = "1.3.3";
+const VERSION = "1.3.4";
 
 const CACHE_SECONDS = 120;
 const MAX_PER_SOURCE = 40;
@@ -122,17 +121,15 @@ const NEGATIVE_TERMS = [
   "fall", "falls", "fell", "decline", "declines", "drop", "drops",
   "crash", "selloff", "sell-off", "bearish", "loss", "losses",
   "downgrade", "downgraded", "outflow", "outflows", "rate hike",
-  "hikes rates", "inflation surge", "war", "conflict", "sanction",
-  "weak growth", "miss estimates", "lower than expected",
-  "default", "fraud", "bankruptcy"
+  "hikes rates", "inflation surge", "weak growth", "miss estimates",
+  "lower than expected", "default", "fraud", "bankruptcy"
 ];
 
 const INDIA_MARKET_TERMS = [
   "nifty", "sensex", "nse", "bse", "bank nifty", "finnifty",
   "indian stock market", "india stock market", "indian markets",
   "india markets", "indian equities", "india equity market",
-  "rupee", "inr", "rbi", "reserve bank of india",
-  "fii", "fpi", "dii", "foreign investors",
+  "rupee", "inr", "fii", "fpi", "dii", "foreign investors",
   "sebi", "indian economy", "india economy",
   "stock exchange india", "indian shares"
 ];
@@ -147,7 +144,15 @@ const GLOBAL_MACRO_TERMS = [
 
 const INDIA_CONTEXT_TERMS = [
   "india", "indian", "rupee", "inr", "nifty", "sensex",
-  "rbi", "fii", "fpi", "dii", "sebi", "mumbai"
+  "fii", "fpi", "dii", "sebi", "mumbai"
+];
+
+const INDIA_POLICY_TERMS = [
+  "repo rate", "monetary policy", "policy rate", "cash reserve ratio",
+  "statutory liquidity ratio", "bank rate", "liquidity adjustment facility",
+  "inflation target", "foreign exchange reserves", "forex reserves",
+  "payment system", "banking regulation", "government securities",
+  "rbi policy", "reserve bank policy"
 ];
 
 const INDIA_CORPORATE_EVENT_TERMS = [
@@ -225,7 +230,6 @@ function parseDate(value) {
 
   const text = String(value).trim();
 
-  // GDELT timestamp: YYYYMMDDTHHmmssZ
   const gdelt = text.match(
     /^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z?$/i
   );
@@ -325,7 +329,17 @@ function parseGdelt(json, source, url) {
 }
 
 function countTerms(text, terms) {
-  return terms.filter((term) => text.includes(term)).length;
+  const normalizedText = " " +
+    (String(text).toLowerCase().match(/[a-z0-9]+/g) || []).join(" ") +
+    " ";
+
+  return terms.filter((term) => {
+    const normalizedTerm =
+      (String(term).toLowerCase().match(/[a-z0-9]+/g) || []).join(" ");
+
+    return normalizedTerm.length > 0 &&
+      normalizedText.includes(" " + normalizedTerm + " ");
+  }).length;
 }
 
 function scoreItem(item) {
@@ -335,17 +349,20 @@ function scoreItem(item) {
   const directHits = countTerms(text, INDIA_MARKET_TERMS);
   const macroHits = countTerms(text, GLOBAL_MACRO_TERMS);
   const indiaContextHits = countTerms(text, INDIA_CONTEXT_TERMS);
-  const corporateEventHits = countTerms(
-    text,
-    INDIA_CORPORATE_EVENT_TERMS
-  );
-
+  const policyHits = countTerms(text, INDIA_POLICY_TERMS);
+  const corporateEventHits = countTerms(text, INDIA_CORPORATE_EVENT_TERMS);
   const positiveHits = countTerms(text, POSITIVE_TERMS);
   const negativeHits = countTerms(text, NEGATIVE_TERMS);
+
+  const isRbiSource =
+    item.sourceId === "rbi-press" ||
+    item.sourceId === "rbi-notifications";
 
   const isExchangeSource =
     item.sourceId === "nse-announcements" ||
     item.sourceId === "bse-notices";
+
+  const hasRbiPolicyContext = isRbiSource && policyHits > 0;
 
   const hasIndianCorporateEvent =
     isExchangeSource && corporateEventHits > 0;
@@ -353,19 +370,24 @@ function scoreItem(item) {
   const globalMacroWithIndia =
     macroHits > 0 && indiaContextHits > 0;
 
+  const directIndianMarketContext =
+    directHits > 0 || hasRbiPolicyContext || hasIndianCorporateEvent;
+
   const relevant =
-    directHits > 0 ||
-    globalMacroWithIndia ||
-    hasIndianCorporateEvent;
+    directIndianMarketContext || globalMacroWithIndia;
 
   let score = 0;
 
   if (directHits > 0) {
-    score += Math.min(65, directHits * 20);
+    score += Math.min(60, directHits * 20);
+  }
+
+  if (hasRbiPolicyContext) {
+    score += Math.min(40, policyHits * 15);
   }
 
   if (globalMacroWithIndia) {
-    score += Math.min(25, macroHits * 7);
+    score += Math.min(30, macroHits * 10);
   }
 
   if (hasIndianCorporateEvent) {
@@ -378,14 +400,12 @@ function scoreItem(item) {
 
   let sentiment = "NEUTRAL";
 
-  if (sentimentScore >= 2) {
+  if (positiveHits > 0 && negativeHits > 0) {
+    sentiment = "MIXED";
+  } else if (positiveHits > 0) {
     sentiment = "POSITIVE";
-  } else if (sentimentScore <= -2) {
+  } else if (negativeHits > 0) {
     sentiment = "NEGATIVE";
-  } else if (sentimentScore !== 0) {
-    sentiment = sentimentScore > 0
-      ? "SLIGHTLY_POSITIVE"
-      : "SLIGHTLY_NEGATIVE";
   }
 
   const impact = score >= 65
@@ -394,12 +414,22 @@ function scoreItem(item) {
       ? "MEDIUM"
       : "LOW";
 
+  let category = "GENERAL_NOISE";
+
+  if (directIndianMarketContext) {
+    category = "INDIA_MARKET_DIRECT";
+  } else if (globalMacroWithIndia) {
+    category = "GLOBAL_MACRO_IMPACT";
+  }
+
   return {
     ...item,
     relevanceScore: relevant ? score : 0,
+    relevanceCategory: category,
     sentiment,
     sentimentScore,
     impact,
+    impactLabelType: "RULE_BASED_RELEVANCE_PROXY_NOT_MARKET_IMPACT_MEASUREMENT",
     niftyRelevant: relevant
   };
 }
@@ -430,6 +460,7 @@ function dedupe(items) {
 
   return items.filter((item) => {
     const titleKey = normalizeTitle(item.title);
+
     const linkKey = String(item.link || "")
       .trim()
       .toLowerCase()
@@ -479,9 +510,9 @@ async function fetchWithRetry(url, source) {
         }
       });
 
-      clearTimeout(timer);
-
       if (!response.ok) {
+        clearTimeout(timer);
+
         lastError = `HTTP ${response.status}`;
 
         const retryable =
@@ -491,9 +522,13 @@ async function fetchWithRetry(url, source) {
 
         if (!retryable || attempt >= retries) break;
       } else {
+        const body = await response.text();
+
+        clearTimeout(timer);
+
         const data = source.type === "json"
-          ? await response.json()
-          : await response.text();
+          ? JSON.parse(body)
+          : body;
 
         return { data, url };
       }
@@ -579,7 +614,12 @@ async function collectNews() {
     SOURCES.map(fetchSource)
   );
 
-  const rawFetchedItems = results.reduce(
+  const rawFeedEntries = results.reduce(
+    (sum, result) => sum + result.parsedEntries,
+    0
+  );
+
+  const normalizedFeedItems = results.reduce(
     (sum, result) => sum + result.fetchedItems,
     0
   );
@@ -589,6 +629,7 @@ async function collectNews() {
     .map(scoreItem);
 
   const recent = allParsed.filter(isRecent);
+
   const oldOrInvalidItems = allParsed.length - recent.length;
 
   const unique = dedupe(recent).sort((a, b) =>
@@ -626,9 +667,12 @@ async function collectNews() {
     emptySources,
     failedSources,
 
-    fetchedItems: rawFetchedItems,
+    rawFeedEntries,
+    fetchedItems: normalizedFeedItems,
     parsedItems: allParsed.length,
+    invalidItems: Math.max(0, rawFeedEntries - normalizedFeedItems),
     filteredOldOrInvalidItems: oldOrInvalidItems,
+    duplicateItems: recent.length - dedupe(recent).length,
     uniqueItems: unique.length,
     outputItems: output.length,
     niftyRelevantItems: relevantCount,
@@ -640,11 +684,11 @@ async function collectNews() {
     news: output,
 
     methodology: {
-      mode: "experimental-rule-based-news-filter-v1.3.3",
+      mode: "experimental-rule-based-news-filter-v1.3.4",
       disclaimer:
         "Educational news context only. Not live trading signals, predictions, or investment advice.",
       reliability:
-        "Feed failures are isolated per source. RSS and Atom parsing supports common item/entry, CDATA, namespace, and link formats. India-market relevance uses direct Indian market terms, global macro terms combined with India context, or market-related events from NSE/BSE feeds. Sentiment and relevance remain keyword-based and imperfect."
+        "Feed failures are isolated per source. RSS and Atom parsing supports common item/entry, CDATA, namespace, and link formats. India-market relevance uses direct Indian market terms, RBI policy context, NSE/BSE corporate-event context, or global macro terms combined with India context. Sentiment and relevance are keyword-based heuristics, not verified market direction or measured market impact."
     }
   };
 }
@@ -684,7 +728,7 @@ function health() {
     app: APP,
     version: VERSION,
     configuredSources: SOURCES.length,
-    mode: "experimental-rss-atom-recovery-india-market-relevance-v1.3.3",
+    mode: "experimental-rss-atom-recovery-india-market-relevance-v1.3.4",
     endpoints: [
       "/api/health",
       "/api/news-intelligence",

@@ -1,17 +1,6 @@
-
 /*
  * BADAL SEVERIYA V12
  * HISTORICAL MASTER — NEWS CONTEXT BRIDGE TESTS
- *
- * Tests:
- * - Valid payload normalization
- * - Positive / negative / mixed / neutral classification
- * - Freshness filtering
- * - Stale fallback display-only handling
- * - Old/invalid article exclusion
- * - Global context separation
- * - Malformed input handling
- * - Safety configuration
  *
  * Educational context only.
  * No forecasts, trading signals or future probabilities.
@@ -23,6 +12,10 @@ import {
   analyzeHistoricalMasterNewsContext,
   getHistoricalMasterNewsContextConfig
 } from "./historical-master-news-context.js";
+
+// ------------------------------------------------------
+// HELPERS
+// ------------------------------------------------------
 
 function createArticle(overrides = {}) {
   return {
@@ -63,7 +56,7 @@ function test(name, callback) {
 }
 
 // ------------------------------------------------------
-// 1. Valid payload normalization
+// 1. VALID PAYLOAD
 // ------------------------------------------------------
 
 test("Valid news payload is normalized successfully", () => {
@@ -85,7 +78,7 @@ test("Valid news payload is normalized successfully", () => {
 });
 
 // ------------------------------------------------------
-// 2. Positive classification
+// 2. POSITIVE SENTIMENT
 // ------------------------------------------------------
 
 test("Positive NIFTY-relevant news is classified correctly", () => {
@@ -103,7 +96,7 @@ test("Positive NIFTY-relevant news is classified correctly", () => {
 });
 
 // ------------------------------------------------------
-// 3. Negative classification
+// 3. NEGATIVE SENTIMENT
 // ------------------------------------------------------
 
 test("Negative NIFTY-relevant news is classified correctly", () => {
@@ -121,7 +114,7 @@ test("Negative NIFTY-relevant news is classified correctly", () => {
 });
 
 // ------------------------------------------------------
-// 4. Mixed positive and negative classification
+// 4. POSITIVE + NEGATIVE MIX
 // ------------------------------------------------------
 
 test("Positive and negative articles produce mixed context", () => {
@@ -145,7 +138,7 @@ test("Positive and negative articles produce mixed context", () => {
 });
 
 // ------------------------------------------------------
-// 5. Mixed sentiment without positive/negative articles
+// 5. MIXED SENTIMENT
 // ------------------------------------------------------
 
 test("Mixed-only sentiment is classified as mixed context", () => {
@@ -162,7 +155,7 @@ test("Mixed-only sentiment is classified as mixed context", () => {
 });
 
 // ------------------------------------------------------
-// 6. Neutral classification
+// 6. NEUTRAL SENTIMENT
 // ------------------------------------------------------
 
 test("Neutral NIFTY-relevant news produces neutral context", () => {
@@ -179,10 +172,10 @@ test("Neutral NIFTY-relevant news produces neutral context", () => {
 });
 
 // ------------------------------------------------------
-// 7. Stale fallback articles
+// 7. STALE FALLBACK
 // ------------------------------------------------------
 
-test("Stale fallback news is display-only and excluded from active counts", () => {
+test("Stale fallback news is display-only", () => {
   const result = analyzeHistoricalMasterNewsContext(
     createPayload([
       createArticle({
@@ -194,18 +187,29 @@ test("Stale fallback news is display-only and excluded from active counts", () =
 
   assert.equal(result.status, "OK");
 
-  assert.equal(result.context.label, "NO_CLEAR_NEWS_CONTEXT");
+  assert.equal(
+    result.context.label,
+    "NO_CLEAR_NEWS_CONTEXT"
+  );
+
   assert.equal(result.context.relevantArticleCount, 0);
   assert.equal(result.context.negativeCount, 0);
 
-  assert.equal(result.context.freshness.activeArticleCount, 0);
-  assert.equal(result.context.freshness.staleArticleCount, 1);
+  assert.equal(
+    result.context.freshness.activeArticleCount,
+    0
+  );
+
+  assert.equal(
+    result.context.freshness.staleArticleCount,
+    1
+  );
 
   assert.equal(result.articles.stale.length, 1);
 });
 
 // ------------------------------------------------------
-// 8. Old articles are excluded
+// 8. OLD / INVALID ARTICLE EXCLUSION
 // ------------------------------------------------------
 
 test("Old articles are excluded from active and stale context", () => {
@@ -220,11 +224,18 @@ test("Old articles are excluded from active and stale context", () => {
   assert.equal(result.status, "OK");
   assert.equal(result.context.relevantArticleCount, 0);
 
-  assert.equal(result.context.freshness.activeArticleCount, 0);
-  assert.equal(result.context.freshness.staleArticleCount, 0);
+  assert.equal(
+    result.context.freshness.activeArticleCount,
+    0
+  );
 
   assert.equal(
-    result.context.freshness.excludedOldOrInvalidCount,
+    result.context.freshness.staleArticleCount,
+    0
+  );
+
+  assert.equal(
+    result.context.freshness.excludedNoiseCount,
     1
   );
 
@@ -233,10 +244,10 @@ test("Old articles are excluded from active and stale context", () => {
 });
 
 // ------------------------------------------------------
-// 9. Missing date freshness
+// 9. MISSING DATE
 // ------------------------------------------------------
 
-test("MISSING_DATE articles remain active as defined by module policy", () => {
+test("MISSING_DATE articles remain active under module policy", () => {
   const result = analyzeHistoricalMasterNewsContext(
     createPayload([
       createArticle({
@@ -246,7 +257,6 @@ test("MISSING_DATE articles remain active as defined by module policy", () => {
   );
 
   assert.equal(result.status, "OK");
-  assert.equal(result.context.activeArticleCount, undefined);
 
   assert.equal(
     result.context.freshness.activeArticleCount,
@@ -254,13 +264,14 @@ test("MISSING_DATE articles remain active as defined by module policy", () => {
   );
 
   assert.equal(result.context.positiveCount, 1);
+  assert.equal(result.context.relevantArticleCount, 1);
 });
 
 // ------------------------------------------------------
-// 10. Global news context separation
+// 10. GLOBAL CONTEXT SEPARATION
 // ------------------------------------------------------
 
-test("Global context is retained separately from NIFTY-relevant news", () => {
+test("Global context is retained separately from NIFTY news", () => {
   const globalArticle = createArticle({
     relevanceCategory: "GLOBAL_MARKET_CONTEXT",
     niftyRelevant: false,
@@ -272,7 +283,6 @@ test("Global context is retained separately from NIFTY-relevant news", () => {
   );
 
   assert.equal(result.status, "OK");
-
   assert.equal(result.context.relevantArticleCount, 0);
 
   assert.equal(result.articles.relevant.length, 0);
@@ -285,10 +295,10 @@ test("Global context is retained separately from NIFTY-relevant news", () => {
 });
 
 // ------------------------------------------------------
-// 11. General noise is not NIFTY-relevant context
+// 11. GENERAL NOISE FILTER
 // ------------------------------------------------------
 
-test("General noise is excluded from NIFTY-relevant article list", () => {
+test("General noise is excluded from NIFTY-relevant context", () => {
   const noiseArticle = createArticle({
     relevanceCategory: "GENERAL_NOISE",
     niftyRelevant: true
@@ -304,7 +314,7 @@ test("General noise is excluded from NIFTY-relevant article list", () => {
 });
 
 // ------------------------------------------------------
-// 12. Invalid payload
+// 12. NULL PAYLOAD
 // ------------------------------------------------------
 
 test("Null payload returns WAITING_FOR_DATA safely", () => {
@@ -316,7 +326,7 @@ test("Null payload returns WAITING_FOR_DATA safely", () => {
 });
 
 // ------------------------------------------------------
-// 13. Missing news array
+// 13. MISSING NEWS ARRAY
 // ------------------------------------------------------
 
 test("Payload without news array returns WAITING_FOR_DATA", () => {
@@ -329,7 +339,7 @@ test("Payload without news array returns WAITING_FOR_DATA", () => {
 });
 
 // ------------------------------------------------------
-// 14. Invalid article data
+// 14. INVALID ARTICLES
 // ------------------------------------------------------
 
 test("Invalid articles are safely ignored", () => {
@@ -353,7 +363,7 @@ test("Invalid articles are safely ignored", () => {
 });
 
 // ------------------------------------------------------
-// 15. Invalid category fallback
+// 15. INVALID CATEGORY FALLBACK
 // ------------------------------------------------------
 
 test("Unknown category falls back to GENERAL_NOISE", () => {
@@ -368,15 +378,18 @@ test("Unknown category falls back to GENERAL_NOISE", () => {
   assert.equal(result.status, "OK");
 
   assert.equal(
-    result.articles.relevant[0].category,
-    "GENERAL_NOISE"
+    result.context.relevantArticleCount,
+    0
   );
 
-  assert.equal(result.context.relevantArticleCount, 0);
+  assert.equal(
+    result.articles.relevant.length,
+    0
+  );
 });
 
 // ------------------------------------------------------
-// 16. Invalid sentiment fallback
+// 16. INVALID SENTIMENT FALLBACK
 // ------------------------------------------------------
 
 test("Unknown sentiment falls back to NEUTRAL", () => {
@@ -389,12 +402,17 @@ test("Unknown sentiment falls back to NEUTRAL", () => {
   );
 
   assert.equal(result.status, "OK");
-  assert.equal(result.articles.relevant[0].sentiment, "NEUTRAL");
+
+  assert.equal(
+    result.articles.relevant[0].sentiment,
+    "NEUTRAL"
+  );
+
   assert.equal(result.context.neutralCount, 1);
 });
 
 // ------------------------------------------------------
-// 17. Article limit
+// 17. ARTICLE LIMIT
 // ------------------------------------------------------
 
 test("maxArticles limits processed news articles", () => {
@@ -420,7 +438,7 @@ test("maxArticles limits processed news articles", () => {
 });
 
 // ------------------------------------------------------
-// 18. Source diagnostics
+// 18. SOURCE DIAGNOSTICS
 // ------------------------------------------------------
 
 test("Source diagnostics are normalized safely", () => {
@@ -463,7 +481,7 @@ test("Source diagnostics are normalized safely", () => {
 });
 
 // ------------------------------------------------------
-// 19. Fallback freshness policy
+// 19. FALLBACK FRESHNESS POLICY
 // ------------------------------------------------------
 
 test("Fallback freshness policy is preserved", () => {
@@ -485,11 +503,12 @@ test("Fallback freshness policy is preserved", () => {
 });
 
 // ------------------------------------------------------
-// 20. Safety configuration
+// 20. SAFETY CONFIGURATION
 // ------------------------------------------------------
 
-test("Forecasts and trading signal features remain disabled", () => {
-  const config = getHistoricalMasterNewsContextConfig();
+test("Forecasts and trading signals remain disabled", () => {
+  const config =
+    getHistoricalMasterNewsContextConfig();
 
   assert.equal(config.forecastsEnabled, false);
   assert.equal(config.tradingSignalsEnabled, false);

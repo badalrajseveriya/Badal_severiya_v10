@@ -1,13 +1,7 @@
 
-/*
- * BADAL SEVERIYA V12
- * HISTORICAL MASTER — NEWS CONTEXT UI
- *
- * Connects News Intelligence API with the Master Dashboard.
- * Displays news context only.
- *
- * No forecasts, trading signals, or future probabilities.
- */
+// BADAL SEVERIYA V12
+// HISTORICAL MASTER — NEWS CONTEXT UI
+// News context only. No forecasts, trading signals, or future probabilities.
 
 import {
   analyzeHistoricalMasterNewsContext
@@ -17,6 +11,7 @@ const NEWS_API =
   "https://badal-severiya-news-intelligence.mrstarrdbs.workers.dev/api/news-intelligence";
 
 const TIMEFRAMES = ["1d", "15m"];
+const NEWS_API_TIMEOUT_MS = 12000;
 
 const COLORS = {
   positive: "#16a34a",
@@ -35,10 +30,6 @@ function getElement(id) {
   return document.getElementById(id);
 }
 
-/*
- * Defense-in-depth: only safe HTTPS article links
- * are rendered as clickable links in the dashboard.
- */
 function getSafeArticleUrl(value) {
   if (typeof value !== "string" || !value.trim()) {
     return null;
@@ -47,15 +38,12 @@ function getSafeArticleUrl(value) {
   try {
     const parsed = new URL(value.trim());
 
-    if (parsed.protocol !== "https:") {
-      return null;
-    }
-
-    if (parsed.username || parsed.password) {
-      return null;
-    }
-
-    if (!parsed.hostname) {
+    if (
+      parsed.protocol !== "https:" ||
+      parsed.username ||
+      parsed.password ||
+      !parsed.hostname
+    ) {
       return null;
     }
 
@@ -83,16 +71,12 @@ function getContextColor(label) {
   switch (label) {
     case "POSITIVE_NEWS_CONTEXT":
       return COLORS.positive;
-
     case "NEGATIVE_NEWS_CONTEXT":
       return COLORS.negative;
-
     case "MIXED_NEWS_CONTEXT":
       return COLORS.mixed;
-
     case "NEUTRAL_NEWS_CONTEXT":
       return COLORS.neutral;
-
     default:
       return COLORS.muted;
   }
@@ -127,9 +111,7 @@ function formatDate(value) {
 }
 
 function createPanel(timeframe) {
-  const summary = getElement(
-    `master-summary-${timeframe}`
-  );
+  const summary = getElement(`master-summary-${timeframe}`);
 
   if (!summary) return null;
 
@@ -251,11 +233,8 @@ function setStatus(panel, message, state = "normal") {
   if (!status) return;
 
   status.textContent = message;
-
   status.style.color =
-    state === "error"
-      ? COLORS.error
-      : COLORS.muted;
+    state === "error" ? COLORS.error : COLORS.muted;
 }
 
 function makeMetric(label, value, color) {
@@ -299,11 +278,7 @@ function makeMetric(label, value, color) {
     margin-top:5px;
   `;
 
-  card.append(
-    valueElement,
-    labelElement
-  );
-
+  card.append(valueElement, labelElement);
   return card;
 }
 
@@ -322,7 +297,6 @@ function renderSummary(panel, result) {
       result.error || "News context उपलब्ध नहीं है।",
       "error"
     );
-
     return;
   }
 
@@ -358,43 +332,36 @@ function renderSummary(panel, result) {
       context.relevantArticleCount,
       COLORS.text
     ),
-
     makeMetric(
       "Positive",
       context.positiveCount,
       COLORS.positive
     ),
-
     makeMetric(
       "Negative",
       context.negativeCount,
       COLORS.negative
     ),
-
     makeMetric(
       "Mixed",
       context.mixedCount,
       COLORS.mixed
     ),
-
     makeMetric(
       "Neutral",
       context.neutralCount,
       COLORS.neutral
     ),
-
     makeMetric(
       "Active Articles",
       context.freshness.activeArticleCount,
       COLORS.text
     ),
-
     makeMetric(
       "Stale Display Only",
       context.freshness.staleArticleCount,
       COLORS.muted
     ),
-
     makeMetric(
       "Excluded",
       context.freshness.excludedNoiseCount,
@@ -419,11 +386,7 @@ function renderSummary(panel, result) {
     line-height:1.5;
   `;
 
-  container.append(
-    label,
-    metrics,
-    fallbackNote
-  );
+  container.append(label, metrics, fallbackNote);
 
   setStatus(
     panel,
@@ -506,10 +469,7 @@ function createArticleCard(article, stale = false) {
     margin:8px 0 0;
   `;
 
-  const safeArticleUrl = getSafeArticleUrl(
-    article.link
-  );
-
+  const safeArticleUrl = getSafeArticleUrl(article.link);
   let articleLinkElement;
 
   if (safeArticleUrl) {
@@ -609,14 +569,11 @@ function renderArticles(panel, result) {
     );
   } else {
     for (const article of relevant.slice(0, 10)) {
-      container.appendChild(
-        createArticleCard(article)
-      );
+      container.appendChild(createArticleCard(article));
     }
   }
 
-  const globalArticles =
-    result.articles.otherContext || [];
+  const globalArticles = result.articles.otherContext || [];
 
   if (globalArticles.length) {
     const globalHeading = createElement(
@@ -634,14 +591,11 @@ function renderArticles(panel, result) {
     container.appendChild(globalHeading);
 
     for (const article of globalArticles.slice(0, 5)) {
-      container.appendChild(
-        createArticleCard(article)
-      );
+      container.appendChild(createArticleCard(article));
     }
   }
 
-  const staleArticles =
-    result.articles.stale || [];
+  const staleArticles = result.articles.stale || [];
 
   if (staleArticles.length) {
     const staleHeading = createElement(
@@ -666,6 +620,12 @@ function renderArticles(panel, result) {
   }
 }
 
+/*
+ * Bounded News API request:
+ * - AbortController cancels the request on timeout.
+ * - Timeout is reported separately from ordinary network failures.
+ * - Timer is always cleared in finally.
+ */
 async function loadNewsContext({
   refresh = false
 } = {}) {
@@ -673,28 +633,60 @@ async function loadNewsContext({
     ? `${NEWS_API}?refresh=1`
     : NEWS_API;
 
-  const response = await fetch(url, {
-    method: "GET",
-    headers: {
-      Accept: "application/json"
-    },
-    cache: refresh ? "no-store" : "default"
-  });
+  const controller = new AbortController();
+  let timeoutId;
+  let timedOut = false;
 
-  if (!response.ok) {
-    throw new Error(
-      `News API HTTP ${response.status}`
-    );
-  }
+  try {
+    timeoutId = setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, NEWS_API_TIMEOUT_MS);
 
-  const payload = await response.json();
+    const response = await fetch(url, {
+      method: "GET",
+      headers: {
+        Accept: "application/json"
+      },
+      cache: refresh ? "no-store" : "default",
+      signal: controller.signal
+    });
 
-  return analyzeHistoricalMasterNewsContext(
-    payload,
-    {
-      maxArticles: 100
+    if (timedOut) {
+      throw new Error("News API request timed out");
     }
-  );
+
+    if (!response.ok) {
+      throw new Error(
+        `News API HTTP ${response.status}`
+      );
+    }
+
+    const payload = await response.json();
+
+    if (timedOut) {
+      throw new Error("News API request timed out");
+    }
+
+    return analyzeHistoricalMasterNewsContext(
+      payload,
+      {
+        maxArticles: 100
+      }
+    );
+  } catch (error) {
+    if (timedOut || controller.signal.aborted) {
+      throw new Error(
+        `News API request timed out after ${NEWS_API_TIMEOUT_MS} ms`
+      );
+    }
+
+    throw error;
+  } finally {
+    if (timeoutId !== undefined) {
+      clearTimeout(timeoutId);
+    }
+  }
 }
 
 async function updatePanel(timeframe, {
@@ -733,9 +725,14 @@ async function updatePanel(timeframe, {
       error
     );
 
+    const message =
+      error && error.message
+        ? error.message
+        : "Unknown request error";
+
     setStatus(
       panel,
-      `News API connection error: ${error.message}. CORS/API उपलब्धता जाँचें।`,
+      `News API connection error: ${message}. CORS/API उपलब्धता जाँचें।`,
       "error"
     );
   } finally {

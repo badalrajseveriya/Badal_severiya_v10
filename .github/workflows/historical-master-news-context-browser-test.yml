@@ -1,0 +1,41 @@
+
+name: BADAL SEVERIYA - News Context Browser Tests
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - "historical-master-news-context.js"
+      - "historical-master-news-context-ui.js"
+      - "historical-master-news-context-ui.browser.spec.js"
+      - "historical-master-news-context-ui.test.js"
+      - "package.json"
+      - ".github/workflows/historical-master-news-context-browser-test.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  browser-tests:
+    name: Run News Context Browser Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install project dependencies
+        run: npm install
+
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Run News Context Browser Tests
+        run: npm run test:historical-master-news-context-ui-browser

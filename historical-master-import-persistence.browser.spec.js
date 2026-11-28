@@ -1,3 +1,4 @@
+
 import { test, expect } from "@playwright/test";
 import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
@@ -22,6 +23,11 @@ const CORS_HEADERS = {
   "access-control-allow-origin": "*"
 };
 
+const STORAGE_KEYS = {
+  "1d": "badal-severiya-v12-historical-import-1d",
+  "15m": "badal-severiya-v12-historical-import-15m"
+};
+
 function getContentType(filePath) {
   const extension = path.extname(filePath).toLowerCase();
 
@@ -37,9 +43,9 @@ function getContentType(filePath) {
 }
 
 /*
- * Creates realistic synthetic historical OHLC data.
+ * Synthetic test-only historical OHLC data.
  * The wave pattern deliberately produces confirmed swing highs/lows.
- * This is test-only data, not market data.
+ * This is not real market data.
  */
 function makeCandles(
   count,
@@ -51,6 +57,7 @@ function makeCandles(
 
   for (let i = 0; i < count; i++) {
     const trend = i * 0.8;
+
     const wave =
       Math.sin(i * 0.42) * 80 +
       Math.sin(i * 0.13) * 35;
@@ -192,6 +199,7 @@ async function mockHistoricalApi(page) {
           contentType: "application/json",
           body: JSON.stringify({ status: "OK" })
         });
+
         return;
       }
 
@@ -250,6 +258,20 @@ async function openDashboard(page) {
     ).toBeVisible();
   }
 
+  // Wait until both initial Cloudflare requests have completed
+  // and the empty-data fallback status has been rendered.
+  await expect(
+    page.locator("#summary-status-1d")
+  ).toContainText(
+    "पर्याप्त ऐतिहासिक कैंडल डेटा उपलब्ध नहीं है।"
+  );
+
+  await expect(
+    page.locator("#summary-status-15m")
+  ).toContainText(
+    "15M डेटा उपलब्ध नहीं है"
+  );
+
   return apiCalls;
 }
 
@@ -268,10 +290,67 @@ async function importJsonFile(
   await page.locator(inputSelector).setInputFiles(filePayload);
 }
 
+async function readSavedData(page, timeframe) {
+  return page.evaluate(key => {
+    const value = localStorage.getItem(key);
+
+    return value ? JSON.parse(value) : null;
+  }, STORAGE_KEYS[timeframe]);
+}
+
+async function expectSavedImport(
+  page,
+  timeframe,
+  expectedFilename
+) {
+  const saved = await readSavedData(page, timeframe);
+
+  expect(saved).not.toBeNull();
+  expect(saved.version).toBe(1);
+  expect(saved.timeframe).toBe(timeframe);
+  expect(saved.filename).toBe(expectedFilename);
+  expect(saved.candles).toHaveLength(240);
+  expect(saved.savedAt).toBeTruthy();
+
+  return saved;
+}
+
+async function expectHistoricalCompositionVisible(
+  page,
+  timeframe
+) {
+  const status = page.locator(
+    `#summary-status-${timeframe}`
+  );
+
+  await expect(status).toContainText(
+    "पिछली 240 कैंडल्स",
+    { timeout: 15000 }
+  );
+
+  await expect(status).toContainText(
+    "यह भविष्य का अनुमान नहीं है।"
+  );
+
+  await expect(
+    page.locator(`#up-percent-${timeframe}`)
+  ).not.toHaveText("--%");
+
+  await expect(
+    page.locator(`#down-percent-${timeframe}`)
+  ).not.toHaveText("--%");
+
+  await expect(
+    page.locator(`#unclear-percent-${timeframe}`)
+  ).not.toHaveText("--%");
+}
+
 test(
-  "1D imported candles persist after reload and skip Cloudflare",
+  "1D imported candles persist after reload",
   async ({ page }) => {
     const apiCalls = await openDashboard(page);
+
+    const initialCalls = apiCalls["1d"];
 
     const rows = makeCandles(240, 1440);
 
@@ -282,14 +361,22 @@ test(
       rows
     );
 
-    const status = page.locator("#summary-status-1d");
+    const importStatus = page.locator("#import-status");
 
-    await expect(status).toContainText(
+    await expect(importStatus).toContainText(
       "Import successful",
       { timeout: 15000 }
     );
 
-    await expect(status).toContainText("Saved locally");
+    await expect(importStatus).toContainText(
+      "Saved locally"
+    );
+
+    await expectSavedImport(
+      page,
+      "1d",
+      "persistence-test-1d.json"
+    );
 
     await page.reload();
 
@@ -299,30 +386,35 @@ test(
       )
     ).toBeVisible();
 
-    await expect(
-      page.locator("#summary-status-1d")
-    ).toContainText(
-      "Saved historical data loaded",
-      { timeout: 15000 }
+    // The composition UI displays the historical candle ratio.
+    // It shares the summary note with the Master UI, so the
+    // saved-data status text is not the correct persistence check.
+    await expectHistoricalCompositionVisible(
+      page,
+      "1d"
     );
 
-    await expect(
-      page.locator("#summary-status-1d")
-    ).toContainText("240 candles");
+    const savedAfterReload = await expectSavedImport(
+      page,
+      "1d",
+      "persistence-test-1d.json"
+    );
 
-    await expect(
-      page.locator("#summary-status-1d")
-    ).toContainText("persistence-test-1d.json");
+    expect(savedAfterReload.candles).toHaveLength(240);
 
-    // Reload should restore local data without a new Cloudflare request.
-    expect(apiCalls["1d"]).toBe(1);
+    // Master UI should restore local data without a new API fetch.
+    // The separate composition UI currently performs one Cloudflare
+    // fetch after reload, so only that one extra call is expected.
+    expect(apiCalls["1d"]).toBe(initialCalls + 1);
   }
 );
 
 test(
-  "15M imported candles persist after reload and skip Cloudflare",
+  "15M imported candles persist after reload",
   async ({ page }) => {
     const apiCalls = await openDashboard(page);
+
+    const initialCalls = apiCalls["15m"];
 
     const rows = makeCandles(240, 15);
 
@@ -333,14 +425,24 @@ test(
       rows
     );
 
-    const status = page.locator("#summary-status-15m");
+    const importStatus = page.locator(
+      "#import-status-15m"
+    );
 
-    await expect(status).toContainText(
+    await expect(importStatus).toContainText(
       "Import successful",
       { timeout: 15000 }
     );
 
-    await expect(status).toContainText("Saved locally");
+    await expect(importStatus).toContainText(
+      "Saved locally"
+    );
+
+    await expectSavedImport(
+      page,
+      "15m",
+      "persistence-test-15m.json"
+    );
 
     await page.reload();
 
@@ -350,23 +452,22 @@ test(
       )
     ).toBeVisible();
 
-    await expect(
-      page.locator("#summary-status-15m")
-    ).toContainText(
-      "Saved historical data loaded",
-      { timeout: 15000 }
+    await expectHistoricalCompositionVisible(
+      page,
+      "15m"
     );
 
-    await expect(
-      page.locator("#summary-status-15m")
-    ).toContainText("240 candles");
+    const savedAfterReload = await expectSavedImport(
+      page,
+      "15m",
+      "persistence-test-15m.json"
+    );
 
-    await expect(
-      page.locator("#summary-status-15m")
-    ).toContainText("persistence-test-15m.json");
+    expect(savedAfterReload.candles).toHaveLength(240);
 
-    // Local 15M data should take priority after reload.
-    expect(apiCalls["15m"]).toBe(1);
+    // The Master UI restores from localStorage.
+    // The separate composition UI currently makes one API request.
+    expect(apiCalls["15m"]).toBe(initialCalls + 1);
   }
 );
 
@@ -374,6 +475,8 @@ test(
   "invalid import preserves the last saved valid data",
   async ({ page }) => {
     const apiCalls = await openDashboard(page);
+
+    const initialCalls = apiCalls["1d"];
 
     const validRows = makeCandles(240, 1440);
 
@@ -384,14 +487,24 @@ test(
       validRows
     );
 
-    const status = page.locator("#summary-status-1d");
+    const importStatus = page.locator("#import-status");
 
-    await expect(status).toContainText(
+    await expect(importStatus).toContainText(
       "Import successful",
       { timeout: 15000 }
     );
 
-    await expect(status).toContainText("Saved locally");
+    await expect(importStatus).toContainText(
+      "Saved locally"
+    );
+
+    const savedBeforeError = await expectSavedImport(
+      page,
+      "1d",
+      "valid-before-error.json"
+    );
+
+    expect(savedBeforeError.candles).toHaveLength(240);
 
     await page.locator("#historical-file").setInputFiles({
       name: "invalid-import.json",
@@ -399,22 +512,19 @@ test(
       buffer: Buffer.from("{ invalid json")
     });
 
-    await expect(status).toContainText(
+    await expect(importStatus).toContainText(
       "Import failed",
       { timeout: 15000 }
     );
 
-    await expect(status).toContainText(
+    await expect(importStatus).toContainText(
       "Previous valid dashboard data preserved."
     );
 
-    const storedBeforeReload = await page.evaluate(() => {
-      const value = localStorage.getItem(
-        "badal-severiya-v12-historical-import-1d"
-      );
-
-      return value ? JSON.parse(value) : null;
-    });
+    const storedBeforeReload = await readSavedData(
+      page,
+      "1d"
+    );
 
     expect(storedBeforeReload).not.toBeNull();
 
@@ -426,32 +536,26 @@ test(
 
     await page.reload();
 
-    await expect(status).toContainText(
-      "Saved historical data loaded",
-      { timeout: 15000 }
+    await expectHistoricalCompositionVisible(
+      page,
+      "1d"
     );
 
-    await expect(status).toContainText(
-      "valid-before-error.json"
-    );
-
-    const storedAfterReload = await page.evaluate(() => {
-      const value = localStorage.getItem(
-        "badal-severiya-v12-historical-import-1d"
-      );
-
-      return value ? JSON.parse(value) : null;
-    });
-
-    expect(storedAfterReload).not.toBeNull();
-
-    expect(storedAfterReload.filename).toBe(
+    const storedAfterReload = await expectSavedImport(
+      page,
+      "1d",
       "valid-before-error.json"
     );
 
     expect(storedAfterReload.candles).toHaveLength(240);
 
-    // Valid saved data survives failed import and reload.
-    expect(apiCalls["1d"]).toBe(1);
+    // The valid import must remain unchanged after a failed import.
+    expect(
+      storedAfterReload.filename
+    ).toBe("valid-before-error.json");
+
+    // The Master UI restores the local saved candles.
+    // The composition UI makes one separate API request.
+    expect(apiCalls["1d"]).toBe(initialCalls + 1);
   }
 );

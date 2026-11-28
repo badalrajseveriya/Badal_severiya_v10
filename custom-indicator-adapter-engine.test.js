@@ -1,8 +1,7 @@
-
- // ==========================================================
- // BADAL SEVERIYA V12
- // CUSTOM INDICATOR ADAPTER ENGINE TESTS
- // ==========================================================
+// ==========================================================
+// BADAL SEVERIYA V12
+// CUSTOM INDICATOR ADAPTER ENGINE TESTS
+// ==========================================================
 
 import assert from "node:assert/strict";
 
@@ -232,6 +231,7 @@ test("RSI strong rising data reaches overbought context", () => {
   });
 
   assert.equal(result.latestValue, 100);
+
   assert.equal(
     result.interpretation.context,
     "OVERBOUGHT_ZONE"
@@ -247,6 +247,7 @@ test("RSI strong falling data reaches oversold context", () => {
   });
 
   assert.equal(result.latestValue, 0);
+
   assert.equal(
     result.interpretation.context,
     "OVERSOLD_ZONE"
@@ -264,6 +265,7 @@ test("ATR calculates volatility, not direction", () => {
   assert.equal(result.indicatorType, "ATR");
   assert.ok(result.latestValue > 0);
   assert.equal(result.interpretation.direction, "NEUTRAL");
+
   assert.equal(
     result.interpretation.context,
     "VOLATILITY_MEASURE"
@@ -589,6 +591,7 @@ test("Invalid MACD settings are rejected", () => {
   });
 
   assert.equal(result.status, "WAIT");
+
   assert.equal(
     result.validationStatus,
     "INVALID_MACD_PARAMETERS"
@@ -614,7 +617,7 @@ test("Imported source is not executed", () => {
   });
 
   assert.equal(result.status, "VALID");
-  assert.equal(result.sourceExecution, undefined);
+  assert.equal(result.sourceExecution, false);
   assert.equal(executed, false);
   assert.equal(globalThis.__indicatorTestExecuted, undefined);
 });
@@ -627,8 +630,7 @@ test("Output clearly states no source/order execution", () => {
     candles: candles(60)
   });
 
-  assert.equal(result.sourceExecution, undefined);
-  assert.equal(result.sourceExecution, undefined);
+  assert.equal(result.sourceExecution, false);
   assert.equal(result.orderExecution, false);
   assert.equal(result.disclaimer.includes("not a forecast"), true);
 });
@@ -684,6 +686,7 @@ test("Duplicate adapter ID is rejected", () => {
   };
 
   assert.equal(e.registerAdapter(adapter).registered, true);
+
   assert.equal(
     e.registerAdapter(adapter).status,
     "ADAPTER_ID_EXISTS"
@@ -877,7 +880,7 @@ test("Analysis output reports source execution false", () => {
     candles: candles(60)
   });
 
-  assert.equal(result.sourceExecution, undefined);
+  assert.equal(result.sourceExecution, false);
   assert.equal(result.orderExecution, false);
 });
 
@@ -903,6 +906,246 @@ test("Final safety check: no execution and no trading actions", () => {
   console.log("Safety:", JSON.stringify(s.safety));
 });
 
-console.log(`\\nTOTAL TESTS PASSED: ${passed}/60`);
-assert.equal(passed, 60);
+// 61
+test("Untrusted registered adapter cannot run in analysis", () => {
+  const e = engine();
+  let called = false;
+
+  e.registerAdapter({
+    id: "untrusted-runtime",
+    name: "Untrusted Runtime",
+    supportedTypes: ["CUSTOM"],
+    detect: () => true,
+    calculate: () => {
+      called = true;
+      return 123;
+    }
+  });
+
+  const result = e.analyzeIndicator({
+    timeframe: "1D",
+    indicator: {
+      name: "Untrusted custom",
+      source: "unknown syntax"
+    },
+    candles: candles(60)
+  });
+
+  assert.equal(result.status, "UNSUPPORTED");
+  assert.equal(result.chartOnly, true);
+  assert.equal(called, false);
+});
+
+// 62
+test("Trusted custom adapter runtime returns validated numeric result", () => {
+  const e = engine();
+
+  e.registerAdapter({
+    id: "trusted-runtime",
+    name: "Trusted Runtime",
+    supportedTypes: ["CUSTOM"],
+    trustedAdapter: true,
+
+    detect: indicator =>
+      indicator?.name === "Trusted custom",
+
+    calculate: ({ candles: normalized, timeframe }) => ({
+      latestValue: normalized.at(-1).close + 5,
+      previousValue: normalized.at(-2).close + 5,
+
+      details: {
+        candleCount: normalized.length,
+        timeframe
+      }
+    })
+  });
+
+  const result = e.analyzeIndicator({
+    timeframe: "15M",
+    indicator: {
+      name: "Trusted custom",
+      source: "not executed"
+    },
+    candles: candles(60)
+  });
+
+  assert.equal(result.status, "VALID");
+  assert.equal(result.indicatorType, "CUSTOM");
+  assert.equal(result.adapterId, "trusted-runtime");
+
+  assert.equal(
+    result.latestValue,
+    candles(60).at(-1).close + 5
+  );
+
+  assert.equal(
+    result.previousValue,
+    candles(60).at(-2).close + 5
+  );
+
+  assert.equal(result.details.candleCount, 60);
+  assert.equal(result.details.timeframe, "15M");
+  assert.equal(result.sourceExecution, false);
+  assert.equal(result.orderExecution, false);
+});
+
+// 63
+test("Trusted custom adapter accepts value field result", () => {
+  const e = engine();
+
+  e.registerAdapter({
+    id: "value-runtime",
+    trustedAdapter: true,
+
+    detect: indicator =>
+      indicator?.name === "Value custom",
+
+    calculate: () => ({
+      value: 7.5
+    })
+  });
+
+  const result = e.analyzeIndicator({
+    timeframe: "1D",
+    indicator: {
+      name: "Value custom"
+    },
+    candles: candles(60)
+  });
+
+  assert.equal(result.status, "VALID");
+  assert.equal(result.latestValue, 7.5);
+  assert.equal(result.previousValue, null);
+});
+
+// 64
+test("Trusted custom adapter rejects nonfinite output safely", () => {
+  const e = engine();
+
+  e.registerAdapter({
+    id: "bad-output-runtime",
+    trustedAdapter: true,
+
+    detect: indicator =>
+      indicator?.name === "Bad output custom",
+
+    calculate: () => ({
+      latestValue: NaN
+    })
+  });
+
+  const result = e.analyzeIndicator({
+    timeframe: "1D",
+    indicator: {
+      name: "Bad output custom"
+    },
+    candles: candles(60)
+  });
+
+  assert.equal(result.status, "WAIT");
+  assert.equal(result.valid, false);
+
+  assert.equal(
+    result.validationStatus,
+    "CUSTOM_ADAPTER_INVALID_RESULT"
+  );
+});
+
+// 65
+test("Trusted custom adapter minimum candle requirement enforced", () => {
+  const e = engine();
+
+  e.registerAdapter({
+    id: "minimum-runtime",
+    trustedAdapter: true,
+    minimumCandles: 30,
+
+    detect: indicator =>
+      indicator?.name === "Minimum custom",
+
+    calculate: () => 1
+  });
+
+  const result = e.analyzeIndicator({
+    timeframe: "1D",
+    indicator: {
+      name: "Minimum custom"
+    },
+    candles: candles(25)
+  });
+
+  assert.equal(result.status, "WAIT");
+  assert.equal(result.requiredCandles, 30);
+  assert.equal(result.availableCandles, 25);
+});
+
+// 66
+test("Trusted custom adapter runtime error is handled without crashing", () => {
+  const e = engine();
+
+  e.registerAdapter({
+    id: "throw-runtime",
+    trustedAdapter: true,
+
+    detect: indicator =>
+      indicator?.name === "Throw custom",
+
+    calculate: () => {
+      throw new Error("adapter test failure");
+    }
+  });
+
+  const result = e.analyzeIndicator({
+    timeframe: "1D",
+    indicator: {
+      name: "Throw custom"
+    },
+    candles: candles(60)
+  });
+
+  assert.equal(result.status, "CALCULATION_ERROR");
+  assert.equal(result.valid, false);
+  assert.match(result.reason, /adapter test failure/);
+});
+
+// 67
+test("Custom adapter receives candle copies, not original references", () => {
+  const e = engine();
+  let received;
+
+  const sourceCandles = candles(60);
+
+  e.registerAdapter({
+    id: "copy-runtime",
+    trustedAdapter: true,
+
+    detect: indicator =>
+      indicator?.name === "Copy custom",
+
+    calculate: payload => {
+      received = payload.candles;
+
+      payload.candles[0].close = -999;
+
+      return 2;
+    }
+  });
+
+  const result = e.analyzeIndicator({
+    timeframe: "1D",
+    indicator: {
+      name: "Copy custom"
+    },
+    candles: sourceCandles
+  });
+
+  assert.equal(result.status, "VALID");
+  assert.notEqual(received, sourceCandles);
+  assert.notEqual(received[0], sourceCandles[0]);
+  assert.notEqual(sourceCandles[0].close, -999);
+});
+
+console.log(`\nTOTAL TESTS PASSED: ${passed}/67`);
+assert.equal(passed, 67);
+
 console.log("CUSTOM INDICATOR ADAPTER ENGINE TESTS: ALL PASSED");

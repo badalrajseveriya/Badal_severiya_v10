@@ -56,10 +56,13 @@ function makeFvgCandles(direction, fillType) {
       timestamp: new Date(
         start + i * 15 * 60 * 1000
       ).toISOString(),
-      open: 108,
-      high: 110,
-      low: 106,
-      close: 108,
+
+      // Keep later candles outside the FVG zone.
+      // This prevents accidental full mitigation.
+      open: direction === "BEARISH" ? 95 : 108,
+      high: direction === "BEARISH" ? 99 : 110,
+      low: direction === "BEARISH" ? 93 : 106,
+      close: direction === "BEARISH" ? 95 : 108,
       volume: 1000
     })
   );

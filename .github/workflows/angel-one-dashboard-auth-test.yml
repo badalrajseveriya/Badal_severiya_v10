@@ -1,3 +1,4 @@
+
 name: BADAL SEVERIYA - Dashboard Auth Tests
 
 on:
@@ -7,6 +8,8 @@ on:
     paths:
       - "angel-one-dashboard-auth.js"
       - "angel-one-dashboard-auth.test.js"
+      - "angel-one-dashboard-auth-store.js"
+      - "angel-one-dashboard-auth-store.test.js"
       - ".github/workflows/angel-one-dashboard-auth-test.yml"
 
   pull_request:
@@ -15,6 +18,8 @@ on:
     paths:
       - "angel-one-dashboard-auth.js"
       - "angel-one-dashboard-auth.test.js"
+      - "angel-one-dashboard-auth-store.js"
+      - "angel-one-dashboard-auth-store.test.js"
       - ".github/workflows/angel-one-dashboard-auth-test.yml"
 
   workflow_dispatch:
@@ -24,9 +29,8 @@ permissions:
 
 jobs:
   dashboard-auth-tests:
-    name: Dashboard Authentication Tests
+    name: Dashboard Authentication and Auth Store Tests
     runs-on: ubuntu-latest
-
     timeout-minutes: 5
 
     steps:
@@ -44,5 +48,14 @@ jobs:
       - name: Check authentication test syntax
         run: node --check angel-one-dashboard-auth.test.js
 
+      - name: Check auth store syntax
+        run: node --check angel-one-dashboard-auth-store.js
+
+      - name: Check auth store test syntax
+        run: node --check angel-one-dashboard-auth-store.test.js
+
       - name: Run dashboard authentication tests
         run: node angel-one-dashboard-auth.test.js
+
+      - name: Run dashboard auth store tests
+        run: node angel-one-dashboard-auth-store.test.js

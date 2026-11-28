@@ -1,23 +1,24 @@
 
 /* ==========================================================
    BADAL SEVERIYA V12
-   ANGEL ONE SMARTAPI PROVIDER ADAPTER
-   Version 12.0
+   ANGEL ONE SMARTAPI SECURE PROVIDER ADAPTER
+   Version 12.1
 
-   Purpose:
-   - Connect to Angel One SmartAPI WebSocket 2.0.
-   - Receive NIFTY NSE Quote packets.
-   - Convert real market ticks into Live Feed Bridge ticks.
-   - Use only runtime credentials; never persist credentials.
-   - No historical candle fabrication.
-   - No order placement or trading APIs.
+   Security:
+   - No API key, PIN, TOTP, JWT or Feed Token in browser.
+   - WebSocket must be supplied by a secure backend socket factory.
+   - No credentials persisted.
+   - No order execution.
+
+   Market data:
+   - NSE Cash Market
+   - Quote mode
+   - Real binary packet validation
+   - Real ticks only
    ========================================================== */
 
 const MODULE = "ANGEL_ONE_SMARTAPI_PROVIDER";
-const VERSION = "12.0";
-
-const SOCKET_URL =
-  "wss://smartapisocket.angelone.in/smart-stream";
+const VERSION = "12.1";
 
 const EXCHANGE_NSE_CM = 1;
 const SUBSCRIBE_ACTION = 1;
@@ -25,14 +26,7 @@ const QUOTE_MODE = 2;
 
 const HEARTBEAT_INTERVAL_MS = 30000;
 const PRICE_DIVISOR = 100;
-
-function isObject(value) {
-  return (
-    value !== null &&
-    typeof value === "object" &&
-    !Array.isArray(value)
-  );
-}
+const QUOTE_PACKET_MIN_BYTES = 123;
 
 function requiredString(value, name) {
   const result = String(value ?? "").trim();
@@ -42,6 +36,57 @@ function requiredString(value, name) {
   }
 
   return result;
+}
+
+function readInt64(view, offset) {
+  if (
+    !(view instanceof DataView) ||
+    offset < 0 ||
+    offset + 8 > view.byteLength
+  ) {
+    throw new Error("SmartAPI binary packet is incomplete.");
+  }
+
+  if (typeof view.getBigInt64 === "function") {
+    const value = view.getBigInt64(offset, true);
+    const number = Number(value);
+
+    if (!Number.isSafeInteger(number)) {
+      throw new Error("SmartAPI packet integer is unsafe.");
+    }
+
+    return number;
+  }
+
+  const low = view.getUint32(offset, true);
+  const high = view.getInt32(offset + 4, true);
+
+  return high * 4294967296 + low;
+}
+
+function readFloat64(view, offset) {
+  if (
+    !(view instanceof DataView) ||
+    offset < 0 ||
+    offset + 8 > view.byteLength
+  ) {
+    throw new Error("SmartAPI binary packet is incomplete.");
+  }
+
+  return view.getFloat64(offset, true);
+}
+
+function readToken(bytes) {
+  const tokenBytes = bytes.slice(2, 27);
+
+  let result = "";
+
+  for (const byte of tokenBytes) {
+    if (byte === 0) break;
+    result += String.fromCharCode(byte);
+  }
+
+  return result.trim();
 }
 
 function normalizeTimestamp(value) {
@@ -59,53 +104,12 @@ function normalizeTimestamp(value) {
     : timestamp;
 }
 
-function readInt64(view, offset) {
-  if (
-    !(view instanceof DataView) ||
-    offset < 0 ||
-    offset + 8 > view.byteLength
-  ) {
-    throw new Error("SmartAPI binary packet is incomplete.");
-  }
-
-  if (typeof view.getBigInt64 === "function") {
-    const value = view.getBigInt64(offset, true);
-    const number = Number(value);
-
-    if (!Number.isSafeInteger(number)) {
-      throw new Error("SmartAPI packet contains an unsafe integer.");
-    }
-
-    return number;
-  }
-
-  const low = view.getUint32(offset, true);
-  const high = view.getInt32(offset + 4, true);
-
-  return high * 4294967296 + low;
-}
-
-function readToken(bytes) {
-  const tokenBytes = bytes.slice(2, 27);
-
-  let result = "";
-
-  for (const byte of tokenBytes) {
-    if (byte === 0) break;
-    result += String.fromCharCode(byte);
-  }
-
-  return result.trim();
-}
-
 function parseQuotePacket(input) {
   let bytes;
 
   if (input instanceof ArrayBuffer) {
     bytes = new Uint8Array(input);
-  } else if (
-    ArrayBuffer.isView(input)
-  ) {
+  } else if (ArrayBuffer.isView(input)) {
     bytes = new Uint8Array(
       input.buffer,
       input.byteOffset,
@@ -115,9 +119,8 @@ function parseQuotePacket(input) {
     throw new Error("Unsupported SmartAPI binary message.");
   }
 
-  // Quote mode packet requires fields through daily volume.
-  if (bytes.byteLength < 75) {
-    throw new Error("SmartAPI Quote packet is too short.");
+  if (bytes.byteLength < QUOTE_PACKET_MIN_BYTES) {
+    throw new Error("SmartAPI Quote packet is incomplete.");
   }
 
   const view = new DataView(
@@ -138,27 +141,49 @@ function parseQuotePacket(input) {
 
   const token = readToken(bytes);
 
+  const sequenceNumber = readInt64(view, 27);
   const exchangeTimestamp = readInt64(view, 35);
   const rawPrice = readInt64(view, 43);
   const rawVolume = readInt64(view, 67);
 
+  const rawOpen = readInt64(view, 91);
+  const rawHigh = readInt64(view, 99);
+  const rawLow = readInt64(view, 107);
+  const rawClose = readInt64(view, 115);
+
   const timestamp =
     normalizeTimestamp(exchangeTimestamp);
 
-  const price =
-    rawPrice / PRICE_DIVISOR;
+  const price = rawPrice / PRICE_DIVISOR;
+  const open = rawOpen / PRICE_DIVISOR;
+  const high = rawHigh / PRICE_DIVISOR;
+  const low = rawLow / PRICE_DIVISOR;
+  const close = rawClose / PRICE_DIVISOR;
 
   const cumulativeVolume = rawVolume;
 
   if (
     !token ||
     !timestamp ||
+    !Number.isFinite(sequenceNumber) ||
     !Number.isFinite(price) ||
     price <= 0 ||
+    !Number.isFinite(open) ||
+    !Number.isFinite(high) ||
+    !Number.isFinite(low) ||
+    !Number.isFinite(close) ||
     !Number.isFinite(cumulativeVolume) ||
     cumulativeVolume < 0
   ) {
-    throw new Error("SmartAPI Quote packet contains invalid market data.");
+    throw new Error("SmartAPI Quote packet contains invalid values.");
+  }
+
+  if (
+    high < low ||
+    high < Math.max(open, close, price) ||
+    low > Math.min(open, close, price)
+  ) {
+    throw new Error("SmartAPI Quote OHLC values are inconsistent.");
   }
 
   return {
@@ -166,53 +191,18 @@ function parseQuotePacket(input) {
     subscriptionMode,
     exchangeType,
     token,
+    sequenceNumber,
     timestamp,
     price,
+    open,
+    high,
+    low,
+    close,
     cumulativeVolume
   };
 }
 
-function buildSocketUrl(credentials) {
-  const url = new URL(SOCKET_URL);
-
-  // Angel One's documented browser WebSocket authentication.
-  // Credentials remain in memory and are never stored by this module.
-  url.searchParams.set(
-    "clientCode",
-    credentials.clientCode
-  );
-
-  url.searchParams.set(
-    "feedToken",
-    credentials.feedToken
-  );
-
-  url.searchParams.set(
-    "apiKey",
-    credentials.apiKey
-  );
-
-  return url.toString();
-}
-
 export function createAngelOneSmartApiProvider(options = {}) {
-  const credentials = {
-    apiKey: requiredString(
-      options.apiKey,
-      "SmartAPI API Key"
-    ),
-
-    clientCode: requiredString(
-      options.clientCode,
-      "Angel One Client Code"
-    ),
-
-    feedToken: requiredString(
-      options.feedToken,
-      "SmartAPI Feed Token"
-    )
-  };
-
   const instrumentToken = requiredString(
     options.instrumentToken,
     "NIFTY NSE instrument token"
@@ -223,31 +213,25 @@ export function createAngelOneSmartApiProvider(options = {}) {
   );
 
   if (exchangeType !== EXCHANGE_NSE_CM) {
-    throw new Error(
-      "This adapter currently supports NSE Cash Market only."
-    );
+    throw new Error("Only NSE Cash Market is supported.");
   }
 
-  const WebSocketImpl =
-    options.WebSocketImpl ||
-    globalThis.WebSocket;
-
-  if (typeof WebSocketImpl !== "function") {
+  if (typeof options.socketFactory !== "function") {
     throw new Error(
-      "Browser WebSocket is not available."
+      "A secure backend socketFactory is required. Browser credentials are not accepted."
     );
   }
 
   const setIntervalImpl =
-    options.setIntervalImpl ||
-    globalThis.setInterval;
+    options.setIntervalImpl || globalThis.setInterval;
 
   const clearIntervalImpl =
-    options.clearIntervalImpl ||
-    globalThis.clearInterval;
+    options.clearIntervalImpl || globalThis.clearInterval;
 
   let activeSocket = null;
   let activeCleanup = null;
+
+  let status = "DISCONNECTED";
 
   let connectionCount = 0;
   let tickCount = 0;
@@ -255,17 +239,41 @@ export function createAngelOneSmartApiProvider(options = {}) {
 
   let lastTickAt = null;
   let lastError = null;
+
   let lastCumulativeVolume = null;
   let lastVolumeDate = null;
 
-  let status = "DISCONNECTED";
+  function snapshot() {
+    return {
+      module: MODULE,
+      version: VERSION,
+      status,
+      source: "ANGEL_ONE_SMARTAPI",
+      exchange: "NSE",
+      exchangeType,
+      instrumentToken,
+      subscriptionMode: "QUOTE",
 
-  function reportStatus(callback, nextStatus, detail = null) {
-    status = nextStatus;
+      counters: {
+        connections: connectionCount,
+        receivedTicks: tickCount,
+        rejectedPackets: rejectedCount
+      },
 
-    if (typeof callback === "function") {
-      callback(nextStatus, detail);
-    }
+      lastTickAt,
+      lastError,
+
+      safety: {
+        supportedTimeframes: ["1D", "15M"],
+        timeframeFallback: false,
+        historicalCandlesCreated: false,
+        syntheticCandlesCreated: false,
+        importedSourceExecuted: false,
+        credentialsAcceptedByBrowser: false,
+        credentialsPersisted: false,
+        orderExecution: false
+      }
+    };
   }
 
   function subscribe(handlers = {}) {
@@ -280,20 +288,27 @@ export function createAngelOneSmartApiProvider(options = {}) {
     }
 
     if (activeSocket) {
-      throw new Error(
-        "This SmartAPI provider is already connected."
-      );
+      throw new Error("Provider is already connected.");
     }
 
     const onTick = handlers.onTick;
     const onStatus = handlers.onStatus;
 
-    let socket;
+    let socket = null;
     let heartbeatId = null;
     let closedByUser = false;
     let connectedReported = false;
-
     let cleanupCalled = false;
+
+    function report(nextStatus, detail = null) {
+      status = nextStatus;
+
+      try {
+        onStatus(nextStatus, detail);
+      } catch {
+        // Status callback errors must not break the socket.
+      }
+    }
 
     function stopHeartbeat() {
       if (heartbeatId !== null) {
@@ -333,45 +348,47 @@ export function createAngelOneSmartApiProvider(options = {}) {
     }
 
     function fail(message) {
+      if (closedByUser) return;
+
       lastError = String(
         message || "SmartAPI provider failed."
       );
 
-      reportStatus(
-        onStatus,
-        "ERROR",
-        { message: lastError }
-      );
-
+      report("ERROR", { message: lastError });
       cleanup();
     }
 
     try {
-      reportStatus(
-        onStatus,
-        "CONNECTING"
-      );
+      report("CONNECTING");
 
-      const socketUrl =
-        buildSocketUrl(credentials);
+      // Backend must perform authenticated SmartAPI connection.
+      // This browser module never receives SmartAPI credentials.
+      socket = options.socketFactory();
 
-      socket = new WebSocketImpl(socketUrl);
+      if (
+        !socket ||
+        typeof socket.send !== "function" ||
+        typeof socket.close !== "function"
+      ) {
+        throw new Error(
+          "Secure backend did not provide a valid WebSocket."
+        );
+      }
 
       activeSocket = socket;
       activeCleanup = cleanup;
 
-      // Binary market-data packets are required.
       try {
         socket.binaryType = "arraybuffer";
       } catch {
-        // Browser may expose a read-only property.
+        // Optional browser property.
       }
 
       socket.onopen = () => {
         if (closedByUser) return;
 
         try {
-          const request = {
+          socket.send(JSON.stringify({
             correlationID: "BADALV12N1",
             action: SUBSCRIBE_ACTION,
             params: {
@@ -383,13 +400,10 @@ export function createAngelOneSmartApiProvider(options = {}) {
                 }
               ]
             }
-          };
-
-          socket.send(JSON.stringify(request));
+          }));
 
           connectionCount++;
 
-          // SmartAPI browser WebSocket heartbeat.
           heartbeatId = setIntervalImpl(() => {
             if (
               socket &&
@@ -398,23 +412,14 @@ export function createAngelOneSmartApiProvider(options = {}) {
               try {
                 socket.send("ping");
               } catch (error) {
-                fail(
-                  error?.message ||
-                  "SmartAPI heartbeat failed."
-                );
+                fail(error?.message);
               }
             }
           }, HEARTBEAT_INTERVAL_MS);
 
-          // CONNECTED is reported only after a valid market tick.
-          reportStatus(
-            onStatus,
-            "CONNECTING",
-            {
-              message:
-                "WebSocket opened; waiting for first valid NIFTY market tick."
-            }
-          );
+          report("CONNECTING", {
+            message: "Waiting for first valid market tick."
+          });
         } catch (error) {
           fail(error?.message);
         }
@@ -424,12 +429,9 @@ export function createAngelOneSmartApiProvider(options = {}) {
         if (closedByUser) return;
 
         try {
-          if (event.data === "pong") {
-            return;
-          }
+          if (event.data === "pong") return;
 
           if (typeof event.data === "string") {
-            // Ignore textual control messages.
             return;
           }
 
@@ -442,12 +444,9 @@ export function createAngelOneSmartApiProvider(options = {}) {
             packetData = await packetData.arrayBuffer();
           }
 
-          const packet =
-            parseQuotePacket(packetData);
+          const packet = parseQuotePacket(packetData);
 
-          if (packet.ignored) {
-            return;
-          }
+          if (packet.ignored) return;
 
           if (
             packet.exchangeType !== exchangeType ||
@@ -460,24 +459,21 @@ export function createAngelOneSmartApiProvider(options = {}) {
             packet.timestamp
           ).toISOString().slice(0, 10);
 
-          let volumeDelta = 0;
-
           if (lastVolumeDate !== dateKey) {
             lastVolumeDate = dateKey;
             lastCumulativeVolume = null;
           }
 
-          if (lastCumulativeVolume === null) {
-            volumeDelta = 0;
-          } else if (
-            packet.cumulativeVolume >= lastCumulativeVolume
-          ) {
-            volumeDelta =
-              packet.cumulativeVolume -
-              lastCumulativeVolume;
-          } else {
-            // Volume reset: do not create negative volume.
-            volumeDelta = 0;
+          let volumeDelta = 0;
+
+          if (lastCumulativeVolume !== null) {
+            if (
+              packet.cumulativeVolume >= lastCumulativeVolume
+            ) {
+              volumeDelta =
+                packet.cumulativeVolume -
+                lastCumulativeVolume;
+            }
           }
 
           lastCumulativeVolume =
@@ -492,6 +488,7 @@ export function createAngelOneSmartApiProvider(options = {}) {
             exchange: "NSE",
             exchangeType: packet.exchangeType,
             instrumentToken: packet.token,
+            sequenceNumber: packet.sequenceNumber,
 
             dataType: "REAL_PROVIDER_TICK"
           };
@@ -499,14 +496,10 @@ export function createAngelOneSmartApiProvider(options = {}) {
           if (!connectedReported) {
             connectedReported = true;
 
-            reportStatus(
-              onStatus,
-              "CONNECTED",
-              {
-                source: "ANGEL_ONE_SMARTAPI",
-                firstValidTickAt: packet.timestamp
-              }
-            );
+            report("CONNECTED", {
+              source: "ANGEL_ONE_SMARTAPI",
+              firstValidTickAt: packet.timestamp
+            });
           }
 
           tickCount++;
@@ -523,33 +516,22 @@ export function createAngelOneSmartApiProvider(options = {}) {
       };
 
       socket.onerror = () => {
-        if (closedByUser) return;
-
-        fail(
-          "Angel One SmartAPI WebSocket reported an error."
-        );
+        fail("Secure SmartAPI WebSocket reported an error.");
       };
 
       socket.onclose = event => {
         if (closedByUser) {
-          reportStatus(
-            onStatus,
-            "DISCONNECTED"
-          );
+          report("DISCONNECTED");
           return;
         }
 
         stopHeartbeat();
 
-        const reason =
-          event?.reason ||
-          `SmartAPI WebSocket closed (${event?.code ?? "unknown"}).`;
-
-        reportStatus(
-          onStatus,
-          "DISCONNECTED",
-          { message: reason }
-        );
+        report("DISCONNECTED", {
+          message:
+            event?.reason ||
+            `WebSocket closed (${event?.code ?? "unknown"}).`
+        });
 
         cleanup();
       };
@@ -559,27 +541,18 @@ export function createAngelOneSmartApiProvider(options = {}) {
           if (closedByUser) return;
 
           closedByUser = true;
-
-          reportStatus(
-            onStatus,
-            "DISCONNECTED"
-          );
-
+          report("DISCONNECTED");
           cleanup();
         }
       };
     } catch (error) {
       cleanup();
 
-      reportStatus(
-        onStatus,
-        "ERROR",
-        {
-          message:
-            error?.message ||
-            "SmartAPI provider initialization failed."
-        }
-      );
+      report("ERROR", {
+        message:
+          error?.message ||
+          "SmartAPI provider initialization failed."
+      });
 
       throw error;
     }
@@ -600,46 +573,8 @@ export function createAngelOneSmartApiProvider(options = {}) {
     };
   }
 
-  function snapshot() {
-    return {
-      module: MODULE,
-      version: VERSION,
-
-      status,
-
-      source: "ANGEL_ONE_SMARTAPI",
-
-      exchange: "NSE",
-      exchangeType,
-
-      instrumentToken,
-
-      subscriptionMode: "QUOTE",
-
-      counters: {
-        connections: connectionCount,
-        receivedTicks: tickCount,
-        rejectedPackets: rejectedCount
-      },
-
-      lastTickAt,
-      lastError,
-
-      safety: {
-        supportedTimeframes: ["1D", "15M"],
-        timeframeFallback: false,
-        historicalCandlesCreated: false,
-        syntheticCandlesCreated: false,
-        importedSourceExecuted: false,
-        credentialsPersisted: false,
-        orderExecution: false
-      }
-    };
-  }
-
   return {
     name: "ANGEL_ONE_SMARTAPI",
-
     subscribe,
     disconnect,
     snapshot,
@@ -647,21 +582,13 @@ export function createAngelOneSmartApiProvider(options = {}) {
     config: {
       module: MODULE,
       version: VERSION,
-
-      websocket: SOCKET_URL,
-
       exchange: "NSE",
       exchangeType,
-
       subscriptionMode: QUOTE_MODE,
-
       instrumentToken,
-
-      heartbeatIntervalMs:
-        HEARTBEAT_INTERVAL_MS,
-
       supportedTimeframes: ["1D", "15M"],
-
+      secureBackendRequired: true,
+      browserCredentialsAccepted: false,
       credentialsPersisted: false,
       syntheticCandles: false,
       timeframeFallback: false,
@@ -674,16 +601,16 @@ export const ANGEL_ONE_SMARTAPI_PROVIDER_CONFIG = {
   module: MODULE,
   version: VERSION,
 
-  websocket: SOCKET_URL,
-
   exchange: "NSE",
   exchangeType: EXCHANGE_NSE_CM,
-
   subscriptionMode: QUOTE_MODE,
 
   supportedTimeframes: ["1D", "15M"],
 
+  secureBackendRequired: true,
+  browserCredentialsAccepted: false,
   credentialsPersisted: false,
+
   syntheticCandles: false,
   timeframeFallback: false,
   orderExecution: false

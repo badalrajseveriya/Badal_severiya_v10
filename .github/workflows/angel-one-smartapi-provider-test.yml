@@ -1,0 +1,53 @@
+
+name: Angel One SmartAPI Provider Tests
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - angel-one-smartapi-provider.js
+      - angel-one-smartapi-provider.test.js
+      - .github/workflows/angel-one-smartapi-provider-test.yml
+
+  pull_request:
+    branches:
+      - main
+    paths:
+      - angel-one-smartapi-provider.js
+      - angel-one-smartapi-provider.test.js
+      - .github/workflows/angel-one-smartapi-provider-test.yml
+
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  angel-one-smartapi-provider-tests:
+    name: Run 22 SmartAPI Provider Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Verify provider file
+        run: test -f angel-one-smartapi-provider.js
+
+      - name: Verify test file
+        run: test -f angel-one-smartapi-provider.test.js
+
+      - name: Syntax check provider
+        run: node --check angel-one-smartapi-provider.js
+
+      - name: Syntax check tests
+        run: node --check angel-one-smartapi-provider.test.js
+
+      - name: Run SmartAPI provider tests
+        run: node angel-one-smartapi-provider.test.js

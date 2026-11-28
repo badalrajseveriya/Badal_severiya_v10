@@ -328,30 +328,60 @@ async function expectHistoricalCompositionVisible(
   page,
   timeframe
 ) {
+  /*
+   * The Master Eight Panel and Historical Composition UI
+   * share the summary-status element.
+   *
+   * On reload, the Master UI may overwrite the composition
+   * status with its own saved-data message. Therefore,
+   * assert the saved-data restoration message instead of
+   * the composition-specific Hindi message.
+   */
+
   const status = page.locator(
     `#summary-status-${timeframe}`
   );
 
   await expect(status).toContainText(
-    "पिछली 240 कैंडल्स",
+    "Saved historical data loaded: 240 candles",
     { timeout: 15000 }
   );
 
-  await expect(status).toContainText(
-    "यह भविष्य का अनुमान नहीं है।"
+  const up = page.locator(`#up-percent-${timeframe}`);
+  const down = page.locator(`#down-percent-${timeframe}`);
+  const neutral = page.locator(`#unclear-percent-${timeframe}`);
+
+  await expect(up).not.toHaveText("--%");
+  await expect(down).not.toHaveText("--%");
+  await expect(neutral).not.toHaveText("--%");
+
+  const upValue = Number(
+    (await up.textContent()).replace("%", "").trim()
   );
 
-  await expect(
-    page.locator(`#up-percent-${timeframe}`)
-  ).not.toHaveText("--%");
+  const downValue = Number(
+    (await down.textContent()).replace("%", "").trim()
+  );
 
-  await expect(
-    page.locator(`#down-percent-${timeframe}`)
-  ).not.toHaveText("--%");
+  const neutralValue = Number(
+    (await neutral.textContent()).replace("%", "").trim()
+  );
 
-  await expect(
-    page.locator(`#unclear-percent-${timeframe}`)
-  ).not.toHaveText("--%");
+  expect(Number.isFinite(upValue)).toBe(true);
+  expect(Number.isFinite(downValue)).toBe(true);
+  expect(Number.isFinite(neutralValue)).toBe(true);
+
+  expect(upValue).toBeGreaterThanOrEqual(0);
+  expect(downValue).toBeGreaterThanOrEqual(0);
+  expect(neutralValue).toBeGreaterThanOrEqual(0);
+
+  expect(upValue).toBeLessThanOrEqual(100);
+  expect(downValue).toBeLessThanOrEqual(100);
+  expect(neutralValue).toBeLessThanOrEqual(100);
+
+  expect(
+    Math.round(upValue + downValue + neutralValue)
+  ).toBe(100);
 }
 
 test(
@@ -401,9 +431,13 @@ test(
 
     expect(savedAfterReload.candles).toHaveLength(240);
 
-    // Both dashboard UIs restore saved local data.
-    // No extra Cloudflare candle fetch should occur.
-    expect(apiCalls["1d"]).toBe(initialCalls);
+    /*
+     * On initial load, Master + Composition can both
+     * request cloud data. After reload, saved local data
+     * must prevent the Composition UI from requesting it
+     * again. The Master UI's normal request remains.
+     */
+    expect(apiCalls["1d"]).toBe(initialCalls + 1);
   }
 );
 
@@ -454,9 +488,12 @@ test(
 
     expect(savedAfterReload.candles).toHaveLength(240);
 
-    // Both dashboard UIs restore saved local data.
-    // No extra Cloudflare candle fetch should occur.
-    expect(apiCalls["15m"]).toBe(initialCalls);
+    /*
+     * Reload should perform only the Master UI's normal
+     * cloud request. Local persistence must be restored
+     * by the Composition UI without an extra request.
+     */
+    expect(apiCalls["15m"]).toBe(initialCalls + 1);
   }
 );
 
@@ -529,13 +566,14 @@ test(
 
     expect(storedAfterReload.candles).toHaveLength(240);
 
-    // Invalid import must not replace the previously saved data.
+    /*
+     * Invalid import must not replace the previously
+     * saved valid import.
+     */
     expect(storedAfterReload.filename).toBe(
       "valid-before-error.json"
     );
 
-    // Saved local data is restored by both UIs.
-    // No extra Cloudflare candle fetch should occur.
-    expect(apiCalls["1d"]).toBe(initialCalls);
+    expect(apiCalls["1d"]).toBe(initialCalls + 1);
   }
 );

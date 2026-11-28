@@ -1,8 +1,7 @@
-
 /* ==========================================================
    BADAL SEVERIYA V12
    LIVE MASTER FEED CONTROLLER
-   Version 12.0
+   Version 12.1
 
    Purpose:
    - Start the verified Live Master Feed Bridge.
@@ -81,7 +80,10 @@ export function createLiveMasterFeedController(options = {}) {
         reason: lastInitialization.reason
       };
     } finally {
-      if (controllerStatus === "ERROR") {
+      if (
+        controllerStatus === "ERROR" ||
+        controllerStatus === "WAITING_FOR_HISTORICAL_DATA"
+      ) {
         initializationPromise = null;
       }
     }
@@ -128,7 +130,7 @@ export function createLiveMasterFeedController(options = {}) {
     return {
       ...result,
       module: MODULE,
-      snapshot: bridge.snapshot()
+      snapshot: snapshot()
     };
   }
 
@@ -140,21 +142,47 @@ export function createLiveMasterFeedController(options = {}) {
     return {
       ...result,
       module: MODULE,
-      snapshot: bridge.snapshot()
+      snapshot: snapshot()
     };
+  }
+
+  function resolveStatus(feed) {
+    if (feed.status === "READY") {
+      return "CONNECTED";
+    }
+
+    const sourceStatus =
+      feed.source?.status || "";
+
+    if (
+      sourceStatus === "CONNECTING" ||
+      sourceStatus === "RECONNECTING"
+    ) {
+      return sourceStatus;
+    }
+
+    if (sourceStatus === "ERROR") {
+      return "ERROR";
+    }
+
+    if (
+      sourceStatus === "DISCONNECTED" &&
+      feed.historicalBaseline?.loaded === true
+    ) {
+      return "WAITING_FOR_REAL_PROVIDER";
+    }
+
+    return controllerStatus;
   }
 
   function snapshot() {
     const feed = bridge.snapshot();
 
     return {
-      status:
-        feed.status === "READY"
-          ? "CONNECTED"
-          : controllerStatus,
+      status: resolveStatus(feed),
 
       module: MODULE,
-      version: "12.0",
+      version: "12.1",
 
       baseline: lastInitialization,
 
@@ -185,6 +213,7 @@ export function createLiveMasterFeedController(options = {}) {
 
     config: {
       module: MODULE,
+      version: "12.1",
       supportedTimeframes: [...SUPPORTED_TIMEFRAMES],
       requiresRealProvider: true,
       historicalBaselineOnly: true,

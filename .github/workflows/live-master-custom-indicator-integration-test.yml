@@ -1,0 +1,73 @@
+
+name: Live Master Custom Indicator Integration Tests
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - live-master-custom-indicator-integration.js
+      - live-master-custom-indicator-integration.test.js
+      - live-master-analysis.js
+      - custom-indicator-analysis-bridge.js
+      - custom-indicator-adapter-engine.js
+      - custom-indicator-manager.js
+      - .github/workflows/live-master-custom-indicator-integration-test.yml
+
+  pull_request:
+    branches:
+      - main
+    paths:
+      - live-master-custom-indicator-integration.js
+      - live-master-custom-indicator-integration.test.js
+      - live-master-analysis.js
+      - custom-indicator-analysis-bridge.js
+      - custom-indicator-adapter-engine.js
+      - custom-indicator-manager.js
+      - .github/workflows/live-master-custom-indicator-integration-test.yml
+
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  live-master-custom-indicator-integration-tests:
+    name: Run 20 Integration Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Verify integration file
+        run: test -f live-master-custom-indicator-integration.js
+
+      - name: Verify integration test file
+        run: test -f live-master-custom-indicator-integration.test.js
+
+      - name: Verify Live Master analyzer
+        run: test -f live-master-analysis.js
+
+      - name: Verify custom indicator bridge
+        run: test -f custom-indicator-analysis-bridge.js
+
+      - name: Verify adapter engine
+        run: test -f custom-indicator-adapter-engine.js
+
+      - name: Verify indicator manager
+        run: test -f custom-indicator-manager.js
+
+      - name: Syntax check integration
+        run: node --check live-master-custom-indicator-integration.js
+
+      - name: Syntax check integration tests
+        run: node --check live-master-custom-indicator-integration.test.js
+
+      - name: Run integration tests
+        run: node live-master-custom-indicator-integration.test.js

@@ -1,0 +1,46 @@
+name: Custom Indicator Manager Tests
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - custom-indicator-manager.js
+      - custom-indicator-manager.test.js
+      - .github/workflows/custom-indicator-manager-test.yml
+
+  pull_request:
+    branches:
+      - main
+    paths:
+      - custom-indicator-manager.js
+      - custom-indicator-manager.test.js
+      - .github/workflows/custom-indicator-manager-test.yml
+
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  custom-indicator-manager-tests:
+    name: Run Custom Indicator Manager Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Verify manager file
+        run: test -f custom-indicator-manager.js
+
+      - name: Verify test file
+        run: test -f custom-indicator-manager.test.js
+
+      - name: Run 32 test groups
+        run: node custom-indicator-manager.test.js

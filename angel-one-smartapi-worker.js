@@ -93,7 +93,7 @@ export default {
         return jsonResponse({
           ok: true,
           service: "BADAL SEVERIYA ANGEL ONE LIVE",
-          version: "12.1",
+          version: "12.2",
           mode: "MARKET_DATA_ONLY",
           tradingOrdersEnabled: false,
           timestamp: new Date().toISOString()
@@ -124,14 +124,16 @@ export default {
           env.ANGEL_API_KEY,
           env.ANGEL_CLIENT_CODE,
           env.ANGEL_PIN,
-          env.ANGEL_MAC_ADDRESS
+          env.ANGEL_MAC_ADDRESS,
+          env.ANGEL_CLIENT_LOCAL_IP,
+          env.ANGEL_CLIENT_PUBLIC_IP
         ];
 
-        if (requiredSecrets.some(value => !value)) {
+        if (requiredSecrets.some(value => !String(value || "").trim())) {
           return jsonResponse({
             ok: false,
-            error: "MISSING_CLOUDflare_SECRETS",
-            message: "Required Angel One Worker Secrets are not configured."
+            error: "MISSING_CLOUDFLARE_SECRETS",
+            message: "One or more required Angel One Worker Secrets are not configured."
           }, 503, origin);
         }
 
@@ -142,7 +144,9 @@ export default {
             "X-MACAddress": env.ANGEL_MAC_ADDRESS,
             "X-PrivateKey": env.ANGEL_API_KEY,
             "X-UserType": "USER",
-            "X-SourceID": "WEB"
+            "X-SourceID": "WEB",
+            "X-ClientLocalIP": env.ANGEL_CLIENT_LOCAL_IP,
+            "X-ClientPublicIP": env.ANGEL_CLIENT_PUBLIC_IP
           },
           body: JSON.stringify({
             clientcode: env.ANGEL_CLIENT_CODE,
@@ -416,8 +420,6 @@ export class AngelOneSmartApiSession {
 
       this.ctx.acceptWebSocket(server);
 
-      // Cloudflare Durable Object sockets support attachments.
-      // Optional chaining keeps lightweight Node test doubles compatible.
       server.serializeAttachment?.({
         connectedAt: Date.now()
       });

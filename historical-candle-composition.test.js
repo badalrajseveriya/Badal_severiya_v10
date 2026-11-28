@@ -276,6 +276,8 @@ function assertPercentageTotal(percentages) {
 }
 
 // 12. Equal category counts: exact 100.0 total
+// One candle per category produces equal remainders.
+// Stable tie-break gives bullish the extra 0.1.
 {
   const candles = makeCompositionCandles([
     "bullish",
@@ -305,6 +307,13 @@ function assertPercentageTotal(percentages) {
 }
 
 // 13. Largest-remainder allocation
+// Counts: bullish=2, bearish=2, neutral=3.
+// Exact values are approximately:
+// bullish=28.571, bearish=28.571, neutral=42.857.
+// Floors produce 28.5, 28.5, 42.8 (998 tenths).
+// The two remaining tenths go to bullish and bearish
+// because they have the largest equal remainders.
+// Final: 28.6 + 28.6 + 42.8 = 100.0.
 {
   const candles = makeCompositionCandles([
     "bullish",
@@ -327,8 +336,8 @@ function assertPercentageTotal(percentages) {
   assert.equal(result.counts.neutral, 3);
 
   assert.equal(result.percentages.bullish, 28.6);
-  assert.equal(result.percentages.bearish, 28.5);
-  assert.equal(result.percentages.neutral, 42.9);
+  assert.equal(result.percentages.bearish, 28.6);
+  assert.equal(result.percentages.neutral, 42.8);
 
   assertPercentageTotal(result.percentages);
 

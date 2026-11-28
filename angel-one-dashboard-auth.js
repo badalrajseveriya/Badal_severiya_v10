@@ -1,22 +1,22 @@
 
-/**
- * BADAL SEVERIYA
- * Angel One Dashboard Authentication Module
- * Version: 1.0
- *
- * SECURITY:
- * - Dashboard password stays on Cloudflare Worker.
- * - Temporary random session tokens only.
- * - No localStorage/sessionStorage.
- * - Session expires automatically.
- * - Rate limiting is enforced by Durable Object.
- * - Login token is returned only after successful authentication.
- * - This module does not authenticate Angel One directly.
- */
+// BADAL SEVERIYA
+// Angel One Dashboard Authentication Module
+// Version: 1.1
+//
+// SECURITY:
+// - Dashboard password stays on Cloudflare Worker.
+// - Temporary random session tokens only.
+// - No localStorage/sessionStorage.
+// - No cookies.
+// - Session expiry is enforced by DashboardAuthStore.
+// - Rate limiting is enforced by DashboardAuthStore.
+// - Auth Store uses AUTH_STORE binding (separate from Angel One feed).
+// - Does not authenticate Angel One directly.
+// - No trading or order functionality.
 
-const AUTH_VERSION = "1.0";
+const AUTH_VERSION = "1.1";
 
-const SESSION_TTL_MS = 20 * 60 * 1000; // 20 minutes
+const SESSION_TTL_MS = 20 * 60 * 1000;
 
 const RATE_LIMIT_CONFIG = Object.freeze({
   maxAttempts: 5,
@@ -72,20 +72,21 @@ async function sha256(value) {
     .join("");
 }
 
-async function callAuthDO(env, path, body) {
-  if (!env?.SMARTAPI_SESSION) {
-    throw new Error("AUTH_DURABLE_OBJECT_UNAVAILABLE");
+async function callAuthStore(env, path, body) {
+  if (!env?.AUTH_STORE) {
+    throw new Error("AUTH_STORE_BINDING_UNAVAILABLE");
   }
 
-  const id = env.SMARTAPI_SESSION.idFromName("primary");
-  const stub = env.SMARTAPI_SESSION.get(id);
+  const id = env.AUTH_STORE.idFromName("dashboard-auth-primary");
+  const stub = env.AUTH_STORE.get(id);
 
   return stub.fetch(
     `https://dashboard-auth.internal${path}`,
     {
       method: "POST",
       headers: {
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
+        "Cache-Control": "no-store"
       },
       body: JSON.stringify(body || {})
     }
@@ -95,7 +96,7 @@ async function callAuthDO(env, path, body) {
 async function getClientRateKey(request) {
   const ip = request.headers.get("CF-Connecting-IP") || "unknown";
 
-  // Hash the IP before sending it to Durable Object storage.
+  // Hash IP before sending it to Auth Store.
   return sha256(ip);
 }
 
@@ -161,7 +162,7 @@ export async function dashboardLogin(request, env) {
   let rateResponse;
 
   try {
-    rateResponse = await callAuthDO(
+    rateResponse = await callAuthStore(
       env,
       "/internal/auth/rate-check",
       {
@@ -198,7 +199,7 @@ export async function dashboardLogin(request, env) {
 
   if (!constantTimeEqual(suppliedPassword, configuredPassword)) {
     try {
-      await callAuthDO(
+      const failureResponse = await callAuthStore(
         env,
         "/internal/auth/rate-failure",
         {
@@ -206,8 +207,21 @@ export async function dashboardLogin(request, env) {
           config: RATE_LIMIT_CONFIG
         }
       );
+
+      const failureData = await failureResponse.json().catch(() => null);
+
+      if (!failureResponse.ok || failureData?.ok !== true) {
+        // Deny login if failure recording is unavailable.
+        return json({
+          ok: false,
+          error: "AUTH_RATE_LIMITER_UNAVAILABLE"
+        }, 503);
+      }
     } catch {
-      // Fail closed: login still denied.
+      return json({
+        ok: false,
+        error: "AUTH_RATE_LIMITER_UNAVAILABLE"
+      }, 503);
     }
 
     return json({
@@ -216,15 +230,24 @@ export async function dashboardLogin(request, env) {
     }, 401);
   }
 
-  // Clear the failed-attempt counter after correct password.
+  // Clear failed attempts after a correct password.
   try {
-    await callAuthDO(
+    const clearResponse = await callAuthStore(
       env,
       "/internal/auth/rate-clear",
       {
         rateKey
       }
     );
+
+    const clearData = await clearResponse.json().catch(() => null);
+
+    if (!clearResponse.ok || clearData?.ok !== true) {
+      return json({
+        ok: false,
+        error: "AUTH_RATE_LIMITER_UNAVAILABLE"
+      }, 503);
+    }
   } catch {
     return json({
       ok: false,
@@ -233,19 +256,15 @@ export async function dashboardLogin(request, env) {
   }
 
   const sessionToken = crypto.randomUUID();
-  const now = Date.now();
-  const expiresAt = now + SESSION_TTL_MS;
 
   let sessionResponse;
 
   try {
-    sessionResponse = await callAuthDO(
+    sessionResponse = await callAuthStore(
       env,
       "/internal/auth/session-create",
       {
-        token: sessionToken,
-        createdAt: now,
-        expiresAt
+        token: sessionToken
       }
     );
   } catch {
@@ -257,7 +276,33 @@ export async function dashboardLogin(request, env) {
 
   const sessionData = await sessionResponse.json().catch(() => null);
 
-  if (!sessionResponse.ok || sessionData?.ok !== true) {
+  if (
+    !sessionResponse.ok ||
+    sessionData?.ok !== true ||
+    typeof sessionData.expiresAt !== "string"
+  ) {
+    return json({
+      ok: false,
+      error: "SESSION_CREATION_FAILED"
+    }, 503);
+  }
+
+  const expiryTimestamp = Date.parse(sessionData.expiresAt);
+
+  if (!Number.isFinite(expiryTimestamp) || expiryTimestamp <= Date.now()) {
+    // Revoke malformed or already-expired session data.
+    try {
+      await callAuthStore(
+        env,
+        "/internal/auth/session-revoke",
+        {
+          token: sessionToken
+        }
+      );
+    } catch {
+      // Do not return a session token to the client.
+    }
+
     return json({
       ok: false,
       error: "SESSION_CREATION_FAILED"
@@ -268,8 +313,11 @@ export async function dashboardLogin(request, env) {
     ok: true,
     version: AUTH_VERSION,
     sessionToken,
-    expiresAt: new Date(expiresAt).toISOString(),
-    expiresInSeconds: SESSION_TTL_MS / 1000
+    expiresAt: sessionData.expiresAt,
+    expiresInSeconds: Math.max(
+      1,
+      Math.floor((expiryTimestamp - Date.now()) / 1000)
+    )
   });
 }
 
@@ -295,7 +343,7 @@ export async function validateDashboardSession(request, env) {
   let response;
 
   try {
-    response = await callAuthDO(
+    response = await callAuthStore(
       env,
       "/internal/auth/session-validate",
       {
@@ -361,7 +409,7 @@ export async function dashboardLogout(request, env) {
   }
 
   try {
-    const response = await callAuthDO(
+    const response = await callAuthStore(
       env,
       "/internal/auth/session-revoke",
       {
@@ -399,5 +447,7 @@ export const ANGEL_ONE_DASHBOARD_AUTH_CONFIG = Object.freeze({
   usesSessionStorage: false,
   usesCookies: false,
   requiresDurableObject: true,
+  requiresAuthStoreBinding: true,
+  authStoreBindingName: "AUTH_STORE",
   passwordRequired: true
 });

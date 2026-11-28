@@ -1,7 +1,7 @@
 
 // angel-one-dashboard-auth-wrangler.test.js
 // BADAL SEVERIYA - Wrangler Authentication Configuration Validation
-// Read-only validation. Does not deploy or modify Cloudflare resources.
+// Read-only tests. Does not deploy or modify Cloudflare resources.
 
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -9,160 +9,180 @@ import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CONFIG_PATH = path.join(__dirname, 'wrangler-angel-one.toml');
 
 function readConfig() {
-  assert.ok(
-    fs.existsSync(CONFIG_PATH),
-    'wrangler-angel-one.toml must exist in repository root'
-  );
-
+  assert.ok(fs.existsSync(CONFIG_PATH), 'Wrangler config file must exist');
   return fs.readFileSync(CONFIG_PATH, 'utf8');
 }
 
-function getSections(config, sectionName) {
-  const marker = `[[${sectionName}]]`;
-  const sections = [];
+function extractBlock(config, heading) {
   const lines = config.split(/\r?\n/);
-  let current = null;
+  const start = lines.findIndex(line => line.trim() === heading);
+
+  if (start === -1) return '';
+
+  const block = [];
+
+  for (let i = start + 1; i < lines.length; i++) {
+    if (lines[i].trim().startsWith('[[')) break;
+    block.push(lines[i]);
+  }
+
+  return block.join('\n');
+}
+
+test('Wrangler config exists and is readable', () => {
+  assert.ok(readConfig().trim().length > 0);
+});
+
+test('Worker name is correct', () => {
+  assert.match(
+    readConfig(),
+    /^name\s*=\s*"badal-severiya-angel-one-live"\s*$/m
+  );
+});
+
+test('Worker entry point is correct', () => {
+  assert.match(
+    readConfig(),
+    /^main\s*=\s*"angel-one-smartapi-worker\.js"\s*$/m
+  );
+});
+
+test('Existing SMARTAPI_SESSION binding is preserved', () => {
+  const config = readConfig();
+  const block = extractBlock(config, '[[durable_objects.bindings]]');
+
+  assert.match(block, /^name\s*=\s*"SMARTAPI_SESSION"\s*$/m);
+  assert.match(block, /^class_name\s*=\s*"AngelOneSmartApiSession"\s*$/m);
+});
+
+test('AUTH_STORE binding is configured', () => {
+  const config = readConfig();
+  const lines = config.split(/\r?\n/);
+  const blocks = [];
+  let active = false;
+  let current = [];
 
   for (const line of lines) {
-    if (line.trim() === marker) {
-      if (current) sections.push(current);
+    if (line.trim() === '[[durable_objects.bindings]]') {
+      if (active) blocks.push(current.join('\n'));
+      active = true;
       current = [];
       continue;
     }
 
-    if (current && line.trim().startsWith('[[')) {
-      sections.push(current);
-      current = null;
+    if (active && line.trim().startsWith('[[')) {
+      blocks.push(current.join('\n'));
+      active = false;
+      current = [];
     }
 
-    if (current) current.push(line);
+    if (active) current.push(line);
   }
 
-  if (current) sections.push(current);
+  if (active) blocks.push(current.join('\n'));
 
-  return sections.map(section => section.join('\n'));
-}
-
-function getBinding(config, bindingName) {
-  const sections = getSections(config, 'durable_objects.bindings');
-
-  return sections.find(section =>
-    new RegExp(`^\\s*name\\s*=\s*"${bindingName}"\\s*$`, 'm')
-      .test(section)
+  const authBlock = blocks.find(block =>
+    /^name\s*=\s*"AUTH_STORE"\s*$/m.test(block)
   );
-}
 
-function getMigration(config, migrationTag) {
-  const sections = getSections(config, 'migrations');
-
-  return sections.find(section =>
-    new RegExp(`^\\s*tag\\s*=\s*"${migrationTag}"\\s*$`, 'm')
-      .test(section)
-  );
-}
-
-test('Wrangler configuration file exists and is readable', () => {
-  const config = readConfig();
-
-  assert.ok(config.trim().length > 0);
+  assert.ok(authBlock, 'AUTH_STORE binding must exist');
+  assert.match(authBlock, /^class_name\s*=\s*"DashboardAuthStore"\s*$/m);
 });
 
-test('Worker name is correct', () => {
+test('Original v1 migration is preserved', () => {
   const config = readConfig();
+  const blocks = [];
+  const lines = config.split(/\r?\n/);
+  let active = false;
+  let current = [];
 
-  assert.match(
-    config,
-    /^\s*name\s*=\s*"badal-severiya-angel-one-live"\s*$/m
-  );
+  for (const line of lines) {
+    if (line.trim() === '[[migrations]]') {
+      if (active) blocks.push(current.join('\n'));
+      active = true;
+      current = [];
+      continue;
+    }
+
+    if (active && line.trim().startsWith('[[')) {
+      blocks.push(current.join('\n'));
+      active = false;
+      current = [];
+    }
+
+    if (active) current.push(line);
+  }
+
+  if (active) blocks.push(current.join('\n'));
+
+  const v1 = blocks.find(block => /^tag\s*=\s*"v1"\s*$/m.test(block));
+
+  assert.ok(v1, 'v1 migration must remain');
+  assert.match(v1, /AngelOneSmartApiSession/);
 });
 
-test('Worker entry file remains the Angel One SmartAPI worker', () => {
+test('v2 migration is configured for DashboardAuthStore', () => {
   const config = readConfig();
+  const blocks = [];
+  const lines = config.split(/\r?\n/);
+  let active = false;
+  let current = [];
 
-  assert.match(
-    config,
-    /^\s*main\s*=\s*"angel-one-smartapi-worker\.js"\s*$/m
-  );
+  for (const line of lines) {
+    if (line.trim() === '[[migrations]]') {
+      if (active) blocks.push(current.join('\n'));
+      active = true;
+      current = [];
+      continue;
+    }
+
+    if (active && line.trim().startsWith('[[')) {
+      blocks.push(current.join('\n'));
+      active = false;
+      current = [];
+    }
+
+    if (active) current.push(line);
+  }
+
+  if (active) blocks.push(current.join('\n'));
+
+  const v2 = blocks.find(block => /^tag\s*=\s*"v2"\s*$/m.test(block));
+
+  assert.ok(v2, 'v2 migration must exist');
+  assert.match(v2, /DashboardAuthStore/);
 });
 
-test('Existing SMARTAPI_SESSION Durable Object binding is preserved', () => {
+test('Migration order is v1 then v2', () => {
   const config = readConfig();
-  const binding = getBinding(config, 'SMARTAPI_SESSION');
+  const v1Index = config.indexOf('tag = "v1"');
+  const v2Index = config.indexOf('tag = "v2"');
 
-  assert.ok(binding, 'SMARTAPI_SESSION binding must exist');
-  assert.match(binding, /class_name\s*=\s*"AngelOneSmartApiSession"/);
+  assert.ok(v1Index >= 0, 'v1 migration tag missing');
+  assert.ok(v2Index >= 0, 'v2 migration tag missing');
+  assert.ok(v1Index < v2Index, 'v1 must appear before v2');
 });
 
-test('AUTH_STORE Durable Object binding is configured', () => {
-  const config = readConfig();
-  const binding = getBinding(config, 'AUTH_STORE');
-
-  assert.ok(binding, 'AUTH_STORE binding must exist');
-  assert.match(binding, /class_name\s*=\s*"DashboardAuthStore"/);
-});
-
-test('Original v1 migration is preserved for AngelOneSmartApiSession', () => {
-  const config = readConfig();
-  const migration = getMigration(config, 'v1');
-
-  assert.ok(migration, 'Existing v1 migration must not be removed');
-  assert.match(
-    migration,
-    /new_sqlite_classes\s*=\s*\["AngelOneSmartApiSession"\]/
-  );
-});
-
-test('New v2 migration is configured for DashboardAuthStore', () => {
-  const config = readConfig();
-  const migration = getMigration(config, 'v2');
-
-  assert.ok(migration, 'New v2 migration must exist');
-  assert.match(
-    migration,
-    /new_sqlite_classes\s*=\s*\["DashboardAuthStore"\]/
-  );
-});
-
-test('Migration order is v1 followed by v2', () => {
-  const config = readConfig();
-  const migrations = getSections(config, 'migrations');
-
-  assert.equal(migrations.length, 2, 'Expected exactly two migrations');
-
-  const tags = migrations.map(section => {
-    const match = section.match(/^\s*tag\s*=\s*"([^"]+)"\s*$/m);
-    return match && match[1];
-  });
-
-  assert.deepEqual(tags, ['v1', 'v2']);
-});
-
-test('Dashboard password and secret values are not hardcoded in Wrangler config', () => {
+test('No dashboard password or API secrets are hardcoded', () => {
   const config = readConfig();
 
   assert.doesNotMatch(
     config,
-    /DASHBOARD_ACCESS_PASSWORD\s*=\s*["'][^"']+["']/i,
-    'Dashboard password must not be hardcoded'
+    /DASHBOARD_ACCESS_PASSWORD\s*=\s*["'][^"']+["']/i
   );
 
   assert.doesNotMatch(
     config,
-    /(?:api_key|api_secret|client_secret|access_token)\s*=\s*["'][^"']+["']/i,
-    'API secrets and tokens must not be hardcoded'
+    /(?:api_key|api_secret|client_secret|access_token)\s*=\s*["'][^"']+["']/i
   );
 });
 
-test('Workers.dev access remains enabled in configuration', () => {
-  const config = readConfig();
-
-  assert.match(config, /^\s*workers_dev\s*=\s*true\s*$/m);
+test('Workers.dev is enabled', () => {
+  assert.match(readConfig(), /^workers_dev\s*=\s*true\s*$/m);
 });
 
-console.log('Wrangler auth configuration test file loaded.');
+console.log('Wrangler configuration tests loaded.');

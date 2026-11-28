@@ -39,154 +39,107 @@ function makeEnv(appOrigin = ALLOWED) {
   return { APP_ORIGIN: appOrigin };
 }
 
-// 1
 await test("Accepts the exact configured HTTPS dashboard Origin", async () => {
-  const result = checkRequestOrigin(
-    makeRequest(ALLOWED),
-    makeEnv()
-  );
-
+  const result = checkRequestOrigin(makeRequest(ALLOWED), makeEnv());
   assert.equal(result.ok, true);
   assert.equal(result.origin, ALLOWED);
 });
 
-// 2
 await test("Rejects an unlisted Origin", async () => {
   const result = checkRequestOrigin(
     makeRequest("https://evil.example"),
     makeEnv()
   );
-
   assert.equal(result.ok, false);
   assert.equal(result.status, 403);
   assert.equal(result.error, "ORIGIN_NOT_ALLOWED");
 });
 
-// 3
 await test("Rejects a missing Origin when required", async () => {
   const result = checkRequestOrigin(
     makeRequest(undefined),
     makeEnv(),
     { requireOrigin: true }
   );
-
   assert.equal(result.ok, false);
   assert.equal(result.error, "ORIGIN_HEADER_REQUIRED");
 });
 
-// 4
 await test("Allows missing Origin only when not required", async () => {
-  const result = checkRequestOrigin(
-    makeRequest(undefined),
-    makeEnv()
-  );
-
+  const result = checkRequestOrigin(makeRequest(undefined), makeEnv());
   assert.equal(result.ok, true);
   assert.deepEqual(result.corsHeaders, {});
 });
 
-// 5
 await test("Rejects missing APP_ORIGIN configuration", async () => {
-  const result = checkRequestOrigin(
-    makeRequest(ALLOWED),
-    {}
-  );
-
+  const result = checkRequestOrigin(makeRequest(ALLOWED), {});
   assert.equal(result.ok, false);
   assert.equal(result.status, 503);
   assert.equal(result.error, "APP_ORIGIN_NOT_CONFIGURED");
 });
 
-// 6
 await test("Rejects wildcard Origin configuration", async () => {
-  const result = checkRequestOrigin(
-    makeRequest(ALLOWED),
-    makeEnv("*")
-  );
-
+  const result = checkRequestOrigin(makeRequest(ALLOWED), makeEnv("*"));
   assert.equal(result.ok, false);
   assert.equal(result.error, "INVALID_APP_ORIGIN_CONFIGURATION");
 });
 
-// 7
 await test("Rejects HTTP dashboard Origin configuration", async () => {
   const result = checkRequestOrigin(
     makeRequest("http://badalrajseveriya.github.io"),
     makeEnv("http://badalrajseveriya.github.io")
   );
-
   assert.equal(result.ok, false);
   assert.equal(result.error, "INVALID_APP_ORIGIN_CONFIGURATION");
 });
 
-// 8
 await test("Rejects Origin configuration containing a path", async () => {
   const result = checkRequestOrigin(
     makeRequest(ALLOWED),
     makeEnv(ALLOWED + "/Badal_severiya_v10")
   );
-
   assert.equal(result.ok, false);
   assert.equal(result.error, "INVALID_APP_ORIGIN_CONFIGURATION");
 });
 
-// 9
 await test("Rejects malformed Origin configuration", async () => {
   const result = checkRequestOrigin(
     makeRequest(ALLOWED),
     makeEnv("not-a-valid-origin")
   );
-
   assert.equal(result.ok, false);
 });
 
-// 10
 await test("Rejects empty entries in Origin allowlist", async () => {
   const result = checkRequestOrigin(
     makeRequest(ALLOWED),
     makeEnv(ALLOWED + ",")
   );
-
   assert.equal(result.ok, false);
 });
 
-// 11
 await test("Supports multiple exact HTTPS Origins", async () => {
   const second = "https://example.github.io";
-
   const result = checkRequestOrigin(
     makeRequest(second),
     makeEnv(ALLOWED + "," + second)
   );
-
   assert.equal(result.ok, true);
   assert.equal(result.origin, second);
 });
 
-// 12
 await test("Builds exact CORS headers for an accepted Origin", async () => {
-  const policy = checkRequestOrigin(
-    makeRequest(ALLOWED),
-    makeEnv()
-  );
-
+  const policy = checkRequestOrigin(makeRequest(ALLOWED), makeEnv());
   const headers = buildCorsHeaders(policy);
 
   assert.equal(headers["Access-Control-Allow-Origin"], ALLOWED);
   assert.equal(headers.Vary, "Origin");
-  assert.equal(headers["Access-Control-Allow-Origin"], "*", false);
+  assert.notEqual(headers["Access-Control-Allow-Origin"], "*");
 });
 
-// 13
 await test("Builds safe preflight headers", async () => {
-  const policy = checkRequestOrigin(
-    makeRequest(ALLOWED),
-    makeEnv()
-  );
-
-  const headers = buildCorsHeaders(policy, {
-    preflight: true
-  });
+  const policy = checkRequestOrigin(makeRequest(ALLOWED), makeEnv());
+  const headers = buildCorsHeaders(policy, { preflight: true });
 
   assert.equal(headers["Access-Control-Allow-Origin"], ALLOWED);
   assert.equal(headers["Access-Control-Allow-Methods"], "GET, POST, OPTIONS");
@@ -194,27 +147,21 @@ await test("Builds safe preflight headers", async () => {
   assert.equal(headers["Access-Control-Max-Age"], "86400");
 });
 
-// 14
 await test("Rejected Origin cannot produce CORS allow headers", async () => {
   const policy = checkRequestOrigin(
     makeRequest("https://evil.example"),
     makeEnv()
   );
-
-  const headers = buildCorsHeaders(policy, {
-    preflight: true
-  });
+  const headers = buildCorsHeaders(policy, { preflight: true });
 
   assert.deepEqual(headers, {});
 });
 
-// 15
 await test("Origin security error response contains no wildcard CORS", async () => {
   const policy = checkRequestOrigin(
     makeRequest("https://evil.example"),
     makeEnv()
   );
-
   const response = originSecurityError(policy);
   const data = await response.json();
 
@@ -226,7 +173,6 @@ await test("Origin security error response contains no wildcard CORS", async () 
   );
 });
 
-// 16
 await test("Security configuration explicitly disables wildcard", async () => {
   assert.equal(ANGEL_ONE_ORIGIN_SECURITY_CONFIG.allowsWildcard, false);
   assert.equal(ANGEL_ONE_ORIGIN_SECURITY_CONFIG.requiresHttps, true);

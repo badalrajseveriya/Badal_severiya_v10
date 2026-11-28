@@ -1,0 +1,39 @@
+
+name: Angel One SmartAPI Worker Tests
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "angel-one-smartapi-worker.js"
+      - "angel-one-smartapi-worker.test.js"
+      - ".github/workflows/angel-one-smartapi-worker-test.yml"
+
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  angel-one-smartapi-worker-tests:
+    name: SmartAPI Worker Test Suite
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Check Worker JavaScript syntax
+        run: node --check angel-one-smartapi-worker.js
+
+      - name: Check test JavaScript syntax
+        run: node --check angel-one-smartapi-worker.test.js
+
+      - name: Run Angel One SmartAPI Worker tests
+        run: node angel-one-smartapi-worker.test.js

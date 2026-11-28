@@ -1,8 +1,9 @@
-// ======================================================
-// BADAL SEVERIYA V12
-// MASTER EIGHT-PANEL HISTORICAL UI
-// 1D + 15M | Historical Educational Analysis Only
-// ======================================================
+
+ // ======================================================
+ // BADAL SEVERIYA V12
+ // MASTER EIGHT-PANEL HISTORICAL UI
+ // 1D + 15M | Historical Educational Analysis Only
+ // ======================================================
 
 import { parseHistoricalDataText } from "./historical-data-import.js";
 import { generateHistoricalReport } from "./historical-analysis-report.js";
@@ -937,17 +938,26 @@ function renderWaitingState(timeframe) {
 async function initializeTimeframe(timeframe) {
   prepareDashboard(timeframe);
 
+  // Priority 1: Restore previously imported and saved data.
+  // Preserve valid user imports instead of replacing them
+  // with Cloudflare historical data during page refresh.
+  if (loadSavedData(timeframe)) {
+    return;
+  }
+
+  // Priority 2: Load Cloudflare data only when no valid
+  // saved import exists.
   try {
     const loaded = await loadCloudflareData(timeframe);
 
     if (loaded) return;
-    if (loadSavedData(timeframe)) return;
 
     renderWaitingState(timeframe);
   } catch (error) {
-    console.warn(`${timeframe} master initialization error:`, error);
-
-    if (loadSavedData(timeframe)) return;
+    console.warn(
+      `${timeframe} master initialization error:`,
+      error
+    );
 
     renderWaitingState(timeframe);
   }

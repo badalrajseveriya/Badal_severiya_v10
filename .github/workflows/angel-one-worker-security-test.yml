@@ -1,0 +1,32 @@
+
+name: Angel One Worker Security Tests
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "angel-one-worker-security.js"
+      - "angel-one-worker-security.test.js"
+      - ".github/workflows/angel-one-worker-security-test.yml"
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  security-tests:
+    name: Origin Security Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Run Origin Security Tests
+        run: node angel-one-worker-security.test.js

@@ -13,6 +13,8 @@ import {
 const NOTE =
   "Historical educational analysis only. No forecasts, probabilities or trading recommendations.";
 
+const RECENT_STRUCTURE_LIMIT = 20;
+
 const REQUIRED_MODULES = [
   "dataQuality",
   "marketData",
@@ -25,6 +27,12 @@ const REQUIRED_MODULES = [
 function isFiniteNumber(value) {
   return typeof value === "number" &&
     Number.isFinite(value);
+}
+
+function recentRecords(value) {
+  return Array.isArray(value)
+    ? value.slice(-RECENT_STRUCTURE_LIMIT)
+    : [];
 }
 
 function validateModules(modules) {
@@ -41,7 +49,7 @@ function validateModules(modules) {
     const result = modules[name];
 
     if (!result || result.status !== "OK") {
-      errors.push(`${name} module is missing or invalid.`);
+      errors.push(name + " module is missing or invalid.");
     }
   }
 
@@ -68,7 +76,6 @@ export function generateHistoricalReport(
 ) {
   try {
     // STEP 1: INTEGRATED HISTORICAL ANALYSIS
-    // Pass custom candle limit to the integration engine.
 
     const integrated =
       analyzeHistoricalIntegrated(input, options);
@@ -87,7 +94,7 @@ export function generateHistoricalReport(
 
     if (!validation.valid) {
       throw new Error(
-        `Report validation failed: ${validation.errors.join(" ")}`
+        "Report validation failed: " + validation.errors.join(" ")
       );
     }
 
@@ -124,6 +131,8 @@ export function generateHistoricalReport(
     }
 
     // STEP 5: MARKET STRUCTURE
+    // Keep complete counts but expose only the latest 20
+    // records per detail group for mobile dashboard display.
 
     const rawTrend =
       structure.summary?.historicalTrendClassification ??
@@ -135,17 +144,31 @@ export function generateHistoricalReport(
         ? rawTrend.trim()
         : "UNKNOWN";
 
+    const pivotHighs = structure.pivots?.highs ?? [];
+    const pivotLows = structure.pivots?.lows ?? [];
+    const structureEvents = structure.structureEvents ?? [];
+    const liquidity = structure.liquidity ?? [];
+    const fairValueGaps = structure.fairValueGaps ?? [];
+    const orderBlocks = structure.orderBlocks ?? [];
+
     const structureSummary = {
       trend: historicalTrend,
-      pivotHighCount: structure.pivots?.highs?.length ?? 0,
-      pivotLowCount: structure.pivots?.lows?.length ?? 0,
-      structureEventCount:
-        structure.structureEvents?.length ?? 0,
-      liquidity: structure.liquidity ?? [],
-      fairValueGapCount:
-        structure.fairValueGaps?.length ?? 0,
-      orderBlockCount:
-        structure.orderBlocks?.length ?? 0
+
+      pivotHighCount: pivotHighs.length,
+      pivotLowCount: pivotLows.length,
+      structureEventCount: structureEvents.length,
+      liquidityCount: liquidity.length,
+      fairValueGapCount: fairValueGaps.length,
+      orderBlockCount: orderBlocks.length,
+
+      recentPivotHighs: recentRecords(pivotHighs),
+      recentPivotLows: recentRecords(pivotLows),
+      recentStructureEvents: recentRecords(structureEvents),
+      liquidity,
+      recentFairValueGaps: recentRecords(fairValueGaps),
+      recentOrderBlocks: recentRecords(orderBlocks),
+
+      detailLimitPerGroup: RECENT_STRUCTURE_LIMIT
     };
 
     // STEP 6: SUPPORT AND RESISTANCE

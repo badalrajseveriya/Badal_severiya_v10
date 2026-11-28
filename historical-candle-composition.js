@@ -11,6 +11,75 @@ const DEFAULTS = {
   dojiBodyRatio: 0.10
 };
 
+/*
+ * Convert candle counts into percentages that total
+ * exactly 100.0 using largest-remainder allocation.
+ *
+ * Internal units:
+ * 100.0% = 1000 tenths.
+ *
+ * This avoids independent-rounding errors such as
+ * 99.9% or 100.1%.
+ */
+function calculateBalancedPercentages(counts, total) {
+  const keys = ["bullish", "bearish", "neutral"];
+  const totalUnits = 1000;
+
+  const allocations = keys.map(key => {
+    const exactUnits =
+      (counts[key] / total) * totalUnits;
+
+    const baseUnits = Math.floor(exactUnits);
+
+    return {
+      key,
+      units: baseUnits,
+      remainder: exactUnits - baseUnits
+    };
+  });
+
+  let allocatedUnits = allocations.reduce(
+    (sum, item) => sum + item.units,
+    0
+  );
+
+  let remainingUnits = totalUnits - allocatedUnits;
+
+  const ranked = [...allocations].sort(
+    (a, b) =>
+      b.remainder - a.remainder ||
+      keys.indexOf(a.key) - keys.indexOf(b.key)
+  );
+
+  for (
+    let i = 0;
+    remainingUnits > 0;
+    i++
+  ) {
+    ranked[i % ranked.length].units++;
+    remainingUnits--;
+  }
+
+  const percentages = {};
+
+  for (const item of allocations) {
+    percentages[item.key] = item.units / 10;
+  }
+
+  allocatedUnits = allocations.reduce(
+    (sum, item) => sum + item.units,
+    0
+  );
+
+  if (allocatedUnits !== totalUnits) {
+    throw new Error(
+      "Percentage balancing failed to produce 100.0%."
+    );
+  }
+
+  return percentages;
+}
+
 export function calculateHistoricalCandleComposition(
   candles,
   options = {}
@@ -89,7 +158,10 @@ export function calculateHistoricalCandleComposition(
       );
     }
 
-    const body = Math.abs(candle.close - candle.open);
+    const body = Math.abs(
+      candle.close - candle.open
+    );
+
     const range = candle.high - candle.low;
 
     const isDoji =
@@ -109,11 +181,8 @@ export function calculateHistoricalCandleComposition(
 
   const total = candles.length;
 
-  function percentage(count) {
-    return Number(
-      ((count / total) * 100).toFixed(1)
-    );
-  }
+  const percentages =
+    calculateBalancedPercentages(counts, total);
 
   const result = {
     status: "OK",
@@ -127,11 +196,7 @@ export function calculateHistoricalCandleComposition(
       neutral: counts.neutral
     },
 
-    percentages: {
-      bullish: percentage(counts.bullish),
-      bearish: percentage(counts.bearish),
-      neutral: percentage(counts.neutral)
-    },
+    percentages,
 
     note:
       "These percentages describe the composition of past candles only. They are not future probabilities, forecasts or trading signals."

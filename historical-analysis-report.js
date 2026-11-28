@@ -1,63 +1,112 @@
 
 // ======================================================
 // BADAL SEVERIYA V12
-// HISTORICAL ANALYSIS REPORT ENGINE
+// HISTORICAL DASHBOARD DATA FORMATTER
 // Educational and historical analysis only
 // No live trading signals, forecasts or order execution
 // ======================================================
 
-import {
-  analyzeHistoricalIntegrated
-} from "./integrated-historical-analysis.js";
-
 const NOTE =
-  "Historical educational analysis only. No forecasts, probabilities or trading recommendations.";
+  "Historical educational dashboard only. No forecasts, probabilities or trading recommendations.";
 
-const RECENT_STRUCTURE_LIMIT = 20;
-
-const REQUIRED_MODULES = [
+const REQUIRED_SECTIONS = [
   "dataQuality",
-  "marketData",
+  "marketIndicators",
   "marketStructure",
   "supportResistance",
   "fibonacci",
   "candlePatterns"
 ];
 
+// ------------------------------------------------------
+// SAFE HELPERS
+// ------------------------------------------------------
+
+function isObject(value) {
+  return (
+    value !== null &&
+    typeof value === "object" &&
+    !Array.isArray(value)
+  );
+}
+
 function isFiniteNumber(value) {
-  return typeof value === "number" &&
-    Number.isFinite(value);
+  return (
+    typeof value === "number" &&
+    Number.isFinite(value)
+  );
 }
 
-function recentRecords(value) {
-  return Array.isArray(value)
-    ? value.slice(-RECENT_STRUCTURE_LIMIT)
-    : [];
+function safeArray(value) {
+  return Array.isArray(value) ? value : [];
 }
 
-function validateModules(modules) {
+function safeObject(value) {
+  return isObject(value) ? value : {};
+}
+
+// ------------------------------------------------------
+// REPORT VALIDATION
+// ------------------------------------------------------
+
+function validateDashboardReport(report) {
   const errors = [];
 
-  if (!modules || typeof modules !== "object") {
+  if (!isObject(report)) {
     return {
       valid: false,
-      errors: ["Integrated modules are missing."]
+      errors: ["Historical report must be an object."]
     };
   }
 
-  for (const name of REQUIRED_MODULES) {
-    const result = modules[name];
+  if (report.status !== "OK") {
+    errors.push("Historical report status is not OK.");
+  }
 
-    if (!result || result.status !== "OK") {
-      errors.push(name + " module is missing or invalid.");
+  if (report.dataType !== "HISTORICAL_ONLY") {
+    errors.push("Report must contain historical data only.");
+  }
+
+  if (!isObject(report.reportInfo)) {
+    errors.push("Report information is missing.");
+  }
+
+  if (!isObject(report.summary)) {
+    errors.push("Report summary is missing.");
+  }
+
+  if (!isObject(report.sections)) {
+    errors.push("Report sections are missing.");
+  } else {
+    for (const name of REQUIRED_SECTIONS) {
+      if (!isObject(report.sections[name])) {
+        errors.push(
+          name + " dashboard section is missing."
+        );
+      }
     }
   }
 
   if (
-    modules.dataQuality &&
-    modules.dataQuality.quality !== "VALID"
+    report.reportInfo &&
+    (
+      !Number.isInteger(report.reportInfo.candleCount) ||
+      report.reportInfo.candleCount < 1
+    )
   ) {
-    errors.push("Data quality is not VALID.");
+    errors.push("Report candle count is invalid.");
+  }
+
+  if (
+    report.reportInfo &&
+    (
+      typeof report.reportInfo.generatedAt !== "string" ||
+      !Number.isFinite(
+        Date.parse(report.reportInfo.generatedAt)
+      )
+    )
+  ) {
+    errors.push("Report generatedAt timestamp is invalid.");
   }
 
   return {
@@ -67,190 +116,227 @@ function validateModules(modules) {
 }
 
 // ------------------------------------------------------
-// MAIN REPORT GENERATOR
+// DATA QUALITY PANEL
 // ------------------------------------------------------
 
-export function generateHistoricalReport(
-  input,
-  options = {}
-) {
-  try {
-    // STEP 1: INTEGRATED HISTORICAL ANALYSIS
+function buildDataQualityPanel(section) {
+  return {
+    status: section.status ?? "UNKNOWN",
+    quality: section.quality ?? "UNKNOWN",
+    issueCount: isFiniteNumber(section.issueCount)
+      ? section.issueCount
+      : 0,
+    checks: safeObject(section.checks)
+  };
+}
 
-    const integrated =
-      analyzeHistoricalIntegrated(input, options);
+// ------------------------------------------------------
+// MARKET INDICATORS PANEL
+// ------------------------------------------------------
 
-    if (!integrated || integrated.status !== "OK") {
-      throw new Error(
-        integrated?.error ||
-        "Integrated Historical Analysis failed."
-      );
+function buildMarketIndicatorsPanel(section) {
+  const indicators = {};
+
+  for (const [name, value] of Object.entries(
+    safeObject(section)
+  )) {
+    if (
+      value === null ||
+      typeof value === "string" ||
+      typeof value === "boolean" ||
+      isFiniteNumber(value)
+    ) {
+      indicators[name] = value;
     }
+  }
 
-    // STEP 2: MODULE VALIDATION
+  return {
+    count: Object.keys(indicators).length,
+    indicators
+  };
+}
 
-    const modules = integrated.modules;
-    const validation = validateModules(modules);
+// ------------------------------------------------------
+// MARKET STRUCTURE PANEL
+// ------------------------------------------------------
+
+function buildMarketStructurePanel(section) {
+  const liquidity = safeArray(section.liquidity);
+
+  return {
+    trend: section.trend ?? "UNKNOWN",
+
+    pivotHighCount: isFiniteNumber(section.pivotHighCount)
+      ? section.pivotHighCount
+      : 0,
+
+    pivotLowCount: isFiniteNumber(section.pivotLowCount)
+      ? section.pivotLowCount
+      : 0,
+
+    structureEventCount:
+      isFiniteNumber(section.structureEventCount)
+        ? section.structureEventCount
+        : safeArray(section.recentStructureEvents).length,
+
+    liquidityCount:
+      isFiniteNumber(section.liquidityCount)
+        ? section.liquidityCount
+        : liquidity.length,
+
+    fairValueGapCount:
+      isFiniteNumber(section.fairValueGapCount)
+        ? section.fairValueGapCount
+        : safeArray(section.recentFairValueGaps).length,
+
+    orderBlockCount:
+      isFiniteNumber(section.orderBlockCount)
+        ? section.orderBlockCount
+        : safeArray(section.recentOrderBlocks).length,
+
+    recentPivotHighs:
+      safeArray(section.recentPivotHighs),
+
+    recentPivotLows:
+      safeArray(section.recentPivotLows),
+
+    recentStructureEvents:
+      safeArray(section.recentStructureEvents),
+
+    liquidity,
+
+    recentFairValueGaps:
+      safeArray(section.recentFairValueGaps),
+
+    recentOrderBlocks:
+      safeArray(section.recentOrderBlocks),
+
+    detailLimitPerGroup:
+      isFiniteNumber(section.detailLimitPerGroup)
+        ? section.detailLimitPerGroup
+        : 20
+  };
+}
+
+// ------------------------------------------------------
+// SUPPORT AND RESISTANCE PANEL
+// ------------------------------------------------------
+
+function buildSupportResistancePanel(section) {
+  const supports = safeArray(section.supports);
+  const resistances = safeArray(section.resistances);
+
+  return {
+    supportCount: supports.length,
+    resistanceCount: resistances.length,
+    supports,
+    resistances
+  };
+}
+
+// ------------------------------------------------------
+// FIBONACCI PANEL
+// ------------------------------------------------------
+
+function buildFibonacciPanel(section) {
+  return {
+    swing: section.swing ?? null,
+    retracement: safeArray(section.retracement),
+    extensions: safeArray(section.extensions)
+  };
+}
+
+// ------------------------------------------------------
+// CANDLE PATTERNS PANEL
+// ------------------------------------------------------
+
+function buildCandlePatternsPanel(section) {
+  const patterns = safeArray(section.patterns);
+
+  return {
+    totalPatterns: isFiniteNumber(section.totalPatterns)
+      ? section.totalPatterns
+      : patterns.length,
+
+    counts: safeObject(section.counts),
+    patterns
+  };
+}
+
+// ------------------------------------------------------
+// MAIN DASHBOARD FORMATTER
+// ------------------------------------------------------
+
+export function formatHistoricalDashboardData(report) {
+  try {
+    const validation =
+      validateDashboardReport(report);
 
     if (!validation.valid) {
       throw new Error(
-        "Report validation failed: " + validation.errors.join(" ")
+        "Dashboard validation failed: " +
+        validation.errors.join(" ")
       );
     }
 
-    const dataQuality = modules.dataQuality;
-    const marketData = modules.marketData;
-    const structure = modules.marketStructure;
-    const supportResistance = modules.supportResistance;
-    const fibonacci = modules.fibonacci;
-    const candlePatterns = modules.candlePatterns;
+    const sections = report.sections;
 
-    // STEP 3: DATA QUALITY
+    const panels = {
+      dataQuality: buildDataQualityPanel(
+        sections.dataQuality
+      ),
 
-    const qualitySummary = {
-      status: dataQuality.status,
-      quality: dataQuality.quality,
-      issueCount: dataQuality.issueCount,
-      checks: dataQuality.checks
+      marketIndicators: buildMarketIndicatorsPanel(
+        sections.marketIndicators
+      ),
+
+      marketStructure: buildMarketStructurePanel(
+        sections.marketStructure
+      ),
+
+      supportResistance: buildSupportResistancePanel(
+        sections.supportResistance
+      ),
+
+      fibonacci: buildFibonacciPanel(
+        sections.fibonacci
+      ),
+
+      candlePatterns: buildCandlePatternsPanel(
+        sections.candlePatterns
+      )
     };
-
-    // STEP 4: MARKET INDICATORS
-
-    const indicators = marketData.indicators || {};
-    const indicatorSummary = {};
-
-    for (const [name, value] of Object.entries(indicators)) {
-      if (
-        value === null ||
-        typeof value === "string" ||
-        typeof value === "boolean" ||
-        isFiniteNumber(value)
-      ) {
-        indicatorSummary[name] = value;
-      }
-    }
-
-    // STEP 5: MARKET STRUCTURE
-    // Keep complete counts but expose only the latest 20
-    // records per detail group for mobile dashboard display.
-
-    const rawTrend =
-      structure.summary?.historicalTrendClassification ??
-      structure.trend ??
-      structure.historicalTrendClassification;
-
-    const historicalTrend =
-      typeof rawTrend === "string" && rawTrend.trim() !== ""
-        ? rawTrend.trim()
-        : "UNKNOWN";
-
-    const pivotHighs = structure.pivots?.highs ?? [];
-    const pivotLows = structure.pivots?.lows ?? [];
-    const structureEvents = structure.structureEvents ?? [];
-    const liquidity = structure.liquidity ?? [];
-    const fairValueGaps = structure.fairValueGaps ?? [];
-    const orderBlocks = structure.orderBlocks ?? [];
-
-    const structureSummary = {
-      trend: historicalTrend,
-
-      pivotHighCount: pivotHighs.length,
-      pivotLowCount: pivotLows.length,
-      structureEventCount: structureEvents.length,
-      liquidityCount: liquidity.length,
-      fairValueGapCount: fairValueGaps.length,
-      orderBlockCount: orderBlocks.length,
-
-      recentPivotHighs: recentRecords(pivotHighs),
-      recentPivotLows: recentRecords(pivotLows),
-      recentStructureEvents: recentRecords(structureEvents),
-      liquidity,
-      recentFairValueGaps: recentRecords(fairValueGaps),
-      recentOrderBlocks: recentRecords(orderBlocks),
-
-      detailLimitPerGroup: RECENT_STRUCTURE_LIMIT
-    };
-
-    // STEP 6: SUPPORT AND RESISTANCE
-
-    const supportResistanceSummary = {
-      supportCount:
-        supportResistance.supports?.length ?? 0,
-      resistanceCount:
-        supportResistance.resistances?.length ?? 0,
-      supports: supportResistance.supports ?? [],
-      resistances: supportResistance.resistances ?? []
-    };
-
-    // STEP 7: FIBONACCI
-
-    const fibonacciSummary = {
-      swing: fibonacci.swing ?? null,
-      retracement: fibonacci.retracement ?? [],
-      extensions: fibonacci.extensions ?? []
-    };
-
-    // STEP 8: CANDLE PATTERNS
-
-    const candlePatternCounts =
-      candlePatterns.summary?.patternCounts ??
-      candlePatterns.summary?.counts ??
-      {};
-
-    const candlePatternSummary = {
-      totalPatterns:
-        candlePatterns.summary?.totalPatterns ?? 0,
-      counts: candlePatternCounts,
-      patterns: candlePatterns.patterns ?? []
-    };
-
-    // STEP 9: REPORT SECTIONS
-
-    const sections = {
-      dataQuality: qualitySummary,
-      marketIndicators: indicatorSummary,
-      marketStructure: structureSummary,
-      supportResistance: supportResistanceSummary,
-      fibonacci: fibonacciSummary,
-      candlePatterns: candlePatternSummary
-    };
-
-    // STEP 10: FINAL REPORT
 
     return {
       status: "OK",
       version: "12.0",
-      module: "HISTORICAL_ANALYSIS_REPORT",
+      module: "HISTORICAL_DASHBOARD_DATA",
       dataType: "HISTORICAL_ONLY",
 
-      reportInfo: {
-        timeframe: integrated.timeframe,
-        candleCount: integrated.candleCount,
-        maxCandlesAllowed:
-          integrated.maxCandlesAllowed,
-        generatedAt: new Date().toISOString(),
-        sectionCount: Object.keys(sections).length
+      dashboardInfo: {
+        timeframe: report.reportInfo.timeframe ?? "15m",
+        candleCount: report.reportInfo.candleCount,
+        generatedAt: report.reportInfo.generatedAt,
+        panelCount: Object.keys(panels).length
       },
 
       validation: {
         status: "OK",
         valid: true,
-        checkedModules: REQUIRED_MODULES.length,
+        checkedSections: REQUIRED_SECTIONS.length,
         errors: []
       },
 
-      summary: {
-        dataQuality: dataQuality.quality,
-        dataQualityIssues: dataQuality.issueCount,
+      overview: {
+        dataQuality: report.summary.dataQuality,
+        dataQualityIssues: report.summary.dataQualityIssues,
         totalCandlePatterns:
-          candlePatterns.summary?.totalPatterns ?? 0,
-        supportZones:
-          supportResistance.supports?.length ?? 0,
-        resistanceZones:
-          supportResistance.resistances?.length ?? 0
+          report.summary.totalCandlePatterns,
+        supportZones: report.summary.supportZones,
+        resistanceZones: report.summary.resistanceZones
       },
 
-      sections,
+      panels,
 
       note: NOTE
     };
@@ -259,7 +345,7 @@ export function generateHistoricalReport(
     return {
       status: "ERROR",
       version: "12.0",
-      module: "HISTORICAL_ANALYSIS_REPORT",
+      module: "HISTORICAL_DASHBOARD_DATA",
       dataType: "HISTORICAL_ONLY",
       error: error.message,
       note: NOTE

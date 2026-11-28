@@ -221,6 +221,145 @@ function detectLiquidity(pivots, tolerance, maxZones) {
 // FAIR VALUE GAPS AND HISTORICAL MITIGATION
 // ------------------------------------------------------
 
+function clamp(value, minimum, maximum) {
+  return Math.min(maximum, Math.max(minimum, value));
+}
+
+function detectBullishFVG(candles, index) {
+  const first = candles[index - 2];
+  const current = candles[index];
+
+  const lower = first.high;
+  const upper = current.low;
+  const width = upper - lower;
+
+  let firstMitigatedAt = null;
+  let mitigatedAt = null;
+  let mitigationPercent = 0;
+
+  for (let j = index + 1; j < candles.length; j++) {
+    const penetration =
+      clamp(
+        ((upper - candles[j].low) / width) * 100,
+        0,
+        100
+      );
+
+    mitigationPercent = Math.max(
+      mitigationPercent,
+      penetration
+    );
+
+    if (
+      firstMitigatedAt === null &&
+      candles[j].low <= upper
+    ) {
+      firstMitigatedAt = j;
+    }
+
+    if (candles[j].low <= lower) {
+      mitigatedAt = j;
+      mitigationPercent = 100;
+      break;
+    }
+  }
+
+  const mitigationStatus =
+    mitigatedAt !== null
+      ? "MITIGATED"
+      : firstMitigatedAt !== null
+        ? "PARTIALLY_MITIGATED"
+        : "UNMITIGATED_IN_AVAILABLE_HISTORY";
+
+  return {
+    type: "BULLISH_FVG",
+    lower,
+    upper,
+    createdAt: index,
+    timestamp: current.timestamp,
+
+    // Backward-compatible status.
+    // UNMITIGATED means not fully filled.
+    status: mitigatedAt === null
+      ? "UNMITIGATED_IN_AVAILABLE_HISTORY"
+      : "MITIGATED",
+
+    mitigationStatus,
+    firstMitigatedAt,
+    mitigatedAt,
+    mitigationPercent: Number(
+      mitigationPercent.toFixed(2)
+    )
+  };
+}
+
+function detectBearishFVG(candles, index) {
+  const first = candles[index - 2];
+  const current = candles[index];
+
+  const lower = current.high;
+  const upper = first.low;
+  const width = upper - lower;
+
+  let firstMitigatedAt = null;
+  let mitigatedAt = null;
+  let mitigationPercent = 0;
+
+  for (let j = index + 1; j < candles.length; j++) {
+    const penetration =
+      clamp(
+        ((candles[j].high - lower) / width) * 100,
+        0,
+        100
+      );
+
+    mitigationPercent = Math.max(
+      mitigationPercent,
+      penetration
+    );
+
+    if (
+      firstMitigatedAt === null &&
+      candles[j].high >= lower
+    ) {
+      firstMitigatedAt = j;
+    }
+
+    if (candles[j].high >= upper) {
+      mitigatedAt = j;
+      mitigationPercent = 100;
+      break;
+    }
+  }
+
+  const mitigationStatus =
+    mitigatedAt !== null
+      ? "MITIGATED"
+      : firstMitigatedAt !== null
+        ? "PARTIALLY_MITIGATED"
+        : "UNMITIGATED_IN_AVAILABLE_HISTORY";
+
+  return {
+    type: "BEARISH_FVG",
+    lower,
+    upper,
+    createdAt: index,
+    timestamp: current.timestamp,
+
+    // Backward-compatible status.
+    status: mitigatedAt === null
+      ? "UNMITIGATED_IN_AVAILABLE_HISTORY"
+      : "MITIGATED",
+
+    mitigationStatus,
+    firstMitigatedAt,
+    mitigatedAt,
+    mitigationPercent: Number(
+      mitigationPercent.toFixed(2)
+    )
+  };
+}
+
 function detectFVG(candles, maxZones) {
   const zones = [];
 
@@ -229,55 +368,11 @@ function detectFVG(candles, maxZones) {
     const current = candles[i];
 
     if (current.low > first.high) {
-      const lower = first.high;
-      const upper = current.low;
-
-      let mitigatedAt = null;
-
-      for (let j = i + 1; j < candles.length; j++) {
-        if (candles[j].low <= lower) {
-          mitigatedAt = j;
-          break;
-        }
-      }
-
-      zones.push({
-        type: "BULLISH_FVG",
-        lower,
-        upper,
-        createdAt: i,
-        timestamp: current.timestamp,
-        status: mitigatedAt === null
-          ? "UNMITIGATED_IN_AVAILABLE_HISTORY"
-          : "MITIGATED",
-        mitigatedAt
-      });
+      zones.push(detectBullishFVG(candles, i));
     }
 
     if (current.high < first.low) {
-      const lower = current.high;
-      const upper = first.low;
-
-      let mitigatedAt = null;
-
-      for (let j = i + 1; j < candles.length; j++) {
-        if (candles[j].high >= upper) {
-          mitigatedAt = j;
-          break;
-        }
-      }
-
-      zones.push({
-        type: "BEARISH_FVG",
-        lower,
-        upper,
-        createdAt: i,
-        timestamp: current.timestamp,
-        status: mitigatedAt === null
-          ? "UNMITIGATED_IN_AVAILABLE_HISTORY"
-          : "MITIGATED",
-        mitigatedAt
-      });
+      zones.push(detectBearishFVG(candles, i));
     }
   }
 
@@ -468,15 +563,29 @@ export function analyzeMarketStructure(
       confirmedSwingHighs: pivots.highs.length,
       confirmedSwingLows: pivots.lows.length,
       structureEvents: structure.events.length,
+
       bullishFVGs: fvg.filter(
         zone => zone.type === "BULLISH_FVG"
       ).length,
+
       bearishFVGs: fvg.filter(
         zone => zone.type === "BEARISH_FVG"
       ).length,
+
       mitigatedFVGs: fvg.filter(
-        zone => zone.status === "MITIGATED"
+        zone => zone.mitigationStatus === "MITIGATED"
       ).length,
+
+      partiallyMitigatedFVGs: fvg.filter(
+        zone => zone.mitigationStatus === "PARTIALLY_MITIGATED"
+      ).length,
+
+      unmitigatedFVGs: fvg.filter(
+        zone =>
+          zone.mitigationStatus ===
+          "UNMITIGATED_IN_AVAILABLE_HISTORY"
+      ).length,
+
       orderBlocks: orderBlocks.length,
       liquidityPools: liquidity.length,
       historicalTrendClassification: structure.trend

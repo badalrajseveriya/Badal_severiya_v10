@@ -386,9 +386,7 @@ test(
       )
     ).toBeVisible();
 
-    // The composition UI displays the historical candle ratio.
-    // It shares the summary note with the Master UI, so the
-    // saved-data status text is not the correct persistence check.
+    // Composition UI must restore the same saved local candles.
     await expectHistoricalCompositionVisible(
       page,
       "1d"
@@ -402,10 +400,9 @@ test(
 
     expect(savedAfterReload.candles).toHaveLength(240);
 
-    // Master UI should restore local data without a new API fetch.
-    // The separate composition UI currently performs one Cloudflare
-    // fetch after reload, so only that one extra call is expected.
-    expect(apiCalls["1d"]).toBe(initialCalls + 1);
+    // Both Master and Composition UI restore from localStorage.
+    // No additional Cloudflare candle request should occur on reload.
+    expect(apiCalls["1d"]).toBe(initialCalls);
   }
 );
 
@@ -465,9 +462,9 @@ test(
 
     expect(savedAfterReload.candles).toHaveLength(240);
 
-    // The Master UI restores from localStorage.
-    // The separate composition UI currently makes one API request.
-    expect(apiCalls["15m"]).toBe(initialCalls + 1);
+    // Both Master and Composition UI restore from localStorage.
+    // No additional Cloudflare candle request should occur on reload.
+    expect(apiCalls["15m"]).toBe(initialCalls);
   }
 );
 
@@ -554,8 +551,8 @@ test(
       storedAfterReload.filename
     ).toBe("valid-before-error.json");
 
-    // The Master UI restores the local saved candles.
-    // The composition UI makes one separate API request.
-    expect(apiCalls["1d"]).toBe(initialCalls + 1);
+    // Both UIs restore the preserved local data on reload.
+    // No additional Cloudflare candle request should occur.
+    expect(apiCalls["1d"]).toBe(initialCalls);
   }
 );

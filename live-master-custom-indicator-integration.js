@@ -142,8 +142,6 @@ function validateContextAgainstLiveMarket(
 
     const customClose = Number(item.marketClose);
 
-    // The custom adapter and Live Master must use
-    // the exact same latest candle close.
     if (customClose !== liveClose) {
       rejectedIds.add(item.indicatorId);
       continue;
@@ -307,8 +305,6 @@ export function createLiveMasterCustomIndicatorIntegration(
       };
     }
 
-    // Custom live context is permitted only when
-    // Live Master confirms a fresh, valid live feed.
     if (
       !isObject(liveResult) ||
       liveResult.feed?.fresh !== true ||
@@ -347,7 +343,7 @@ export function createLiveMasterCustomIndicatorIntegration(
         timeframe,
         candles: input.candles
       });
-    } catch (error) {
+    } catch {
       customRaw = null;
     }
 
@@ -446,6 +442,7 @@ export function createLiveMasterCustomIndicatorIntegration(
       },
 
       safety: {
+        timeframeFallback: false,
         importedSourceExecuted: false,
         arbitraryCodeExecution: false,
         orderExecution: false

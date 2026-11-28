@@ -103,16 +103,19 @@ function makeCompositionCandles(types) {
   );
 }
 
+// Floating-point-safe percentage total assertion.
+// Convert displayed tenths to integer units first.
+// 100.0% = 1000 units.
 function assertPercentageTotal(percentages) {
-  const total =
-    percentages.bullish +
-    percentages.bearish +
-    percentages.neutral;
+  const totalTenths =
+    Math.round(percentages.bullish * 10) +
+    Math.round(percentages.bearish * 10) +
+    Math.round(percentages.neutral * 10);
 
   assert.equal(
-    total,
-    100,
-    `Expected percentage total 100, received ${total}`
+    totalTenths,
+    1000,
+    `Expected 1000 percentage tenths, received ${totalTenths}`
   );
 }
 
@@ -273,9 +276,6 @@ function assertPercentageTotal(percentages) {
 }
 
 // 12. Equal category counts: exact 100.0 total
-// 1 bullish + 1 bearish + 1 neutral = 3 candles.
-// Largest remainder must allocate the extra 0.1
-// deterministically to bullish (stable tie-break).
 {
   const candles = makeCompositionCandles([
     "bullish",
@@ -305,10 +305,6 @@ function assertPercentageTotal(percentages) {
 }
 
 // 13. Largest-remainder allocation
-// Counts: bullish=2, bearish=2, neutral=3.
-// Expected allocation: 28.6 + 28.5 + 42.9 = 100.0.
-// Neutral has the largest remainder; bullish wins
-// the tie with bearish due to stable key ordering.
 {
   const candles = makeCompositionCandles([
     "bullish",
@@ -342,8 +338,6 @@ function assertPercentageTotal(percentages) {
 }
 
 // 14. Single-category composition
-// Every candle is bullish; absent categories must
-// remain zero without disturbing the total.
 {
   const candles = makeCompositionCandles(
     Array(20).fill("bullish")

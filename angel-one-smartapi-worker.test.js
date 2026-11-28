@@ -182,7 +182,7 @@ await test("Health endpoint is publicly accessible", async () => {
 
   assert.equal(response.status, 200);
   assert.equal(data.ok, true);
-  assert.equal(data.version, "12.2");
+  assert.equal(data.version, "12.3");
   assert.equal(data.mode, "MARKET_DATA_ONLY");
   assert.equal(data.tradingOrdersEnabled, false);
 });

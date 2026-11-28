@@ -4,10 +4,22 @@ main = "angel-one-smartapi-worker.js"
 compatibility_date = "2026-11-28"
 workers_dev = true
 
+# Existing Angel One Live Feed Durable Object — PRESERVED
 [[durable_objects.bindings]]
 name = "SMARTAPI_SESSION"
 class_name = "AngelOneSmartApiSession"
 
+# New Dashboard Authentication Durable Object
+[[durable_objects.bindings]]
+name = "AUTH_STORE"
+class_name = "DashboardAuthStore"
+
+# Existing migration — DO NOT REMOVE
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["AngelOneSmartApiSession"]
+
+# New migration — Dashboard Auth Store
+[[migrations]]
+tag = "v2"
+new_sqlite_classes = ["DashboardAuthStore"]

@@ -1,0 +1,57 @@
+
+name: Angel One Secure Worker Wrapper Tests
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "angel-one-smartapi-worker-secure.js"
+      - "angel-one-smartapi-worker-secure.test.js"
+      - "angel-one-smartapi-worker.js"
+      - "angel-one-worker-security.js"
+      - ".github/workflows/angel-one-smartapi-worker-secure-test.yml"
+
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "angel-one-smartapi-worker-secure.js"
+      - "angel-one-smartapi-worker-secure.test.js"
+      - "angel-one-smartapi-worker.js"
+      - "angel-one-worker-security.js"
+      - ".github/workflows/angel-one-smartapi-worker-secure-test.yml"
+
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  secure-wrapper-tests:
+    name: Secure Wrapper Validation
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Check security module syntax
+        run: node --check angel-one-worker-security.js
+
+      - name: Check original Worker syntax
+        run: node --check angel-one-smartapi-worker.js
+
+      - name: Check secure Wrapper syntax
+        run: node --check angel-one-smartapi-worker-secure.js
+
+      - name: Check secure Wrapper test syntax
+        run: node --check angel-one-smartapi-worker-secure.test.js
+
+      - name: Run secure Wrapper tests
+        run: node angel-one-smartapi-worker-secure.test.js

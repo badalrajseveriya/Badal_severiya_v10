@@ -182,7 +182,7 @@ function makePair() {
 }
 
 // 1
-await test("Health endpoint reports Worker 12.4", async () => {
+await test("Health endpoint reports Worker 12.5", async () => {
   const response = await worker.fetch(
     request("/api/health"),
     makeEnv()
@@ -192,7 +192,7 @@ await test("Health endpoint reports Worker 12.4", async () => {
 
   assert.equal(response.status, 200);
   assert.equal(data.ok, true);
-  assert.equal(data.version, "12.4");
+  assert.equal(data.version, "12.5");
   assert.equal(data.mode, "MARKET_DATA_ONLY");
   assert.equal(data.tradingOrdersEnabled, false);
 });
@@ -1032,7 +1032,7 @@ await test("NSE subscription accepts only supported market modes", async () => {
 });
 
 // 40
-await test("Worker version is fixed at 12.4", async () => {
+await test("Worker version is fixed at 12.5", async () => {
   const response = await worker.fetch(
     request("/api/health"),
     makeEnv()
@@ -1040,11 +1040,85 @@ await test("Worker version is fixed at 12.4", async () => {
 
   const data = await response.json();
 
-  assert.equal(data.version, "12.4");
+  assert.equal(data.version, "12.5");
   assert.equal(data.tradingOrdersEnabled, false);
 });
 
+// 41
+await test("Alarm scheduler selects the earliest reconnect or rotation deadline", async () => {
+  const ctx = makeContext();
+  const session = new AngelOneSmartApiSession(ctx, {});
+  const now = Date.now();
+
+  await ctx.storage.put("reconnect_at", now + 5000);
+  await ctx.storage.put("rotation_at", now + 15000);
+  await session.scheduleNextAlarm();
+
+  assert.equal(await ctx.storage.getAlarm(), now + 5000);
+});
+
+// 42
+await test("Reconnect scheduling preserves the separate rotation deadline", async () => {
+  const ctx = makeContext();
+  const session = new AngelOneSmartApiSession(ctx, {});
+  const now = Date.now();
+
+  session.connectionWanted = true;
+  await ctx.storage.put("rotation_at", now + 50000);
+  await session.scheduleReconnect();
+
+  const reconnectAt = await ctx.storage.get("reconnect_at");
+  const rotationAt = await ctx.storage.get("rotation_at");
+
+  assert.ok(Number.isFinite(reconnectAt));
+  assert.equal(rotationAt, now + 50000);
+  assert.equal(await ctx.storage.getAlarm(), Math.min(reconnectAt, rotationAt));
+});
+
+// 43
+await test("Rotation scheduling preserves the separate reconnect deadline", async () => {
+  const ctx = makeContext();
+  const session = new AngelOneSmartApiSession(ctx, {});
+  const now = Date.now();
+  const reconnectAt = now + 4000;
+
+  await ctx.storage.put("reconnect_at", reconnectAt);
+  await session.scheduleConnectionRotation();
+
+  const rotationAt = await ctx.storage.get("rotation_at");
+
+  assert.ok(Number.isFinite(rotationAt));
+  assert.equal(await ctx.storage.get("reconnect_at"), reconnectAt);
+  assert.equal(await ctx.storage.getAlarm(), reconnectAt);
+});
+
+// 44
+await test("Clearing reconnect deadline retains and schedules rotation deadline", async () => {
+  const ctx = makeContext();
+  const session = new AngelOneSmartApiSession(ctx, {});
+  const rotationAt = Date.now() + 25000;
+
+  await ctx.storage.put("reconnect_at", Date.now() + 5000);
+  await ctx.storage.put("rotation_at", rotationAt);
+  await session.clearReconnectAlarm();
+
+  assert.equal(await ctx.storage.get("reconnect_at"), undefined);
+  assert.equal(await ctx.storage.get("rotation_at"), rotationAt);
+  assert.equal(await ctx.storage.getAlarm(), rotationAt);
+});
+
+// 45
+await test("Alarm scheduler deletes alarm only when both deadlines are absent", async () => {
+  const ctx = makeContext();
+  const session = new AngelOneSmartApiSession(ctx, {});
+
+  await ctx.storage.setAlarm(Date.now() + 10000);
+  await session.scheduleNextAlarm();
+
+  assert.equal(await ctx.storage.getAlarm(), null);
+});
+
 console.log("");
-console.log(`ANGEL ONE SMARTAPI WORKER: ${passed}/40 TESTS PASSED`);
-assert.equal(passed, 40);
+console.log(`ANGEL ONE SMARTAPI WORKER: ${passed}/45 TESTS PASSED`);
+assert.equal(passed, 45);
 console.log("ANGEL ONE SMARTAPI WORKER TESTS: ALL PASSED");

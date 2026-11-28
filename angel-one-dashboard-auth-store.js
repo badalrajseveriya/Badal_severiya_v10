@@ -1,7 +1,7 @@
 
 // BADAL SEVERIYA
 // Dashboard Authentication Durable Object Store
-// Version: 1.0
+// Version: 1.1
 //
 // SECURITY:
 // - Separate from Angel One live-feed session storage.
@@ -12,7 +12,7 @@
 // - Invalid or unavailable storage must fail closed.
 // - No trading or order-related functionality.
 
-const AUTH_STORE_VERSION = "1.0";
+const AUTH_STORE_VERSION = "1.1";
 
 const MAX_ATTEMPTS = 5;
 const RATE_WINDOW_MS = 15 * 60 * 1000;
@@ -146,8 +146,8 @@ export class DashboardAuthStore {
     const key = `auth-rate:${body.rateKey}`;
     const now = Date.now();
 
-    return this.ctx.storage.transaction(async tx => {
-      const record = await tx.get(key);
+    return this.ctx.storage.transaction(async () => {
+      const record = await this.ctx.storage.get(key);
 
       if (!record) {
         return jsonResponse({
@@ -177,7 +177,7 @@ export class DashboardAuthStore {
         !Number.isFinite(record.windowStart) ||
         now - record.windowStart >= RATE_WINDOW_MS
       ) {
-        await tx.delete(key);
+        await this.ctx.storage.delete(key);
 
         return jsonResponse({
           ok: true,
@@ -215,8 +215,8 @@ export class DashboardAuthStore {
     const key = `auth-rate:${body.rateKey}`;
     const now = Date.now();
 
-    return this.ctx.storage.transaction(async tx => {
-      let record = await tx.get(key);
+    return this.ctx.storage.transaction(async () => {
+      let record = await this.ctx.storage.get(key);
 
       if (
         !record ||
@@ -240,7 +240,7 @@ export class DashboardAuthStore {
         record.lockUntil = now + LOCKOUT_MS;
       }
 
-      await tx.put(key, record);
+      await this.ctx.storage.put(key, record);
 
       return jsonResponse({
         ok: true,
@@ -261,9 +261,9 @@ export class DashboardAuthStore {
       }, 400);
     }
 
-    const key = `auth-rate:${body.rateKey}`;
-
-    await this.ctx.storage.delete(key);
+    await this.ctx.storage.delete(
+      `auth-rate:${body.rateKey}`
+    );
 
     return jsonResponse({
       ok: true
@@ -282,7 +282,6 @@ export class DashboardAuthStore {
     const token = body.token;
     const key = `auth-session:${token}`;
 
-    // Server-side time is authoritative. Client timestamps are ignored.
     const session = {
       createdAt: now,
       expiresAt: now + SESSION_TTL_MS,
@@ -308,8 +307,8 @@ export class DashboardAuthStore {
     const key = `auth-session:${body.token}`;
     const now = Date.now();
 
-    return this.ctx.storage.transaction(async tx => {
-      const session = await tx.get(key);
+    return this.ctx.storage.transaction(async () => {
+      const session = await this.ctx.storage.get(key);
 
       if (
         !session ||
@@ -317,7 +316,7 @@ export class DashboardAuthStore {
         session.expiresAt <= now
       ) {
         if (session) {
-          await tx.delete(key);
+          await this.ctx.storage.delete(key);
         }
 
         return jsonResponse({

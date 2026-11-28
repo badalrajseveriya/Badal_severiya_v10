@@ -57,8 +57,6 @@ function makeFvgCandles(direction, fillType) {
         start + i * 15 * 60 * 1000
       ).toISOString(),
 
-      // Keep later candles outside the FVG zone.
-      // This prevents accidental full mitigation.
       open: direction === "BEARISH" ? 95 : 108,
       high: direction === "BEARISH" ? 99 : 110,
       low: direction === "BEARISH" ? 93 : 106,
@@ -158,6 +156,76 @@ function makeFvgCandles(direction, fillType) {
       };
     }
   }
+
+  return candles;
+}
+
+// Controlled structure fixture.
+// pivotLength = 2:
+// high at index 4 confirms at index 6.
+// low at index 10 confirms at index 12.
+// high at index 16 confirms at index 18.
+function makeStructureCandles() {
+  const start = Date.UTC(2026, 0, 1);
+
+  const candles = Array.from(
+    { length: 30 },
+    (_, i) => ({
+      timestamp: new Date(
+        start + i * 15 * 60 * 1000
+      ).toISOString(),
+      open: 100,
+      high: 101,
+      low: 99,
+      close: 100,
+      volume: 1000
+    })
+  );
+
+  // Confirmable swing high at index 4.
+  candles[4] = {
+    ...candles[4],
+    open: 105,
+    high: 110,
+    low: 104,
+    close: 106
+  };
+
+  // Confirmable swing low at index 10.
+  candles[10] = {
+    ...candles[10],
+    open: 95,
+    high: 96,
+    low: 90,
+    close: 94
+  };
+
+  // Close below confirmed swing low: bearish BOS.
+  candles[13] = {
+    ...candles[13],
+    open: 90,
+    high: 91,
+    low: 88,
+    close: 89
+  };
+
+  // Lower swing high at index 16.
+  candles[16] = {
+    ...candles[16],
+    open: 103,
+    high: 105,
+    low: 102,
+    close: 104
+  };
+
+  // Close above confirmed swing high: bullish CHOCH.
+  candles[19] = {
+    ...candles[19],
+    open: 106,
+    high: 108,
+    low: 105,
+    close: 107
+  };
 
   return candles;
 }
@@ -440,10 +508,154 @@ assert.match(
   /not forecasts|not trading recommendations/i
 );
 
+// ------------------------------------------------------
+// TEST 15: PIVOT CONFIRMATION + BOS + CHOCH
+// ------------------------------------------------------
+
+{
+  const structureCandles = makeStructureCandles();
+
+  const analysis = analyzeMarketStructure(
+    structureCandles,
+    {
+      pivotLength: 2
+    }
+  );
+
+  const swingHigh = analysis.pivots.highs.find(
+    pivot => pivot.pivotIndex === 4
+  );
+
+  const swingLow = analysis.pivots.lows.find(
+    pivot => pivot.pivotIndex === 10
+  );
+
+  const laterSwingHigh = analysis.pivots.highs.find(
+    pivot => pivot.pivotIndex === 16
+  );
+
+  assert.ok(swingHigh);
+  assert.equal(swingHigh.confirmedAt, 6);
+
+  assert.ok(swingLow);
+  assert.equal(swingLow.confirmedAt, 12);
+
+  assert.ok(laterSwingHigh);
+  assert.equal(laterSwingHigh.confirmedAt, 18);
+
+  const events = analysis.structureEvents;
+
+  assert.equal(events.length, 2);
+
+  assert.deepEqual(
+    events.map(event => ({
+      type: event.type,
+      direction: event.direction,
+      index: event.index,
+      brokenLevel: event.brokenLevel
+    })),
+    [
+      {
+        type: "BOS",
+        direction: "BEARISH",
+        index: 13,
+        brokenLevel: 90
+      },
+      {
+        type: "CHOCH",
+        direction: "BULLISH",
+        index: 19,
+        brokenLevel: 105
+      }
+    ]
+  );
+
+  assert.ok(
+    events[0].index > swingLow.confirmedAt,
+    "Bearish BOS must happen after pivot confirmation."
+  );
+
+  assert.ok(
+    events[1].index > laterSwingHigh.confirmedAt,
+    "Bullish CHOCH must happen after pivot confirmation."
+  );
+
+  assert.equal(
+    analysis.summary.historicalTrendClassification,
+    "BULLISH"
+  );
+}
+
+// ------------------------------------------------------
+// TEST 16: WICK BREAK WITHOUT CLOSE MUST NOT TRIGGER BOS
+// ------------------------------------------------------
+
+{
+  const wickCandles = makeStructureCandles();
+
+  // Replace the later bearish/bullish sequence with a
+  // wick-only break followed by a confirmed close break.
+  for (let i = 8; i < wickCandles.length; i++) {
+    wickCandles[i] = {
+      ...wickCandles[i],
+      open: 100,
+      high: 101,
+      low: 99,
+      close: 100
+    };
+  }
+
+  // Pivot high at index 4 remains 110.
+  // This candle crosses 110 intrabar but closes below it.
+  wickCandles[7] = {
+    ...wickCandles[7],
+    open: 109,
+    high: 112,
+    low: 108,
+    close: 109
+  };
+
+  // This candle closes above the confirmed pivot high.
+  wickCandles[8] = {
+    ...wickCandles[8],
+    open: 110,
+    high: 113,
+    low: 109,
+    close: 111
+  };
+
+  const analysis = analyzeMarketStructure(
+    wickCandles,
+    {
+      pivotLength: 2
+    }
+  );
+
+  const events = analysis.structureEvents;
+
+  assert.equal(events.length, 1);
+
+  assert.equal(events[0].type, "BOS");
+  assert.equal(events[0].direction, "BULLISH");
+  assert.equal(events[0].index, 8);
+  assert.equal(events[0].brokenLevel, 110);
+
+  assert.ok(
+    events[0].index > 6,
+    "BOS must occur after the swing high is confirmed."
+  );
+}
+
+// ------------------------------------------------------
+// FINAL TEST REPORT
+// ------------------------------------------------------
+
 console.log("PASS: Basic market structure analysis");
 console.log("PASS: Configuration and candle validation");
 console.log("PASS: UNKNOWN, BULLISH and BEARISH classification");
 console.log("PASS: Bullish and bearish FVG partial mitigation");
 console.log("PASS: Bullish and bearish FVG full mitigation");
 console.log("PASS: Historical FVG summary counts");
+console.log("PASS: Pivot confirmation and BOS/CHOCH sequence");
+console.log("PASS: Wick-only break rejection and close confirmation");
 console.log("All market structure tests passed.");

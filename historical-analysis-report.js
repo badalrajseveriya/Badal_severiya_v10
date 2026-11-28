@@ -1,22 +1,28 @@
 
 // ======================================================
 // BADAL SEVERIYA V12
-// HISTORICAL DASHBOARD DATA FORMATTER
+// HISTORICAL ANALYSIS REPORT ENGINE
 // Educational and historical analysis only
 // No live trading signals, forecasts or order execution
 // ======================================================
 
-const NOTE =
-  "Historical educational dashboard only. No forecasts, probabilities or trading recommendations.";
+import {
+  analyzeHistoricalIntegrated
+} from "./integrated-historical-analysis.js";
 
-const REQUIRED_SECTIONS = [
+const NOTE =
+  "Historical educational analysis only. No forecasts, probabilities or trading recommendations.";
+
+const REQUIRED_MODULES = [
   "dataQuality",
-  "marketIndicators",
+  "marketData",
   "marketStructure",
   "supportResistance",
   "fibonacci",
   "candlePatterns"
 ];
+
+const RECENT_STRUCTURE_LIMIT = 20;
 
 // ------------------------------------------------------
 // SAFE HELPERS
@@ -45,68 +51,64 @@ function safeObject(value) {
   return isObject(value) ? value : {};
 }
 
+function recentRecords(value) {
+  return safeArray(value).slice(-RECENT_STRUCTURE_LIMIT);
+}
+
 // ------------------------------------------------------
-// REPORT VALIDATION
+// MODULE VALIDATION
 // ------------------------------------------------------
 
-function validateDashboardReport(report) {
+function validateModules(modules) {
   const errors = [];
 
-  if (!isObject(report)) {
+  if (!isObject(modules)) {
     return {
       valid: false,
-      errors: ["Historical report must be an object."]
+      errors: ["Integrated modules are missing."]
     };
   }
 
-  if (report.status !== "OK") {
-    errors.push("Historical report status is not OK.");
-  }
+  for (const name of REQUIRED_MODULES) {
+    const result = modules[name];
 
-  if (report.dataType !== "HISTORICAL_ONLY") {
-    errors.push("Report must contain historical data only.");
-  }
-
-  if (!isObject(report.reportInfo)) {
-    errors.push("Report information is missing.");
-  }
-
-  if (!isObject(report.summary)) {
-    errors.push("Report summary is missing.");
-  }
-
-  if (!isObject(report.sections)) {
-    errors.push("Report sections are missing.");
-  } else {
-    for (const name of REQUIRED_SECTIONS) {
-      if (!isObject(report.sections[name])) {
-        errors.push(
-          name + " dashboard section is missing."
-        );
-      }
+    if (!isObject(result) || result.status !== "OK") {
+      errors.push(
+        `${name} module is missing or invalid.`
+      );
     }
   }
 
   if (
-    report.reportInfo &&
-    (
-      !Number.isInteger(report.reportInfo.candleCount) ||
-      report.reportInfo.candleCount < 1
-    )
+    modules.dataQuality &&
+    modules.dataQuality.quality !== "VALID"
   ) {
-    errors.push("Report candle count is invalid.");
+    errors.push("Data quality is not VALID.");
   }
 
-  if (
-    report.reportInfo &&
-    (
-      typeof report.reportInfo.generatedAt !== "string" ||
-      !Number.isFinite(
-        Date.parse(report.reportInfo.generatedAt)
-      )
-    )
-  ) {
-    errors.push("Report generatedAt timestamp is invalid.");
+  const structure = modules.marketStructure;
+
+  if (structure) {
+    if (
+      !isObject(structure.pivots) ||
+      !Array.isArray(structure.pivots.highs) ||
+      !Array.isArray(structure.pivots.lows)
+    ) {
+      errors.push("Market structure pivots are invalid.");
+    }
+
+    for (const key of [
+      "structureEvents",
+      "liquidity",
+      "fairValueGaps",
+      "orderBlocks"
+    ]) {
+      if (!Array.isArray(structure[key])) {
+        errors.push(
+          `Market structure ${key} must be an array.`
+        );
+      }
+    }
   }
 
   return {
@@ -116,227 +118,223 @@ function validateDashboardReport(report) {
 }
 
 // ------------------------------------------------------
-// DATA QUALITY PANEL
+// MAIN REPORT GENERATOR
 // ------------------------------------------------------
 
-function buildDataQualityPanel(section) {
-  return {
-    status: section.status ?? "UNKNOWN",
-    quality: section.quality ?? "UNKNOWN",
-    issueCount: isFiniteNumber(section.issueCount)
-      ? section.issueCount
-      : 0,
-    checks: safeObject(section.checks)
-  };
-}
-
-// ------------------------------------------------------
-// MARKET INDICATORS PANEL
-// ------------------------------------------------------
-
-function buildMarketIndicatorsPanel(section) {
-  const indicators = {};
-
-  for (const [name, value] of Object.entries(
-    safeObject(section)
-  )) {
-    if (
-      value === null ||
-      typeof value === "string" ||
-      typeof value === "boolean" ||
-      isFiniteNumber(value)
-    ) {
-      indicators[name] = value;
-    }
-  }
-
-  return {
-    count: Object.keys(indicators).length,
-    indicators
-  };
-}
-
-// ------------------------------------------------------
-// MARKET STRUCTURE PANEL
-// ------------------------------------------------------
-
-function buildMarketStructurePanel(section) {
-  const liquidity = safeArray(section.liquidity);
-
-  return {
-    trend: section.trend ?? "UNKNOWN",
-
-    pivotHighCount: isFiniteNumber(section.pivotHighCount)
-      ? section.pivotHighCount
-      : 0,
-
-    pivotLowCount: isFiniteNumber(section.pivotLowCount)
-      ? section.pivotLowCount
-      : 0,
-
-    structureEventCount:
-      isFiniteNumber(section.structureEventCount)
-        ? section.structureEventCount
-        : safeArray(section.recentStructureEvents).length,
-
-    liquidityCount:
-      isFiniteNumber(section.liquidityCount)
-        ? section.liquidityCount
-        : liquidity.length,
-
-    fairValueGapCount:
-      isFiniteNumber(section.fairValueGapCount)
-        ? section.fairValueGapCount
-        : safeArray(section.recentFairValueGaps).length,
-
-    orderBlockCount:
-      isFiniteNumber(section.orderBlockCount)
-        ? section.orderBlockCount
-        : safeArray(section.recentOrderBlocks).length,
-
-    recentPivotHighs:
-      safeArray(section.recentPivotHighs),
-
-    recentPivotLows:
-      safeArray(section.recentPivotLows),
-
-    recentStructureEvents:
-      safeArray(section.recentStructureEvents),
-
-    liquidity,
-
-    recentFairValueGaps:
-      safeArray(section.recentFairValueGaps),
-
-    recentOrderBlocks:
-      safeArray(section.recentOrderBlocks),
-
-    detailLimitPerGroup:
-      isFiniteNumber(section.detailLimitPerGroup)
-        ? section.detailLimitPerGroup
-        : 20
-  };
-}
-
-// ------------------------------------------------------
-// SUPPORT AND RESISTANCE PANEL
-// ------------------------------------------------------
-
-function buildSupportResistancePanel(section) {
-  const supports = safeArray(section.supports);
-  const resistances = safeArray(section.resistances);
-
-  return {
-    supportCount: supports.length,
-    resistanceCount: resistances.length,
-    supports,
-    resistances
-  };
-}
-
-// ------------------------------------------------------
-// FIBONACCI PANEL
-// ------------------------------------------------------
-
-function buildFibonacciPanel(section) {
-  return {
-    swing: section.swing ?? null,
-    retracement: safeArray(section.retracement),
-    extensions: safeArray(section.extensions)
-  };
-}
-
-// ------------------------------------------------------
-// CANDLE PATTERNS PANEL
-// ------------------------------------------------------
-
-function buildCandlePatternsPanel(section) {
-  const patterns = safeArray(section.patterns);
-
-  return {
-    totalPatterns: isFiniteNumber(section.totalPatterns)
-      ? section.totalPatterns
-      : patterns.length,
-
-    counts: safeObject(section.counts),
-    patterns
-  };
-}
-
-// ------------------------------------------------------
-// MAIN DASHBOARD FORMATTER
-// ------------------------------------------------------
-
-export function formatHistoricalDashboardData(report) {
+export function generateHistoricalReport(
+  input,
+  options = {}
+) {
   try {
-    const validation =
-      validateDashboardReport(report);
+    // STEP 1: INTEGRATED HISTORICAL ANALYSIS
 
-    if (!validation.valid) {
+    const integrated =
+      analyzeHistoricalIntegrated(input, options);
+
+    if (!integrated || integrated.status !== "OK") {
       throw new Error(
-        "Dashboard validation failed: " +
-        validation.errors.join(" ")
+        integrated?.error ||
+        "Integrated Historical Analysis failed."
       );
     }
 
-    const sections = report.sections;
+    // STEP 2: VALIDATE MODULES
 
-    const panels = {
-      dataQuality: buildDataQualityPanel(
-        sections.dataQuality
-      ),
+    const modules = integrated.modules;
+    const validation = validateModules(modules);
 
-      marketIndicators: buildMarketIndicatorsPanel(
-        sections.marketIndicators
-      ),
+    if (!validation.valid) {
+      throw new Error(
+        `Report validation failed: ${validation.errors.join(" ")}`
+      );
+    }
 
-      marketStructure: buildMarketStructurePanel(
-        sections.marketStructure
-      ),
+    const dataQuality = modules.dataQuality;
+    const marketData = modules.marketData;
+    const structure = modules.marketStructure;
+    const supportResistance = modules.supportResistance;
+    const fibonacci = modules.fibonacci;
+    const candlePatterns = modules.candlePatterns;
 
-      supportResistance: buildSupportResistancePanel(
-        sections.supportResistance
-      ),
+    // STEP 3: DATA QUALITY
 
-      fibonacci: buildFibonacciPanel(
-        sections.fibonacci
-      ),
-
-      candlePatterns: buildCandlePatternsPanel(
-        sections.candlePatterns
-      )
+    const qualitySummary = {
+      status: dataQuality.status,
+      quality: dataQuality.quality,
+      issueCount: dataQuality.issueCount,
+      checks: safeObject(dataQuality.checks)
     };
+
+    // STEP 4: MARKET INDICATORS
+
+    const indicators = safeObject(marketData.indicators);
+    const indicatorSummary = {};
+
+    for (const [name, value] of Object.entries(indicators)) {
+      if (
+        value === null ||
+        typeof value === "string" ||
+        typeof value === "boolean" ||
+        isFiniteNumber(value)
+      ) {
+        indicatorSummary[name] = value;
+      }
+    }
+
+    // STEP 5: MARKET STRUCTURE
+
+    const pivots = safeObject(structure.pivots);
+
+    const pivotHighs = safeArray(pivots.highs);
+    const pivotLows = safeArray(pivots.lows);
+    const structureEvents = safeArray(
+      structure.structureEvents
+    );
+    const liquidity = safeArray(structure.liquidity);
+    const fairValueGaps = safeArray(
+      structure.fairValueGaps
+    );
+    const orderBlocks = safeArray(
+      structure.orderBlocks
+    );
+
+    const rawTrend =
+      structure.summary?.historicalTrendClassification ??
+      structure.trend ??
+      structure.historicalTrendClassification;
+
+    const historicalTrend =
+      typeof rawTrend === "string" &&
+      rawTrend.trim() !== ""
+        ? rawTrend.trim()
+        : "UNKNOWN";
+
+    const structureSummary = {
+      trend: historicalTrend,
+
+      pivotHighCount: pivotHighs.length,
+      pivotLowCount: pivotLows.length,
+
+      structureEventCount: structureEvents.length,
+      liquidityCount: liquidity.length,
+      fairValueGapCount: fairValueGaps.length,
+      orderBlockCount: orderBlocks.length,
+
+      recentPivotHighs:
+        recentRecords(pivotHighs),
+
+      recentPivotLows:
+        recentRecords(pivotLows),
+
+      recentStructureEvents:
+        recentRecords(structureEvents),
+
+      liquidity:
+        recentRecords(liquidity),
+
+      recentFairValueGaps:
+        recentRecords(fairValueGaps),
+
+      recentOrderBlocks:
+        recentRecords(orderBlocks),
+
+      detailLimitPerGroup: RECENT_STRUCTURE_LIMIT
+    };
+
+    // STEP 6: SUPPORT AND RESISTANCE
+
+    const supports = safeArray(
+      supportResistance.supports
+    );
+
+    const resistances = safeArray(
+      supportResistance.resistances
+    );
+
+    const supportResistanceSummary = {
+      supportCount: supports.length,
+      resistanceCount: resistances.length,
+      supports,
+      resistances
+    };
+
+    // STEP 7: FIBONACCI
+
+    const fibonacciSummary = {
+      swing: fibonacci.swing ?? null,
+      retracement: safeArray(fibonacci.retracement),
+      extensions: safeArray(fibonacci.extensions)
+    };
+
+    // STEP 8: CANDLE PATTERNS
+
+    const patternSummary = safeObject(
+      candlePatterns.summary
+    );
+
+    const candlePatternCounts =
+      patternSummary.patternCounts ??
+      patternSummary.counts ??
+      {};
+
+    const candlePatternSummary = {
+      totalPatterns: isFiniteNumber(
+        patternSummary.totalPatterns
+      )
+        ? patternSummary.totalPatterns
+        : safeArray(candlePatterns.patterns).length,
+
+      counts: safeObject(candlePatternCounts),
+      patterns: safeArray(candlePatterns.patterns)
+    };
+
+    // STEP 9: REPORT SECTIONS
+
+    const sections = {
+      dataQuality: qualitySummary,
+      marketIndicators: indicatorSummary,
+      marketStructure: structureSummary,
+      supportResistance: supportResistanceSummary,
+      fibonacci: fibonacciSummary,
+      candlePatterns: candlePatternSummary
+    };
+
+    // STEP 10: FINAL HISTORICAL REPORT
 
     return {
       status: "OK",
       version: "12.0",
-      module: "HISTORICAL_DASHBOARD_DATA",
+      module: "HISTORICAL_ANALYSIS_REPORT",
       dataType: "HISTORICAL_ONLY",
 
-      dashboardInfo: {
-        timeframe: report.reportInfo.timeframe ?? "15m",
-        candleCount: report.reportInfo.candleCount,
-        generatedAt: report.reportInfo.generatedAt,
-        panelCount: Object.keys(panels).length
+      reportInfo: {
+        timeframe: integrated.timeframe,
+        candleCount: integrated.candleCount,
+        maxCandlesAllowed:
+          integrated.maxCandlesAllowed,
+        generatedAt: new Date().toISOString(),
+        sectionCount: Object.keys(sections).length
       },
 
       validation: {
         status: "OK",
         valid: true,
-        checkedSections: REQUIRED_SECTIONS.length,
+        checkedModules: REQUIRED_MODULES.length,
         errors: []
       },
 
-      overview: {
-        dataQuality: report.summary.dataQuality,
-        dataQualityIssues: report.summary.dataQualityIssues,
+      summary: {
+        dataQuality: dataQuality.quality,
+        dataQualityIssues: dataQuality.issueCount,
+
         totalCandlePatterns:
-          report.summary.totalCandlePatterns,
-        supportZones: report.summary.supportZones,
-        resistanceZones: report.summary.resistanceZones
+          candlePatternSummary.totalPatterns,
+
+        supportZones: supports.length,
+        resistanceZones: resistances.length
       },
 
-      panels,
+      sections,
 
       note: NOTE
     };
@@ -345,7 +343,7 @@ export function formatHistoricalDashboardData(report) {
     return {
       status: "ERROR",
       version: "12.0",
-      module: "HISTORICAL_DASHBOARD_DATA",
+      module: "HISTORICAL_ANALYSIS_REPORT",
       dataType: "HISTORICAL_ONLY",
       error: error.message,
       note: NOTE

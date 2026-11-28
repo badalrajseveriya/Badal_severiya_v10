@@ -179,12 +179,17 @@ async function initializeTimeframe(timeframe) {
     "ऐतिहासिक डेटा की प्रतीक्षा है।"
   );
 
+  // Priority 1: Use valid user-imported data saved locally.
+  // Keep the composition UI consistent with the Master UI.
+  if (loadSavedData(timeframe)) {
+    return;
+  }
+
+  // Priority 2: Use Cloudflare only when no valid local import exists.
   try {
     const loaded = await loadCloudflareData(timeframe);
 
     if (loaded) return;
-
-    if (loadSavedData(timeframe)) return;
 
     resetSummary(
       timeframe,
@@ -198,6 +203,8 @@ async function initializeTimeframe(timeframe) {
       error
     );
 
+    // Local data is checked again in case it became available
+    // while the remote request was in progress.
     if (loadSavedData(timeframe)) return;
 
     resetSummary(

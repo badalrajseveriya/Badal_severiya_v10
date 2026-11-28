@@ -1,0 +1,63 @@
+
+name: Custom Indicator Analysis Bridge Tests
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - custom-indicator-analysis-bridge.js
+      - custom-indicator-analysis-bridge.test.js
+      - custom-indicator-adapter-engine.js
+      - custom-indicator-manager.js
+      - .github/workflows/custom-indicator-analysis-bridge-test.yml
+
+  pull_request:
+    branches:
+      - main
+    paths:
+      - custom-indicator-analysis-bridge.js
+      - custom-indicator-analysis-bridge.test.js
+      - custom-indicator-adapter-engine.js
+      - custom-indicator-manager.js
+      - .github/workflows/custom-indicator-analysis-bridge-test.yml
+
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  custom-indicator-analysis-bridge-tests:
+    name: Run 20 Bridge Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Verify bridge file
+        run: test -f custom-indicator-analysis-bridge.js
+
+      - name: Verify adapter engine file
+        run: test -f custom-indicator-adapter-engine.js
+
+      - name: Verify manager file
+        run: test -f custom-indicator-manager.js
+
+      - name: Verify bridge test file
+        run: test -f custom-indicator-analysis-bridge.test.js
+
+      - name: Syntax check bridge
+        run: node --check custom-indicator-analysis-bridge.js
+
+      - name: Syntax check test file
+        run: node --check custom-indicator-analysis-bridge.test.js
+
+      - name: Run bridge tests
+        run: node custom-indicator-analysis-bridge.test.js

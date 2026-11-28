@@ -1,5 +1,5 @@
 
-name: BADAL SEVERIYA - News Context Browser Tests
+name: BADAL SEVERIYA - Historical Master Browser Tests
 
 on:
   workflow_dispatch:
@@ -7,11 +7,15 @@ on:
     branches:
       - main
     paths:
+      - "index.html"
+      - "historical-master-eight-panel-ui.js"
+      - "historical-data-import.js"
       - "historical-master-news-context.js"
       - "historical-master-news-context-ui.js"
       - "historical-master-news-context-ui.browser.spec.js"
       - "historical-master-news-context-ui.test.js"
       - "package.json"
+      - "package-lock.json"
       - ".github/workflows/historical-master-news-context-browser-test.yml"
 
 permissions:
@@ -19,7 +23,7 @@ permissions:
 
 jobs:
   browser-tests:
-    name: Run News Context Browser Tests
+    name: Run Historical Master Browser Tests
     runs-on: ubuntu-latest
 
     steps:
@@ -37,5 +41,5 @@ jobs:
       - name: Install Playwright Chromium
         run: npx playwright install --with-deps chromium
 
-      - name: Run News Context Browser Tests
+      - name: Run Historical Master Browser Tests
         run: npm run test:historical-master-news-context-ui-browser

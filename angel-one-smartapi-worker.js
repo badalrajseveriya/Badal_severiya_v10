@@ -5,7 +5,7 @@ const SMARTAPI_LOGIN_URL =
 const SMARTAPI_STREAM_URL =
   "wss://smartapisocket.angelone.in/smart-stream";
 
-const WORKER_VERSION = "12.4";
+const WORKER_VERSION = "12.5";
 const HEARTBEAT_INTERVAL_MS = 30_000;
 const HEARTBEAT_TIMEOUT_MS = 75_000;
 const CONNECTION_ROTATION_MS = 14 * 60_000;
@@ -375,6 +375,8 @@ export class AngelOneSmartApiSession {
 
       await this.ctx.storage.put("connection_wanted", false);
       await this.clearReconnectAlarm();
+      await this.ctx.storage.delete("rotation_at");
+      await this.scheduleNextAlarm();
       await this.disconnectUpstream("USER_REQUEST");
 
       return jsonResponse({
@@ -665,12 +667,11 @@ export class AngelOneSmartApiSession {
     this.lastError = this.lastError || "RECONNECT_SCHEDULED";
 
     try {
-      if (typeof this.ctx.storage.setAlarm === "function") {
-        await this.ctx.storage.setAlarm(Date.now() + delay);
-      }
+      await this.ctx.storage.put("reconnect_at", Date.now() + delay);
+      await this.scheduleNextAlarm();
     } catch (error) {
       this.reconnectScheduled = false;
-      this.lastError = `RECONNECT_ALARM_FAILED: ${error?.message || "UNKNOWN"}`;
+      this.lastError = "RECONNECT_ALARM_FAILED: " + (error?.message || "UNKNOWN");
     }
 
     this.broadcast({
@@ -684,37 +685,75 @@ export class AngelOneSmartApiSession {
 
   async scheduleConnectionRotation() {
     try {
-      if (typeof this.ctx.storage.setAlarm === "function") {
-        await this.ctx.storage.setAlarm(
-          Date.now() + CONNECTION_ROTATION_MS
-        );
-      }
+      await this.ctx.storage.put("rotation_at", Date.now() + CONNECTION_ROTATION_MS);
+      await this.scheduleNextAlarm();
     } catch (error) {
-      this.lastError = `ROTATION_ALARM_FAILED: ${error?.message || "UNKNOWN"}`;
+      this.lastError = "ROTATION_ALARM_FAILED: " + (error?.message || "UNKNOWN");
     }
+  }
+
+  async scheduleNextAlarm() {
+    if (typeof this.ctx.storage.setAlarm !== "function") return;
+
+    const [reconnectAt, rotationAt] = await Promise.all([
+      this.ctx.storage.get("reconnect_at"),
+      this.ctx.storage.get("rotation_at")
+    ]);
+
+    const deadlines = [reconnectAt, rotationAt]
+      .filter(value => Number.isFinite(value) && value > 0);
+
+    if (deadlines.length === 0) {
+      if (typeof this.ctx.storage.deleteAlarm === "function") {
+        await this.ctx.storage.deleteAlarm();
+      }
+      return;
+    }
+
+    await this.ctx.storage.setAlarm(Math.min(...deadlines));
   }
 
   async clearReconnectAlarm() {
     try {
-      if (typeof this.ctx.storage.deleteAlarm === "function") {
-        await this.ctx.storage.deleteAlarm();
-      }
+      await this.ctx.storage.delete("reconnect_at");
+      await this.scheduleNextAlarm();
     } catch {
       // Alarm may not exist.
     }
   }
 
   async alarm() {
+    const now = Date.now();
     const wanted = await this.ctx.storage.get("connection_wanted");
+
+    const [reconnectAt, rotationAt] = await Promise.all([
+      this.ctx.storage.get("reconnect_at"),
+      this.ctx.storage.get("rotation_at")
+    ]);
+
+    const reconnectDue =
+      Number.isFinite(reconnectAt) && reconnectAt <= now;
+
+    const rotationDue =
+      Number.isFinite(rotationAt) && rotationAt <= now;
 
     if (wanted !== true) {
       this.connectionWanted = false;
       this.reconnectScheduled = false;
+
+      await this.ctx.storage.delete("reconnect_at");
+      await this.ctx.storage.delete("rotation_at");
+      await this.scheduleNextAlarm();
+
+      return;
+    }
+
+    if (!reconnectDue && !rotationDue) {
+      await this.scheduleNextAlarm();
       return;
     }
 
     this.connectionWanted = true;
-    this.reconnectScheduled = false;
 
     const clients = this.ctx.getWebSockets().filter(
       socket => socket.readyState === 1
@@ -722,15 +761,35 @@ export class AngelOneSmartApiSession {
 
     if (clients.length === 0) {
       this.connectionWanted = false;
+      this.reconnectScheduled = false;
 
       await this.ctx.storage.put("connection_wanted", false);
+      await this.ctx.storage.delete("reconnect_at");
+      await this.ctx.storage.delete("rotation_at");
+      await this.scheduleNextAlarm();
       await this.disconnectUpstream("NO_ACTIVE_BROWSER_CLIENTS");
 
       return;
     }
 
-    await this.disconnectUpstream("CONTROLLED_CONNECTION_ROTATION");
-    await this.connectUpstream();
+    if (reconnectDue) {
+      await this.ctx.storage.delete("reconnect_at");
+      this.reconnectScheduled = false;
+    }
+
+    if (rotationDue) {
+      await this.ctx.storage.delete("rotation_at");
+    }
+
+    if (rotationDue && this.upstream?.readyState === 1) {
+      await this.disconnectUpstream("CONTROLLED_CONNECTION_ROTATION");
+    }
+
+    if (!this.upstream || this.upstream.readyState !== 1) {
+      await this.connectUpstream();
+    } else {
+      await this.scheduleNextAlarm();
+    }
   }
 
   async restoreSubscriptions() {
@@ -930,6 +989,8 @@ export class AngelOneSmartApiSession {
 
       await this.ctx.storage.put("connection_wanted", false);
       await this.clearReconnectAlarm();
+      await this.ctx.storage.delete("rotation_at");
+      await this.scheduleNextAlarm();
       await this.disconnectUpstream("NO_ACTIVE_BROWSER_CLIENTS");
     }
   }
@@ -951,6 +1012,8 @@ export class AngelOneSmartApiSession {
 
       await this.ctx.storage.put("connection_wanted", false);
       await this.clearReconnectAlarm();
+      await this.ctx.storage.delete("rotation_at");
+      await this.scheduleNextAlarm();
       await this.disconnectUpstream("NO_ACTIVE_BROWSER_CLIENTS");
     }
   }

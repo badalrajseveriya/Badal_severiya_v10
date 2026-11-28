@@ -10,6 +10,8 @@ on:
       - "angel-one-dashboard-auth.test.js"
       - "angel-one-dashboard-auth-store.js"
       - "angel-one-dashboard-auth-store.test.js"
+      - "angel-one-dashboard-auth-wrangler.test.js"
+      - "wrangler-angel-one.toml"
       - ".github/workflows/angel-one-dashboard-auth-test.yml"
 
   pull_request:
@@ -20,6 +22,8 @@ on:
       - "angel-one-dashboard-auth.test.js"
       - "angel-one-dashboard-auth-store.js"
       - "angel-one-dashboard-auth-store.test.js"
+      - "angel-one-dashboard-auth-wrangler.test.js"
+      - "wrangler-angel-one.toml"
       - ".github/workflows/angel-one-dashboard-auth-test.yml"
 
   workflow_dispatch:
@@ -29,7 +33,7 @@ permissions:
 
 jobs:
   dashboard-auth-tests:
-    name: Dashboard Authentication and Auth Store Tests
+    name: Dashboard Authentication and Configuration Tests
     runs-on: ubuntu-latest
     timeout-minutes: 5
 
@@ -54,8 +58,14 @@ jobs:
       - name: Check auth store test syntax
         run: node --check angel-one-dashboard-auth-store.test.js
 
+      - name: Check Wrangler configuration test syntax
+        run: node --check angel-one-dashboard-auth-wrangler.test.js
+
       - name: Run dashboard authentication tests
         run: node angel-one-dashboard-auth.test.js
 
       - name: Run dashboard auth store tests
         run: node angel-one-dashboard-auth-store.test.js
+
+      - name: Run Wrangler configuration validation tests
+        run: node angel-one-dashboard-auth-wrangler.test.js

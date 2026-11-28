@@ -1,0 +1,61 @@
+
+name: Live Master Feed Bridge Tests
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - live-master-feed-bridge.js
+      - live-master-feed-bridge.test.js
+      - live-candle-engine.js
+      - .github/workflows/live-master-feed-bridge-test.yml
+
+  pull_request:
+    branches:
+      - main
+    paths:
+      - live-master-feed-bridge.js
+      - live-master-feed-bridge.test.js
+      - live-candle-engine.js
+      - .github/workflows/live-master-feed-bridge-test.yml
+
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  live-master-feed-bridge-tests:
+    name: Run 24 Feed Bridge Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Verify feed bridge file
+        run: test -f live-master-feed-bridge.js
+
+      - name: Verify feed bridge test file
+        run: test -f live-master-feed-bridge.test.js
+
+      - name: Verify live candle engine
+        run: test -f live-candle-engine.js
+
+      - name: Syntax check feed bridge
+        run: node --check live-master-feed-bridge.js
+
+      - name: Syntax check test file
+        run: node --check live-master-feed-bridge.test.js
+
+      - name: Syntax check candle engine
+        run: node --check live-candle-engine.js
+
+      - name: Run feed bridge tests
+        run: node live-master-feed-bridge.test.js

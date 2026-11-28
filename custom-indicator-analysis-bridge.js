@@ -1,26 +1,13 @@
 
 /* ==========================================================
    BADAL SEVERIYA V12
-   CUSTOM INDICATOR ANALYSIS BRIDGE
+   CUSTOM INDICATOR ANALYSIS BRIDGE v12.1
 
-   Connects:
-   - Custom Indicator Manager
-   - Custom Indicator Adapter Engine
-
-   Responsibilities:
-   - Compatibility validation
-   - Three-slot indicator orchestration
-   - Analysis mode gating
-   - 1D / 15M runtime separation
-   - Runtime result validation
-   - Safe WAIT fallback
-
-   SAFETY:
-   - Imported scripts are never executed.
-   - Unsupported indicators remain chart-only.
-   - Invalid calculations never enter analysis context.
-   - No order execution.
-   - No forecasts or trading advice.
+   Connects Manager + Adapter Engine.
+   Supports 1D and 15M only.
+   MACD object values are safely normalized.
+   Imported scripts are never executed.
+   No order execution.
    ========================================================== */
 
 import {
@@ -31,16 +18,10 @@ import {
   createCustomIndicatorAdapterEngine
 } from "./custom-indicator-adapter-engine.js";
 
-const VERSION = "12.0";
+const VERSION = "12.1";
+const MODULE = "CUSTOM_INDICATOR_ANALYSIS_BRIDGE";
 
-const MODULE =
-  "CUSTOM_INDICATOR_ANALYSIS_BRIDGE";
-
-const SUPPORTED_TIMEFRAMES = [
-  "1D",
-  "15M"
-];
-
+const SUPPORTED_TIMEFRAMES = ["1D", "15M"];
 const MAX_INDICATORS = 3;
 
 const DISCLAIMER =
@@ -48,18 +29,13 @@ const DISCLAIMER =
   "Not a forecast, trading signal, or financial advice.";
 
 function isObject(value) {
-  return (
-    value !== null &&
+  return value !== null &&
     typeof value === "object" &&
-    !Array.isArray(value)
-  );
+    !Array.isArray(value);
 }
 
 function safeString(value, fallback = "") {
-  if (
-    value === undefined ||
-    value === null
-  ) {
+  if (value === undefined || value === null) {
     return fallback;
   }
 
@@ -75,28 +51,20 @@ function normalizeTimeframe(value) {
     .trim()
     .toUpperCase();
 
-  return SUPPORTED_TIMEFRAMES.includes(
-    timeframe
-  )
+  return SUPPORTED_TIMEFRAMES.includes(timeframe)
     ? timeframe
     : null;
 }
 
 function safeClone(value) {
   try {
-    return JSON.parse(
-      JSON.stringify(value)
-    );
+    return JSON.parse(JSON.stringify(value));
   } catch {
     return null;
   }
 }
 
-function unavailable(
-  status,
-  reason,
-  timeframe = null
-) {
+function unavailable(status, reason, timeframe = null) {
   return {
     status,
     valid: false,
@@ -109,7 +77,6 @@ function unavailable(
     rejectedCount: 0,
     reason,
     disclaimer: DISCLAIMER,
-
     safety: {
       importedSourceExecuted: false,
       arbitraryCodeExecution: false,
@@ -137,7 +104,8 @@ export function createCustomIndicatorAnalysisBridge(
   if (
     !manager ||
     typeof manager.listIndicators !== "function" ||
-    typeof manager.setCompatibility !== "function"
+    typeof manager.setCompatibility !== "function" ||
+    typeof manager.getIndicator !== "function"
   ) {
     throw new Error(
       "A compatible Custom Indicator Manager is required."
@@ -160,17 +128,13 @@ export function createCustomIndicatorAnalysisBridge(
 
   function listSlots() {
     try {
-      const slots =
-        manager.listIndicators();
+      const slots = manager.listIndicators();
 
       if (!Array.isArray(slots)) {
         return [];
       }
 
-      return slots.slice(
-        0,
-        MAX_INDICATORS
-      );
+      return slots.slice(0, MAX_INDICATORS);
     } catch {
       return [];
     }
@@ -180,7 +144,6 @@ export function createCustomIndicatorAnalysisBridge(
     return listSlots().map(slot => ({
       slot: slot.slot,
       occupied: slot.occupied === true,
-
       indicator:
         slot.occupied === true &&
         isObject(slot.indicator)
@@ -194,26 +157,23 @@ export function createCustomIndicatorAnalysisBridge(
   // --------------------------------------------------------
 
   function validateIndicator(id) {
-    const indicator =
-      manager.getIndicator(id);
+    const indicator = manager.getIndicator(id);
 
     if (!indicator) {
       return {
         validated: false,
         status: "NOT_FOUND",
         indicatorId: safeString(id),
-        reason:
-          "Indicator was not found in the manager."
+        reason: "Indicator was not found in the manager."
       };
     }
 
     let validation;
 
     try {
-      validation =
-        adapterEngine.validateIndicator(
-          indicator
-        );
+      validation = adapterEngine.validateIndicator(
+        indicator
+      );
     } catch (error) {
       validation = {
         valid: false,
@@ -252,16 +212,12 @@ export function createCustomIndicatorAnalysisBridge(
       )
     };
 
-    const managerUpdate =
-      manager.setCompatibility(
-        indicator.id,
-        safeValidation
-      );
+    const managerUpdate = manager.setCompatibility(
+      indicator.id,
+      safeValidation
+    );
 
-    const updated =
-      manager.getIndicator(
-        indicator.id
-      );
+    const updated = manager.getIndicator(indicator.id);
 
     return {
       validated:
@@ -272,34 +228,22 @@ export function createCustomIndicatorAnalysisBridge(
         managerUpdate?.status ||
         "COMPATIBILITY_UPDATE_FAILED",
 
-      slot:
-        managerUpdate?.slot ?? null,
-
-      indicatorId:
-        indicator.id,
-
-      indicatorName:
-        indicator.name,
+      slot: managerUpdate?.slot ?? null,
+      indicatorId: indicator.id,
+      indicatorName: indicator.name,
 
       indicatorType:
         validation?.indicatorType ?? null,
 
-      adapterId:
-        safeValidation.adapterId,
-
-      analysisSupported:
-        safeValidation.analysisSupported,
-
-      reason:
-        safeValidation.reason,
+      adapterId: safeValidation.adapterId,
+      analysisSupported: safeValidation.analysisSupported,
+      reason: safeValidation.reason,
 
       analysisActive:
         updated?.analysis?.active === true,
 
       compatibility:
-        safeClone(
-          updated?.compatibility
-        ),
+        safeClone(updated?.compatibility),
 
       managerUpdate:
         managerUpdate?.updated === true
@@ -320,9 +264,7 @@ export function createCustomIndicatorAnalysisBridge(
       }
 
       results.push(
-        validateIndicator(
-          slot.indicator.id
-        )
+        validateIndicator(slot.indicator.id)
       );
     }
 
@@ -331,14 +273,10 @@ export function createCustomIndicatorAnalysisBridge(
       total: results.length,
 
       validatedCount:
-        results.filter(
-          result => result.validated
-        ).length,
+        results.filter(result => result.validated).length,
 
       unsupportedCount:
-        results.filter(
-          result => !result.validated
-        ).length,
+        results.filter(result => !result.validated).length,
 
       results
     };
@@ -346,14 +284,10 @@ export function createCustomIndicatorAnalysisBridge(
 
   // --------------------------------------------------------
   // Runtime analysis
-  // Each timeframe is analyzed independently.
   // --------------------------------------------------------
 
   function analyzeTimeframe(input = {}) {
-    const timeframe =
-      normalizeTimeframe(
-        input.timeframe
-      );
+    const timeframe = normalizeTimeframe(input.timeframe);
 
     if (!timeframe) {
       return unavailable(
@@ -385,8 +319,7 @@ export function createCustomIndicatorAnalysisBridge(
         continue;
       }
 
-      const indicator =
-        slot.indicator;
+      const indicator = slot.indicator;
 
       const resultBase = {
         slot: slot.slot,
@@ -397,7 +330,6 @@ export function createCustomIndicatorAnalysisBridge(
         enabled: indicator.enabled === true
       };
 
-      // Disabled indicators must not run.
       if (
         indicator.enabled !== true ||
         indicator.mode === "DISABLED"
@@ -407,19 +339,12 @@ export function createCustomIndicatorAnalysisBridge(
           status: "DISABLED",
           valid: false,
           included: false,
-          reason:
-            "Indicator is disabled."
+          reason: "Indicator is disabled."
         });
-
         continue;
       }
 
-      // Chart-only indicators are not part
-      // of master analysis.
-      if (
-        indicator.mode !==
-        "ANALYSIS_ENABLED"
-      ) {
+      if (indicator.mode !== "ANALYSIS_ENABLED") {
         indicatorResults.push({
           ...resultBase,
           status: "CHART_ONLY",
@@ -428,11 +353,9 @@ export function createCustomIndicatorAnalysisBridge(
           reason:
             "Indicator is configured for chart-only mode."
         });
-
         continue;
       }
 
-      // Compatibility must be validated first.
       if (
         indicator.compatibility?.validated !== true ||
         indicator.compatibility?.analysisSupported !== true ||
@@ -446,14 +369,10 @@ export function createCustomIndicatorAnalysisBridge(
           reason:
             "Indicator compatibility has not been validated."
         });
-
         continue;
       }
 
-      // Mode selection alone is insufficient.
-      if (
-        indicator.analysis?.active !== true
-      ) {
+      if (indicator.analysis?.active !== true) {
         indicatorResults.push({
           ...resultBase,
           status: "WAIT_ACTIVATION",
@@ -462,19 +381,17 @@ export function createCustomIndicatorAnalysisBridge(
           reason:
             "Indicator analysis activation is not valid."
         });
-
         continue;
       }
 
       let runtime;
 
       try {
-        runtime =
-          adapterEngine.analyzeIndicator({
-            indicator,
-            timeframe,
-            candles: input.candles
-          });
+        runtime = adapterEngine.analyzeIndicator({
+          indicator,
+          timeframe,
+          candles: input.candles
+        });
       } catch (error) {
         runtime = {
           status: "CALCULATION_ERROR",
@@ -486,19 +403,48 @@ export function createCustomIndicatorAnalysisBridge(
         };
       }
 
+      // MACD returns an object:
+      // { macd, signal, histogram }
+      // Histogram is the normalized numeric value.
+
+      const isMacdResult =
+        runtime?.indicatorType === "MACD";
+
+      const macdValuesValid =
+        !isMacdResult ||
+        (
+          isObject(runtime?.latestValue) &&
+          Number.isFinite(Number(runtime.latestValue.macd)) &&
+          Number.isFinite(Number(runtime.latestValue.signal)) &&
+          Number.isFinite(Number(runtime.latestValue.histogram))
+        );
+
+      const normalizedLatestValue =
+        isMacdResult && macdValuesValid
+          ? Number(runtime.latestValue.histogram)
+          : Number(runtime?.latestValue);
+
+      const normalizedPreviousValue =
+        isMacdResult && isObject(runtime?.previousValue)
+          ? Number(runtime.previousValue.histogram)
+          : Number(runtime?.previousValue);
+
       const runtimeValid =
         runtime?.status === "VALID" &&
         runtime?.valid === true &&
-        Number.isFinite(
-          Number(runtime.latestValue)
-        ) &&
+        Number.isFinite(normalizedLatestValue) &&
+        macdValuesValid &&
+        Number.isFinite(Number(runtime?.marketClose)) &&
+        Number(runtime.marketClose) > 0 &&
         runtime.timeframe === timeframe &&
+        runtime.adapterId === indicator.compatibility.adapterId &&
         runtime.orderExecution !== true &&
         runtime.sourceExecution !== true;
 
       if (!runtimeValid) {
         indicatorResults.push({
           ...resultBase,
+
           status:
             runtime?.status ||
             "INVALID_RUNTIME_RESULT",
@@ -517,12 +463,20 @@ export function createCustomIndicatorAnalysisBridge(
 
           runtimeValidation: {
             finiteLatestValue:
-              Number.isFinite(
-                Number(runtime?.latestValue)
-              ),
+              Number.isFinite(normalizedLatestValue),
+
+            macdValuesValid,
+
+            finiteMarketClose:
+              Number.isFinite(Number(runtime?.marketClose)) &&
+              Number(runtime.marketClose) > 0,
 
             timeframeMatch:
               runtime?.timeframe === timeframe,
+
+            adapterMatch:
+              runtime?.adapterId ===
+              indicator.compatibility.adapterId,
 
             sourceExecution:
               runtime?.sourceExecution === true,
@@ -538,29 +492,45 @@ export function createCustomIndicatorAnalysisBridge(
       const safeRuntime = {
         status: "VALID",
         valid: true,
+
         slot: slot.slot,
         indicatorId: indicator.id,
         indicatorName: indicator.name,
-        indicatorType:
-          runtime.indicatorType,
 
-        adapterId:
-          runtime.adapterId,
-
+        indicatorType: runtime.indicatorType,
+        adapterId: runtime.adapterId,
         timeframe,
 
-        latestValue:
-          Number(runtime.latestValue),
+        latestValue: normalizedLatestValue,
 
         previousValue:
-          Number.isFinite(
-            Number(runtime.previousValue)
-          )
-            ? Number(runtime.previousValue)
+          Number.isFinite(normalizedPreviousValue)
+            ? normalizedPreviousValue
             : null,
 
-        marketClose:
-          Number(runtime.marketClose),
+        marketClose: Number(runtime.marketClose),
+
+        values:
+          isMacdResult
+            ? {
+                macd: Number(runtime.latestValue.macd),
+                signal: Number(runtime.latestValue.signal),
+                histogram: Number(runtime.latestValue.histogram)
+              }
+            : null,
+
+        previousValues:
+          isMacdResult &&
+          isObject(runtime.previousValue) &&
+          Number.isFinite(Number(runtime.previousValue.macd)) &&
+          Number.isFinite(Number(runtime.previousValue.signal)) &&
+          Number.isFinite(Number(runtime.previousValue.histogram))
+            ? {
+                macd: Number(runtime.previousValue.macd),
+                signal: Number(runtime.previousValue.signal),
+                histogram: Number(runtime.previousValue.histogram)
+              }
+            : null,
 
         details:
           isObject(runtime.details)
@@ -568,10 +538,9 @@ export function createCustomIndicatorAnalysisBridge(
             : {},
 
         interpretation:
-          safeString(
-            runtime.interpretation,
-            "NEUTRAL"
-          ),
+          isObject(runtime.interpretation)
+            ? safeClone(runtime.interpretation)
+            : safeString(runtime.interpretation, "NEUTRAL"),
 
         candlesUsed:
           Number(runtime.candlesUsed) || 0,
@@ -588,17 +557,12 @@ export function createCustomIndicatorAnalysisBridge(
         status: "VALID",
         valid: true,
         included: true,
-        adapterId:
-          safeRuntime.adapterId,
-        latestValue:
-          safeRuntime.latestValue,
-        interpretation:
-          safeRuntime.interpretation
+        adapterId: safeRuntime.adapterId,
+        latestValue: safeRuntime.latestValue,
+        interpretation: safeRuntime.interpretation
       });
 
-      analysisContext.push(
-        safeRuntime
-      );
+      analysisContext.push(safeRuntime);
     }
 
     return {
@@ -611,19 +575,15 @@ export function createCustomIndicatorAnalysisBridge(
       indicatorResults,
       analysisContext,
 
-      totalIndicators:
-        indicatorResults.length,
-
-      validCount:
-        analysisContext.length,
+      totalIndicators: indicatorResults.length,
+      validCount: analysisContext.length,
 
       rejectedCount:
         indicatorResults.filter(
           result => result.included !== true
         ).length,
 
-      contextAvailable:
-        analysisContext.length > 0,
+      contextAvailable: analysisContext.length > 0,
 
       reason:
         analysisContext.length > 0
@@ -645,19 +605,15 @@ export function createCustomIndicatorAnalysisBridge(
   // --------------------------------------------------------
 
   function analyzeBothTimeframes(input = {}) {
-    const daily =
-      analyzeTimeframe({
-        timeframe: "1D",
-        candles:
-          input.candles1D
-      });
+    const daily = analyzeTimeframe({
+      timeframe: "1D",
+      candles: input.candles1D
+    });
 
-    const intraday =
-      analyzeTimeframe({
-        timeframe: "15M",
-        candles:
-          input.candles15M
-      });
+    const intraday = analyzeTimeframe({
+      timeframe: "15M",
+      candles: input.candles15M
+    });
 
     return {
       status: "READY",
@@ -685,29 +641,25 @@ export function createCustomIndicatorAnalysisBridge(
   // --------------------------------------------------------
 
   function snapshot() {
-    const indicators =
-      listIndicators();
+    const indicators = listIndicators();
 
-    const occupied =
-      indicators.filter(
-        slot => slot.occupied
-      );
+    const occupied = indicators.filter(
+      slot => slot.occupied
+    );
 
-    const validated =
-      occupied.filter(
-        slot =>
-          slot.indicator?.compatibility?.validated === true &&
-          slot.indicator?.compatibility?.analysisSupported === true
-      );
+    const validated = occupied.filter(
+      slot =>
+        slot.indicator?.compatibility?.validated === true &&
+        slot.indicator?.compatibility?.analysisSupported === true
+    );
 
-    const active =
-      occupied.filter(
-        slot =>
-          slot.indicator?.enabled === true &&
-          slot.indicator?.mode === "ANALYSIS_ENABLED" &&
-          slot.indicator?.analysis?.active === true &&
-          slot.indicator?.compatibility?.validated === true
-      );
+    const active = occupied.filter(
+      slot =>
+        slot.indicator?.enabled === true &&
+        slot.indicator?.mode === "ANALYSIS_ENABLED" &&
+        slot.indicator?.analysis?.active === true &&
+        slot.indicator?.compatibility?.validated === true
+    );
 
     return {
       status: "READY",
@@ -717,21 +669,17 @@ export function createCustomIndicatorAnalysisBridge(
       slots: {
         maximum: MAX_INDICATORS,
         occupied: occupied.length,
-        available:
-          MAX_INDICATORS - occupied.length
+        available: MAX_INDICATORS - occupied.length
       },
 
       compatibility: {
         validated: validated.length,
-        unvalidated:
-          occupied.length - validated.length
+        unvalidated: occupied.length - validated.length
       },
 
       analysis: {
         active: active.length,
-        supportedTimeframes: [
-          ...SUPPORTED_TIMEFRAMES
-        ]
+        supportedTimeframes: [...SUPPORTED_TIMEFRAMES]
       },
 
       indicators,
@@ -766,9 +714,7 @@ export function createCustomIndicatorAnalysisBridge(
       version: VERSION,
       module: MODULE,
       maximumIndicators: MAX_INDICATORS,
-      supportedTimeframes: [
-        ...SUPPORTED_TIMEFRAMES
-      ],
+      supportedTimeframes: [...SUPPORTED_TIMEFRAMES],
       importedSourceExecution: false,
       arbitraryCodeExecution: false,
       orderExecution: false
@@ -780,8 +726,7 @@ export const CUSTOM_INDICATOR_ANALYSIS_BRIDGE_CONFIG = {
   version: VERSION,
   module: MODULE,
   maximumIndicators: MAX_INDICATORS,
-  supportedTimeframes:
-    SUPPORTED_TIMEFRAMES,
+  supportedTimeframes: SUPPORTED_TIMEFRAMES,
   connectsManagerAndAdapter: true,
   importedSourceExecution: false,
   arbitraryCodeExecution: false,

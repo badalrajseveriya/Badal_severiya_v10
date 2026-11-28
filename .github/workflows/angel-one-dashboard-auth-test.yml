@@ -1,0 +1,48 @@
+name: BADAL SEVERIYA - Dashboard Auth Tests
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "angel-one-dashboard-auth.js"
+      - "angel-one-dashboard-auth.test.js"
+      - ".github/workflows/angel-one-dashboard-auth-test.yml"
+
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "angel-one-dashboard-auth.js"
+      - "angel-one-dashboard-auth.test.js"
+      - ".github/workflows/angel-one-dashboard-auth-test.yml"
+
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  dashboard-auth-tests:
+    name: Dashboard Authentication Tests
+    runs-on: ubuntu-latest
+
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Check authentication module syntax
+        run: node --check angel-one-dashboard-auth.js
+
+      - name: Check authentication test syntax
+        run: node --check angel-one-dashboard-auth.test.js
+
+      - name: Run dashboard authentication tests
+        run: node angel-one-dashboard-auth.test.js

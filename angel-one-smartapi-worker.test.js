@@ -87,7 +87,6 @@ function makeContext() {
 
   return {
     storage,
-
     sockets,
 
     acceptWebSocket(socket) {
@@ -465,20 +464,9 @@ await test("Successful login stores session without returning credentials", asyn
     assert.equal(data.status, "AUTHENTICATED");
     assert.equal(data.credentialsReturnedToBrowser, false);
 
-    assert.equal(
-      loginRequest.body.clientcode,
-      "TESTCLIENT"
-    );
-
-    assert.equal(
-      loginRequest.body.password,
-      "1234"
-    );
-
-    assert.equal(
-      loginRequest.body.totp,
-      "123456"
-    );
+    assert.equal(loginRequest.body.clientcode, "TESTCLIENT");
+    assert.equal(loginRequest.body.password, "1234");
+    assert.equal(loginRequest.body.totp, "123456");
 
     assert.equal(
       loginRequest.options.headers["X-PrivateKey"],
@@ -635,37 +623,70 @@ await test("Stream ticket is created and consumed once", async () => {
 
   const pair = makePair();
 
-  const streamResponse = await session.fetch(
-    new Request(
-      `https://angel-worker.test/internal/stream?ticket=${ticketData.ticket}`,
-      {
-        headers: {
-          Upgrade: "websocket"
-        }
+  // Node.js Response does not natively support Cloudflare's
+  // WebSocket upgrade response status 101.
+  // This shim preserves normal Response behavior while allowing
+  // the Worker-specific 101 + webSocket response to be tested.
+  const NativeResponse = globalThis.Response;
+
+  class WorkerCompatibleResponse extends NativeResponse {
+    constructor(body, init = {}) {
+      if (init.status === 101) {
+        super(null, {
+          status: 200,
+          headers: init.headers
+        });
+
+        this.workerWebSocketStatus = 101;
+        this.webSocket = init.webSocket;
+      } else {
+        super(body, init);
+        this.workerWebSocketStatus = null;
       }
-    )
-  );
+    }
 
-  assert.equal(streamResponse.status, 101);
-  assert.equal(streamResponse.webSocket, pair.client);
-  assert.equal(await ctx.storage.get(key), undefined);
-  assert.equal(ctx.sockets.length, 1);
+    get status() {
+      return this.workerWebSocketStatus ?? super.status;
+    }
+  }
 
-  const secondPair = makePair();
+  try {
+    globalThis.Response = WorkerCompatibleResponse;
 
-  const secondResponse = await session.fetch(
-    new Request(
-      `https://angel-worker.test/internal/stream?ticket=${ticketData.ticket}`,
-      {
-        headers: {
-          Upgrade: "websocket"
+    const streamResponse = await session.fetch(
+      new Request(
+        `https://angel-worker.test/internal/stream?ticket=${ticketData.ticket}`,
+        {
+          headers: {
+            Upgrade: "websocket"
+          }
         }
-      }
-    )
-  );
+      )
+    );
 
-  assert.equal(secondResponse.status, 401);
-  assert.equal(secondPair.client.readyState, 1);
+    assert.equal(streamResponse.status, 101);
+    assert.equal(streamResponse.webSocket, pair.client);
+    assert.equal(await ctx.storage.get(key), undefined);
+    assert.equal(ctx.sockets.length, 1);
+
+    const secondPair = makePair();
+
+    const secondResponse = await session.fetch(
+      new Request(
+        `https://angel-worker.test/internal/stream?ticket=${ticketData.ticket}`,
+        {
+          headers: {
+            Upgrade: "websocket"
+          }
+        }
+      )
+    );
+
+    assert.equal(secondResponse.status, 401);
+    assert.equal(secondPair.client.readyState, 1);
+  } finally {
+    globalThis.Response = NativeResponse;
+  }
 });
 
 // ----------------------------------------------------------

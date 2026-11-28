@@ -1,0 +1,68 @@
+name: Live Master Feed Controller Tests
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - live-master-feed-controller.js
+      - live-master-feed-controller.test.js
+      - live-master-feed-bridge.js
+      - live-candle-engine.js
+      - .github/workflows/live-master-feed-controller-test.yml
+
+  pull_request:
+    branches:
+      - main
+    paths:
+      - live-master-feed-controller.js
+      - live-master-feed-controller.test.js
+      - live-master-feed-bridge.js
+      - live-candle-engine.js
+      - .github/workflows/live-master-feed-controller-test.yml
+
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  live-master-feed-controller-tests:
+    name: Run 13 Feed Controller Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Verify controller file
+        run: test -f live-master-feed-controller.js
+
+      - name: Verify controller test file
+        run: test -f live-master-feed-controller.test.js
+
+      - name: Verify feed bridge
+        run: test -f live-master-feed-bridge.js
+
+      - name: Verify live candle engine
+        run: test -f live-candle-engine.js
+
+      - name: Syntax check controller
+        run: node --check live-master-feed-controller.js
+
+      - name: Syntax check test file
+        run: node --check live-master-feed-controller.test.js
+
+      - name: Syntax check feed bridge
+        run: node --check live-master-feed-bridge.js
+
+      - name: Syntax check candle engine
+        run: node --check live-candle-engine.js
+
+      - name: Run controller tests
+        run: node live-master-feed-controller.test.js

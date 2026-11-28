@@ -1,10 +1,10 @@
 
-// ======================================================
-// BADAL SEVERIYA V12
-// MASTER HISTORICAL ANALYSIS ENGINE
-// 1D + 15M | Historical Educational Analysis Only
-// No forecasts, future probabilities or trading signals
-// ======================================================
+ // ======================================================
+ // BADAL SEVERIYA V12
+ // MASTER HISTORICAL ANALYSIS ENGINE
+ // 1D + 15M | Historical Educational Analysis Only
+ // No forecasts, future probabilities or trading signals
+ // ======================================================
 
 import {
   calculateHistoricalCandleComposition
@@ -17,19 +17,65 @@ function isFiniteNumber(value) {
   return typeof value === "number" && Number.isFinite(value);
 }
 
-function nearestBelow(zones, price) {
+// ------------------------------------------------------
+// HISTORICAL SUPPORT / RESISTANCE ZONE VALIDATION
+// ------------------------------------------------------
+
+function isValidHistoricalZone(zone, expectedType) {
+  if (!zone || typeof zone !== "object") {
+    return false;
+  }
+
+  if (
+    zone.type !== undefined &&
+    zone.type !== expectedType
+  ) {
+    return false;
+  }
+
+  if (
+    !isFiniteNumber(zone.price) ||
+    !isFiniteNumber(zone.lower) ||
+    !isFiniteNumber(zone.upper)
+  ) {
+    return false;
+  }
+
+  if (
+    zone.price <= 0 ||
+    zone.lower <= 0 ||
+    zone.upper <= 0 ||
+    zone.lower > zone.upper ||
+    zone.price < zone.lower ||
+    zone.price > zone.upper
+  ) {
+    return false;
+  }
+
+  return true;
+}
+
+function nearestBelow(zones, price, expectedType) {
+  if (!Array.isArray(zones)) {
+    return null;
+  }
+
   return zones
     .filter(zone =>
-      isFiniteNumber(zone.price) &&
+      isValidHistoricalZone(zone, expectedType) &&
       zone.price < price
     )
     .sort((a, b) => b.price - a.price)[0] ?? null;
 }
 
-function nearestAbove(zones, price) {
+function nearestAbove(zones, price, expectedType) {
+  if (!Array.isArray(zones)) {
+    return null;
+  }
+
   return zones
     .filter(zone =>
-      isFiniteNumber(zone.price) &&
+      isValidHistoricalZone(zone, expectedType) &&
       zone.price > price
     )
     .sort((a, b) => a.price - b.price)[0] ?? null;
@@ -37,6 +83,7 @@ function nearestAbove(zones, price) {
 
 function isPriceInsideZone(price, zone) {
   return (
+    isFiniteNumber(price) &&
     isFiniteNumber(zone?.lower) &&
     isFiniteNumber(zone?.upper) &&
     zone.lower <= zone.upper &&
@@ -56,18 +103,36 @@ function recentDirectionalEvent(events, direction, candleCount) {
   );
 }
 
+// ------------------------------------------------------
+// HISTORICAL LEVELS
+// ------------------------------------------------------
+
 function calculateHistoricalLevels(report, candles) {
   const structure = report.sections.marketStructure;
   const sr = report.sections.supportResistance;
 
   const currentPrice = candles[candles.length - 1].close;
-  const supports = Array.isArray(sr.supports) ? sr.supports : [];
-  const resistances = Array.isArray(sr.resistances)
+
+  const supports = Array.isArray(sr?.supports)
+    ? sr.supports
+    : [];
+
+  const resistances = Array.isArray(sr?.resistances)
     ? sr.resistances
     : [];
 
-  const support = nearestBelow(supports, currentPrice);
-  const resistance = nearestAbove(resistances, currentPrice);
+  const support = nearestBelow(
+    supports,
+    currentPrice,
+    "SUPPORT"
+  );
+
+  const resistance = nearestAbove(
+    resistances,
+    currentPrice,
+    "RESISTANCE"
+  );
+
   const trend = structure.trend ?? "UNKNOWN";
 
   if (trend === "BULLISH") {
@@ -95,7 +160,8 @@ function calculateHistoricalLevels(report, candles) {
           color: "RED"
         }
       ],
-      note: "Historical reference levels only. Not actionable trade levels."
+      note:
+        "Historical reference levels only. Not actionable trade levels. Invalid historical zones are excluded."
     };
   }
 
@@ -124,7 +190,8 @@ function calculateHistoricalLevels(report, candles) {
           color: "GREEN"
         }
       ],
-      note: "Historical reference levels only. Not actionable trade levels."
+      note:
+        "Historical reference levels only. Not actionable trade levels. Invalid historical zones are excluded."
     };
   }
 
@@ -133,9 +200,14 @@ function calculateHistoricalLevels(report, candles) {
     trend: "UNKNOWN",
     currentPrice,
     levels: [],
-    note: "Historical direction is not sufficiently classified."
+    note:
+      "Historical direction is not sufficiently classified."
   };
 }
+
+// ------------------------------------------------------
+// HISTORICAL SMC PATTERN MATCHING
+// ------------------------------------------------------
 
 function calculateHistoricalSMC(structure, candles) {
   if (
@@ -171,23 +243,23 @@ function calculateHistoricalSMC(structure, candles) {
     : [];
 
   const bullishOB = orderBlocks.some(zone =>
-    zone.type === "BULLISH_ORDER_BLOCK" &&
+    zone?.type === "BULLISH_ORDER_BLOCK" &&
     isPriceInsideZone(price, zone)
   );
 
   const bearishOB = orderBlocks.some(zone =>
-    zone.type === "BEARISH_ORDER_BLOCK" &&
+    zone?.type === "BEARISH_ORDER_BLOCK" &&
     isPriceInsideZone(price, zone)
   );
 
   const bullishFVG = gaps.some(zone =>
-    zone.type === "BULLISH_FVG" &&
+    zone?.type === "BULLISH_FVG" &&
     zone.status === "UNMITIGATED_IN_AVAILABLE_HISTORY" &&
     isPriceInsideZone(price, zone)
   );
 
   const bearishFVG = gaps.some(zone =>
-    zone.type === "BEARISH_FVG" &&
+    zone?.type === "BEARISH_FVG" &&
     zone.status === "UNMITIGATED_IN_AVAILABLE_HISTORY" &&
     isPriceInsideZone(price, zone)
   );
@@ -205,16 +277,18 @@ function calculateHistoricalSMC(structure, candles) {
   );
 
   const nearEqualLows = liquidity.some(zone =>
-    zone.type === "EQUAL_LOWS" &&
+    zone?.type === "EQUAL_LOWS" &&
     isFiniteNumber(zone.price) &&
-    zone.price !== 0 &&
+    zone.price > 0 &&
+    isFiniteNumber(current.low) &&
     Math.abs(zone.price - current.low) / zone.price <= 0.002
   );
 
   const nearEqualHighs = liquidity.some(zone =>
-    zone.type === "EQUAL_HIGHS" &&
+    zone?.type === "EQUAL_HIGHS" &&
     isFiniteNumber(zone.price) &&
-    zone.price !== 0 &&
+    zone.price > 0 &&
+    isFiniteNumber(current.high) &&
     Math.abs(zone.price - current.high) / zone.price <= 0.002
   );
 
@@ -244,9 +318,9 @@ function calculateHistoricalSMC(structure, candles) {
       historicalPatternScore: entryEvidence * 25,
       checks: {
         bullishOrderBlock: bullishOB,
-        bullishFVG: bullishFVG,
+        bullishFVG,
         recentBullishStructureEvent: bullishEvent,
-        nearEqualLows: nearEqualLows
+        nearEqualLows
       }
     },
 
@@ -256,9 +330,9 @@ function calculateHistoricalSMC(structure, candles) {
       historicalPatternScore: exitEvidence * 25,
       checks: {
         bearishOrderBlock: bearishOB,
-        bearishFVG: bearishFVG,
+        bearishFVG,
         recentBearishStructureEvent: bearishEvent,
-        nearEqualHighs: nearEqualHighs
+        nearEqualHighs
       }
     },
 
@@ -311,13 +385,17 @@ export function calculateHistoricalMasterAnalysis(input) {
       !report.reportInfo ||
       report.reportInfo.timeframe !== timeframe
     ) {
-      throw new Error("A valid matching historical report is required.");
+      throw new Error(
+        "A valid matching historical report is required."
+      );
     }
 
     if (
       report.reportInfo.candleCount !== candles.length
     ) {
-      throw new Error("Report and candle counts do not match.");
+      throw new Error(
+        "Report and candle counts do not match."
+      );
     }
 
     if (
@@ -325,22 +403,29 @@ export function calculateHistoricalMasterAnalysis(input) {
       structure.status !== "OK" ||
       structure.dataType !== "HISTORICAL_ONLY"
     ) {
-      throw new Error("Valid historical market structure is required.");
+      throw new Error(
+        "Valid historical market structure is required."
+      );
     }
 
     if (
       structure.summary?.candleCount !== candles.length
     ) {
-      throw new Error("Market structure and candle counts do not match.");
+      throw new Error(
+        "Market structure and candle counts do not match."
+      );
     }
 
-    const composition = calculateHistoricalCandleComposition(
-      candles,
-      { timeframe }
-    );
+    const composition =
+      calculateHistoricalCandleComposition(
+        candles,
+        { timeframe }
+      );
 
     if (composition.status !== "OK") {
-      throw new Error("Historical candle composition calculation failed.");
+      throw new Error(
+        "Historical candle composition calculation failed."
+      );
     }
 
     const percentageTotal =
@@ -349,18 +434,22 @@ export function calculateHistoricalMasterAnalysis(input) {
       composition.percentages.neutral;
 
     if (Math.abs(percentageTotal - 100) > 0.2) {
-      throw new Error("Historical composition percentages do not total 100%.");
+      throw new Error(
+        "Historical composition percentages do not total 100%."
+      );
     }
 
-    const historicalLevels = calculateHistoricalLevels(
-      report,
-      candles
-    );
+    const historicalLevels =
+      calculateHistoricalLevels(
+        report,
+        candles
+      );
 
-    const smc = calculateHistoricalSMC(
-      structure,
-      candles
-    );
+    const smc =
+      calculateHistoricalSMC(
+        structure,
+        candles
+      );
 
     return {
       status: "OK",
@@ -375,7 +464,7 @@ export function calculateHistoricalMasterAnalysis(input) {
         sampleSize: composition.sampleSize,
         counts: composition.counts,
         percentages: composition.percentages,
-        percentageTotal: percentageTotal
+        percentageTotal
       },
 
       historicalLevels,

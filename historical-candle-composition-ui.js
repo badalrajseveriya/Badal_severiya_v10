@@ -12,23 +12,23 @@ const DEFAULTS = {
 };
 
 /*
- * Convert counts into percentages that sum to exactly
- * 100.0 using largest-remainder allocation.
+ * Convert candle counts into percentages that total
+ * exactly 100.0 using largest-remainder allocation.
  *
- * Percentages are represented internally in tenths:
- * 100.0% = 1000 units.
+ * Internal units:
+ * 100.0% = 1000 tenths.
  *
- * This prevents independently rounded percentages from
- * producing totals such as 99.9% or 100.1%.
- *
- * Counts are never modified or fabricated.
+ * This avoids independent-rounding errors such as
+ * 99.9% or 100.1%.
  */
 function calculateBalancedPercentages(counts, total) {
   const keys = ["bullish", "bearish", "neutral"];
   const totalUnits = 1000;
 
   const allocations = keys.map(key => {
-    const exactUnits = (counts[key] / total) * totalUnits;
+    const exactUnits =
+      (counts[key] / total) * totalUnits;
+
     const baseUnits = Math.floor(exactUnits);
 
     return {
@@ -45,10 +45,6 @@ function calculateBalancedPercentages(counts, total) {
 
   let remainingUnits = totalUnits - allocatedUnits;
 
-  /*
-   * Largest remainder first.
-   * Stable tie order: bullish, bearish, neutral.
-   */
   const ranked = [...allocations].sort(
     (a, b) =>
       b.remainder - a.remainder ||
@@ -70,9 +66,6 @@ function calculateBalancedPercentages(counts, total) {
     percentages[item.key] = item.units / 10;
   }
 
-  /*
-   * Final integrity check: integer tenths must total 1000.
-   */
   allocatedUnits = allocations.reduce(
     (sum, item) => sum + item.units,
     0

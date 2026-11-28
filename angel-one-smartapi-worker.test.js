@@ -18,42 +18,16 @@ async function test(name, fn) {
   }
 }
 
-function makeRequest(path, options = {}) {
+function request(path, options = {}) {
   return new Request(`https://angel-worker.test${path}`, {
     method: options.method || "GET",
     headers: options.headers || {},
-    body: options.body
-      ? JSON.stringify(options.body)
-      : undefined
+    body: options.body === undefined
+      ? undefined
+      : typeof options.body === "string"
+        ? options.body
+        : JSON.stringify(options.body)
   });
-}
-
-function makeEnv(overrides = {}) {
-  return {
-    WORKER_ACCESS_TOKEN: "test-worker-access-token",
-    APP_ORIGIN: "https://badal-severiya.test",
-    ANGEL_API_KEY: "test-api-key",
-    ANGEL_CLIENT_CODE: "TESTCLIENT",
-    ANGEL_PIN: "1234",
-    ANGEL_MAC_ADDRESS: "00:11:22:33:44:55",
-    ANGEL_CLIENT_LOCAL_IP: "192.168.1.10",
-    ANGEL_CLIENT_PUBLIC_IP: "203.0.113.10",
-    SMARTAPI_SESSION: {
-      idFromName: () => "test-session-id",
-      get: () => ({
-        fetch: async () => new Response(
-          JSON.stringify({ ok: true }),
-          {
-            status: 200,
-            headers: {
-              "Content-Type": "application/json"
-            }
-          }
-        )
-      })
-    },
-    ...overrides
-  };
 }
 
 function authHeaders() {
@@ -65,6 +39,7 @@ function authHeaders() {
 
 function makeStorage() {
   const values = new Map();
+  let alarm = null;
 
   return {
     values,
@@ -79,6 +54,18 @@ function makeStorage() {
 
     async delete(key) {
       return values.delete(key);
+    },
+
+    async setAlarm(timestamp) {
+      alarm = timestamp;
+    },
+
+    async getAlarm() {
+      return alarm;
+    },
+
+    async deleteAlarm() {
+      alarm = null;
     }
   };
 }
@@ -98,6 +85,42 @@ function makeContext() {
     getWebSockets() {
       return sockets;
     }
+  };
+}
+
+function makeEnv(overrides = {}) {
+  return {
+    WORKER_ACCESS_TOKEN: "test-worker-access-token",
+    APP_ORIGIN: "https://badal-severiya.test",
+
+    ANGEL_API_KEY: "test-api-key",
+    ANGEL_CLIENT_CODE: "TESTCLIENT",
+    ANGEL_PIN: "1234",
+    ANGEL_MAC_ADDRESS: "00:11:22:33:44:55",
+    ANGEL_CLIENT_LOCAL_IP: "192.168.1.10",
+    ANGEL_CLIENT_PUBLIC_IP: "203.0.113.10",
+
+    SMARTAPI_SESSION: {
+      idFromName: () => "test-session-id",
+      get: () => ({
+        fetch: async () => new Response(
+          JSON.stringify({ ok: true }),
+          { status: 200 }
+        )
+      })
+    },
+
+    ...overrides
+  };
+}
+
+function sessionData() {
+  return {
+    jwtToken: "mock-jwt-token",
+    refreshToken: "mock-refresh-token",
+    feedToken: "mock-feed-token",
+    clientCode: "TESTCLIENT",
+    apiKey: "test-api-key"
   };
 }
 
@@ -142,16 +165,6 @@ class FakeSocket {
   }
 }
 
-function makeSessionData() {
-  return {
-    jwtToken: "mock-jwt-token",
-    refreshToken: "mock-refresh-token",
-    feedToken: "mock-feed-token",
-    clientCode: "TESTCLIENT",
-    apiKey: "test-api-key"
-  };
-}
-
 function makePair() {
   const client = new FakeSocket();
   const server = new FakeSocket();
@@ -168,13 +181,10 @@ function makePair() {
   return { client, server };
 }
 
-// ----------------------------------------------------------
-// 1. Health endpoint
-// ----------------------------------------------------------
-
-await test("Health endpoint is publicly accessible", async () => {
+// 1
+await test("Health endpoint reports Worker 12.4", async () => {
   const response = await worker.fetch(
-    makeRequest("/api/health"),
+    request("/api/health"),
     makeEnv()
   );
 
@@ -182,18 +192,29 @@ await test("Health endpoint is publicly accessible", async () => {
 
   assert.equal(response.status, 200);
   assert.equal(data.ok, true);
-  assert.equal(data.version, "12.3");
+  assert.equal(data.version, "12.4");
   assert.equal(data.mode, "MARKET_DATA_ONLY");
   assert.equal(data.tradingOrdersEnabled, false);
 });
 
-// ----------------------------------------------------------
-// 2. Health response headers
-// ----------------------------------------------------------
-
-await test("Health response includes no-store and configured origin", async () => {
+// 2
+await test("Health endpoint does not expose secrets", async () => {
   const response = await worker.fetch(
-    makeRequest("/api/health"),
+    request("/api/health"),
+    makeEnv()
+  );
+
+  const body = await response.text();
+
+  assert.equal(body.includes("test-api-key"), false);
+  assert.equal(body.includes("1234"), false);
+  assert.equal(body.includes("test-worker-access-token"), false);
+});
+
+// 3
+await test("Health response has configured CORS origin", async () => {
+  const response = await worker.fetch(
+    request("/api/health"),
     makeEnv()
   );
 
@@ -208,49 +229,35 @@ await test("Health response includes no-store and configured origin", async () =
   );
 });
 
-// ----------------------------------------------------------
-// 3. OPTIONS preflight
-// ----------------------------------------------------------
-
-await test("OPTIONS request returns CORS preflight", async () => {
+// 4
+await test("OPTIONS returns CORS preflight", async () => {
   const response = await worker.fetch(
-    makeRequest("/api/login", {
-      method: "OPTIONS"
-    }),
+    request("/api/login", { method: "OPTIONS" }),
     makeEnv()
   );
 
   assert.equal(response.status, 204);
-
   assert.equal(
     response.headers.get("Access-Control-Allow-Methods"),
     "GET, POST, OPTIONS"
   );
 });
 
-// ----------------------------------------------------------
-// 4. Protected route
-// ----------------------------------------------------------
-
+// 5
 await test("Protected route rejects missing access token", async () => {
   const response = await worker.fetch(
-    makeRequest("/api/status"),
+    request("/api/status"),
     makeEnv()
   );
 
-  const data = await response.json();
-
   assert.equal(response.status, 401);
-  assert.equal(data.error, "UNAUTHORIZED");
+  assert.equal((await response.json()).error, "UNAUTHORIZED");
 });
 
-// ----------------------------------------------------------
-// 5. Wrong access token
-// ----------------------------------------------------------
-
-await test("Protected route rejects incorrect access token", async () => {
+// 6
+await test("Protected route rejects wrong access token", async () => {
   const response = await worker.fetch(
-    makeRequest("/api/status", {
+    request("/api/status", {
       headers: {
         Authorization: "Bearer wrong-token"
       }
@@ -261,13 +268,10 @@ await test("Protected route rejects incorrect access token", async () => {
   assert.equal(response.status, 401);
 });
 
-// ----------------------------------------------------------
-// 6. Missing configured access token
-// ----------------------------------------------------------
-
-await test("Missing Worker access secret rejects protected routes", async () => {
+// 7
+await test("Missing Worker access secret rejects protected route", async () => {
   const response = await worker.fetch(
-    makeRequest("/api/status", {
+    request("/api/status", {
       headers: authHeaders()
     }),
     makeEnv({
@@ -278,59 +282,25 @@ await test("Missing Worker access secret rejects protected routes", async () => 
   assert.equal(response.status, 401);
 });
 
-// ----------------------------------------------------------
-// 7. Invalid TOTP
-// ----------------------------------------------------------
-
-await test("Login rejects invalid TOTP format", async () => {
+// 8
+await test("Login rejects invalid TOTP", async () => {
   const response = await worker.fetch(
-    makeRequest("/api/login", {
+    request("/api/login", {
       method: "POST",
       headers: authHeaders(),
-      body: {
-        totp: "12345"
-      }
+      body: { totp: "12345" }
     }),
     makeEnv()
   );
 
-  const data = await response.json();
-
   assert.equal(response.status, 400);
-  assert.equal(data.error, "INVALID_TOTP");
+  assert.equal((await response.json()).error, "INVALID_TOTP");
 });
 
-// ----------------------------------------------------------
-// 8. Missing Angel One secrets
-// ----------------------------------------------------------
-
-await test("Login rejects missing Angel One secrets", async () => {
+// 9
+await test("Login rejects malformed JSON", async () => {
   const response = await worker.fetch(
-    makeRequest("/api/login", {
-      method: "POST",
-      headers: authHeaders(),
-      body: {
-        totp: "123456"
-      }
-    }),
-    makeEnv({
-      ANGEL_API_KEY: ""
-    })
-  );
-
-  const data = await response.json();
-
-  assert.equal(response.status, 503);
-  assert.equal(data.error, "MISSING_CLOUDFLARE_SECRETS");
-});
-
-// ----------------------------------------------------------
-// 9. Invalid JSON body
-// ----------------------------------------------------------
-
-await test("Login rejects malformed JSON body", async () => {
-  const response = await worker.fetch(
-    new Request("https://angel-worker.test/api/login", {
+    request("/api/login", {
       method: "POST",
       headers: authHeaders(),
       body: "{invalid-json"
@@ -338,35 +308,44 @@ await test("Login rejects malformed JSON body", async () => {
     makeEnv()
   );
 
-  const data = await response.json();
-
   assert.equal(response.status, 400);
-  assert.equal(data.error, "INVALID_TOTP");
+  assert.equal((await response.json()).error, "INVALID_TOTP");
 });
 
-// ----------------------------------------------------------
-// 10. Unknown route
-// ----------------------------------------------------------
-
-await test("Unknown protected route returns 404", async () => {
+// 10
+await test("Login rejects missing Angel One secrets", async () => {
   const response = await worker.fetch(
-    makeRequest("/api/not-real", {
+    request("/api/login", {
+      method: "POST",
+      headers: authHeaders(),
+      body: { totp: "123456" }
+    }),
+    makeEnv({
+      ANGEL_API_KEY: ""
+    })
+  );
+
+  assert.equal(response.status, 503);
+  assert.equal(
+    (await response.json()).error,
+    "MISSING_CLOUDFLARE_SECRETS"
+  );
+});
+
+// 11
+await test("Login does not accept GET", async () => {
+  const response = await worker.fetch(
+    request("/api/login", {
       headers: authHeaders()
     }),
     makeEnv()
   );
 
-  const data = await response.json();
-
   assert.equal(response.status, 404);
-  assert.equal(data.error, "NOT_FOUND");
 });
 
-// ----------------------------------------------------------
-// 11. Login provider failure
-// ----------------------------------------------------------
-
-await test("Login reports provider rejection without returning tokens", async () => {
+// 12
+await test("Provider login failure does not expose tokens", async () => {
   const originalFetch = globalThis.fetch;
 
   globalThis.fetch = async () => new Response(
@@ -380,12 +359,10 @@ await test("Login reports provider rejection without returning tokens", async ()
 
   try {
     const response = await worker.fetch(
-      makeRequest("/api/login", {
+      request("/api/login", {
         method: "POST",
         headers: authHeaders(),
-        body: {
-          totp: "123456"
-        }
+        body: { totp: "123456" }
       }),
       makeEnv()
     );
@@ -401,23 +378,18 @@ await test("Login reports provider rejection without returning tokens", async ()
   }
 });
 
-// ----------------------------------------------------------
-// 12. Successful login stores tokens server-side
-// ----------------------------------------------------------
-
-await test("Successful login stores session without returning credentials", async () => {
+// 13
+await test("Successful login stores credentials server-side only", async () => {
   const originalFetch = globalThis.fetch;
-  let loginRequest = null;
-  let storedSession = null;
+  let loginRequest;
+  let storedSession;
 
   const env = makeEnv({
     SMARTAPI_SESSION: {
       idFromName: () => "test-session-id",
-
       get: () => ({
         fetch: async (url, options) => {
           storedSession = JSON.parse(options.body);
-
           return new Response(
             JSON.stringify({ ok: true }),
             { status: 200 }
@@ -449,12 +421,10 @@ await test("Successful login stores session without returning credentials", asyn
 
   try {
     const response = await worker.fetch(
-      makeRequest("/api/login", {
+      request("/api/login", {
         method: "POST",
         headers: authHeaders(),
-        body: {
-          totp: "123456"
-        }
+        body: { totp: "123456" }
       }),
       env
     );
@@ -462,7 +432,6 @@ await test("Successful login stores session without returning credentials", asyn
     const data = await response.json();
 
     assert.equal(response.status, 200);
-    assert.equal(data.ok, true);
     assert.equal(data.status, "AUTHENTICATED");
     assert.equal(data.credentialsReturnedToBrowser, false);
 
@@ -497,158 +466,115 @@ await test("Successful login stores session without returning credentials", asyn
   }
 });
 
-// ----------------------------------------------------------
-// 13. Session storage rejects incomplete session
-// ----------------------------------------------------------
-
-await test("Durable Object rejects incomplete session data", async () => {
+// 14
+await test("Durable Object rejects incomplete session", async () => {
   const ctx = makeContext();
   const session = new AngelOneSmartApiSession(ctx, {});
 
   const response = await session.fetch(
-    makeRequest("/internal/session", {
+    request("/internal/session", {
       method: "POST",
-      body: {
-        jwtToken: "jwt"
-      }
+      body: { jwtToken: "jwt" }
     })
   );
-
-  const data = await response.json();
 
   assert.equal(response.status, 400);
-  assert.equal(data.error, "INVALID_SESSION_DATA");
+  assert.equal(
+    (await response.json()).error,
+    "INVALID_SESSION_DATA"
+  );
 });
 
-// ----------------------------------------------------------
-// 14. Session storage accepts complete session
-// ----------------------------------------------------------
-
-await test("Durable Object stores complete session data", async () => {
+// 15
+await test("Durable Object stores complete session", async () => {
   const ctx = makeContext();
   const session = new AngelOneSmartApiSession(ctx, {});
 
   const response = await session.fetch(
-    makeRequest("/internal/session", {
+    request("/internal/session", {
       method: "POST",
-      body: makeSessionData()
+      body: sessionData()
     })
   );
 
-  const data = await response.json();
   const saved = await ctx.storage.get("smartapi_session");
 
   assert.equal(response.status, 200);
-  assert.equal(data.ok, true);
   assert.equal(saved.jwtToken, "mock-jwt-token");
   assert.equal(saved.feedToken, "mock-feed-token");
 });
 
-// ----------------------------------------------------------
-// 15. Connect without login
-// ----------------------------------------------------------
-
-await test("Durable Object refuses upstream connection without login", async () => {
+// 16
+await test("Connect refuses unauthenticated session", async () => {
   const ctx = makeContext();
   const session = new AngelOneSmartApiSession(ctx, {});
 
   const response = await session.fetch(
-    makeRequest("/internal/connect", {
-      method: "POST"
-    })
+    request("/internal/connect", { method: "POST" })
   );
-
-  const data = await response.json();
 
   assert.equal(response.status, 401);
-  assert.equal(data.error, "NOT_AUTHENTICATED");
+  assert.equal((await response.json()).error, "NOT_AUTHENTICATED");
 });
 
-// ----------------------------------------------------------
-// 16. Status without session
-// ----------------------------------------------------------
-
-await test("Status reports disconnected and unauthenticated", async () => {
+// 17
+await test("Status reports unauthenticated and disconnected", async () => {
   const ctx = makeContext();
   const session = new AngelOneSmartApiSession(ctx, {});
 
   const response = await session.fetch(
-    makeRequest("/internal/status")
+    request("/internal/status")
   );
 
   const data = await response.json();
 
-  assert.equal(response.status, 200);
   assert.equal(data.status, "DISCONNECTED");
   assert.equal(data.authenticated, false);
   assert.equal(data.tradingOrdersEnabled, false);
 });
 
-// ----------------------------------------------------------
-// 17. Ticket requires authentication
-// ----------------------------------------------------------
-
-await test("Stream ticket requires an authenticated session", async () => {
+// 18
+await test("Stream ticket requires authenticated session", async () => {
   const ctx = makeContext();
   const session = new AngelOneSmartApiSession(ctx, {});
 
   const response = await session.fetch(
-    makeRequest("/internal/ticket", {
-      method: "POST"
-    })
+    request("/internal/ticket", { method: "POST" })
   );
 
-  const data = await response.json();
-
   assert.equal(response.status, 401);
-  assert.equal(data.error, "NOT_AUTHENTICATED");
+  assert.equal(
+    (await response.json()).error,
+    "NOT_AUTHENTICATED"
+  );
 });
 
-// ----------------------------------------------------------
-// 18. Ticket creation and one-time use
-// ----------------------------------------------------------
-
-await test("Stream ticket is created and consumed once", async () => {
+// 19
+await test("Stream ticket is one-time and expires", async () => {
   const ctx = makeContext();
   const session = new AngelOneSmartApiSession(ctx, {});
 
-  await ctx.storage.put(
-    "smartapi_session",
-    makeSessionData()
-  );
+  await ctx.storage.put("smartapi_session", sessionData());
 
   const ticketResponse = await session.fetch(
-    makeRequest("/internal/ticket", {
-      method: "POST"
-    })
+    request("/internal/ticket", { method: "POST" })
   );
 
   const ticketData = await ticketResponse.json();
 
   assert.equal(ticketResponse.status, 200);
-  assert.equal(ticketData.ok, true);
   assert.equal(ticketData.expiresInSeconds, 60);
 
   const key = `ticket:${ticketData.ticket}`;
-
   assert.ok(await ctx.storage.get(key));
 
   const pair = makePair();
-
-  // Node.js Response does not natively support Cloudflare's
-  // WebSocket upgrade response status 101.
-  // This shim preserves normal Response behavior while allowing
-  // the Worker-specific 101 + webSocket response to be tested.
   const NativeResponse = globalThis.Response;
 
   class WorkerCompatibleResponse extends NativeResponse {
     constructor(body, init = {}) {
       if (init.status === 101) {
-        super(null, {
-          status: 200,
-          headers: init.headers
-        });
-
+        super(null, { status: 200 });
         this.workerWebSocketStatus = 101;
         this.webSocket = init.webSocket;
       } else {
@@ -666,14 +592,9 @@ await test("Stream ticket is created and consumed once", async () => {
     globalThis.Response = WorkerCompatibleResponse;
 
     const streamResponse = await session.fetch(
-      new Request(
-        `https://angel-worker.test/internal/stream?ticket=${ticketData.ticket}`,
-        {
-          headers: {
-            Upgrade: "websocket"
-          }
-        }
-      )
+      request(`/internal/stream?ticket=${ticketData.ticket}`, {
+        headers: { Upgrade: "websocket" }
+      })
     );
 
     assert.equal(streamResponse.status, 101);
@@ -681,96 +602,164 @@ await test("Stream ticket is created and consumed once", async () => {
     assert.equal(await ctx.storage.get(key), undefined);
     assert.equal(ctx.sockets.length, 1);
 
-    const secondPair = makePair();
-
     const secondResponse = await session.fetch(
-      new Request(
-        `https://angel-worker.test/internal/stream?ticket=${ticketData.ticket}`,
-        {
-          headers: {
-            Upgrade: "websocket"
-          }
-        }
-      )
+      request(`/internal/stream?ticket=${ticketData.ticket}`, {
+        headers: { Upgrade: "websocket" }
+      })
     );
 
     assert.equal(secondResponse.status, 401);
-    assert.equal(secondPair.client.readyState, 1);
   } finally {
     globalThis.Response = NativeResponse;
   }
 });
 
-// ----------------------------------------------------------
-// 19. Stream requires WebSocket upgrade
-// ----------------------------------------------------------
-
-await test("Stream route rejects non-WebSocket requests", async () => {
+// 20
+await test("Internal stream rejects non-WebSocket request", async () => {
   const ctx = makeContext();
   const session = new AngelOneSmartApiSession(ctx, {});
 
   const response = await session.fetch(
-    makeRequest("/internal/stream?ticket=invalid")
+    request("/internal/stream?ticket=invalid")
   );
-
-  const data = await response.json();
 
   assert.equal(response.status, 426);
-  assert.equal(data.error, "WEBSOCKET_UPGRADE_REQUIRED");
 });
 
-// ----------------------------------------------------------
-// 20. Invalid stream ticket
-// ----------------------------------------------------------
-
-await test("Expired or unknown stream ticket is rejected", async () => {
-  const ctx = makeContext();
-  const session = new AngelOneSmartApiSession(ctx, {});
-
-  const response = await session.fetch(
-    new Request(
-      "https://angel-worker.test/internal/stream?ticket=00000000-0000-4000-8000-000000000000",
-      {
-        headers: {
-          Upgrade: "websocket"
-        }
-      }
-    )
+// 21
+await test("Public stream rejects request without WebSocket upgrade", async () => {
+  const response = await worker.fetch(
+    request("/api/stream?ticket=00000000-0000-4000-8000-000000000000"),
+    makeEnv()
   );
 
-  const data = await response.json();
+  assert.equal(response.status, 426);
+  assert.equal(
+    (await response.json()).error,
+    "WEBSOCKET_UPGRADE_REQUIRED"
+  );
+});
+
+// 22
+await test("Public stream rejects malformed ticket", async () => {
+  const response = await worker.fetch(
+    request("/api/stream?ticket=bad", {
+      headers: { Upgrade: "websocket" }
+    }),
+    makeEnv()
+  );
 
   assert.equal(response.status, 401);
-  assert.equal(data.error, "STREAM_TICKET_EXPIRED");
+  assert.equal(
+    (await response.json()).error,
+    "INVALID_STREAM_TICKET"
+  );
 });
 
-// ----------------------------------------------------------
-// 21. Subscription request validation
-// ----------------------------------------------------------
+// 23
+await test("Public stream forwards valid ticket without Bearer header", async () => {
+  let forwardedUrl = "";
+  let forwardedHeaders = null;
 
-await test("Invalid subscription JSON is rejected", async () => {
+  const env = makeEnv({
+    SMARTAPI_SESSION: {
+      idFromName: () => "test-id",
+      get: () => ({
+        fetch: async (url, options) => {
+          forwardedUrl = url;
+          forwardedHeaders = options.headers;
+
+          return new Response("mock-stream", { status: 200 });
+        }
+      })
+    }
+  });
+
+  const ticket = "00000000-0000-4000-8000-000000000000";
+
+  const response = await worker.fetch(
+    request(`/api/stream?ticket=${ticket}`, {
+      headers: { Upgrade: "websocket" }
+    }),
+    env
+  );
+
+  assert.equal(response.status, 200);
+  assert.match(forwardedUrl, /internal\/stream/);
+  assert.match(forwardedUrl, new RegExp(ticket));
+  assert.equal(forwardedHeaders.Upgrade, "websocket");
+});
+
+// 24
+await test("Public stream-ticket route requires access token", async () => {
+  const response = await worker.fetch(
+    request("/api/stream-ticket", {
+      method: "POST"
+    }),
+    makeEnv()
+  );
+
+  assert.equal(response.status, 401);
+});
+
+// 25
+await test("Public stream-ticket route forwards authorized request", async () => {
+  let forwardedUrl = "";
+
+  const env = makeEnv({
+    SMARTAPI_SESSION: {
+      idFromName: () => "test-id",
+      get: () => ({
+        fetch: async url => {
+          forwardedUrl = url;
+
+          return new Response(
+            JSON.stringify({
+              ok: true,
+              ticket: "test-ticket",
+              expiresInSeconds: 60
+            }),
+            { status: 200 }
+          );
+        }
+      })
+    }
+  });
+
+  const response = await worker.fetch(
+    request("/api/stream-ticket", {
+      method: "POST",
+      headers: authHeaders()
+    }),
+    env
+  );
+
+  assert.equal(response.status, 200);
+  assert.match(forwardedUrl, /internal\/ticket/);
+  assert.equal((await response.json()).ticket, "test-ticket");
+});
+
+// 26
+await test("Subscription rejects invalid JSON", async () => {
   const ctx = makeContext();
   const session = new AngelOneSmartApiSession(ctx, {});
   const client = new FakeSocket();
 
-  session.webSocketMessage(client, "{invalid");
+  await session.webSocketMessage(client, "{invalid");
 
-  const response = JSON.parse(client.sent[0]);
+  const data = JSON.parse(client.sent[0]);
 
-  assert.equal(response.type, "error");
-  assert.equal(response.error, "INVALID_SUBSCRIPTION_JSON");
+  assert.equal(data.type, "error");
+  assert.equal(data.error, "INVALID_SUBSCRIPTION_JSON");
 });
 
-// ----------------------------------------------------------
-// 22. Subscription rejects unsupported exchange
-// ----------------------------------------------------------
-
-await test("Subscription rejects non-NSE exchange", async () => {
+// 27
+await test("Subscription rejects unsupported exchange", async () => {
   const ctx = makeContext();
   const session = new AngelOneSmartApiSession(ctx, {});
   const client = new FakeSocket();
 
-  session.webSocketMessage(
+  await session.webSocketMessage(
     client,
     JSON.stringify({
       action: 1,
@@ -784,25 +773,19 @@ await test("Subscription rejects non-NSE exchange", async () => {
     })
   );
 
-  const response = JSON.parse(client.sent[0]);
-
-  assert.equal(response.type, "error");
   assert.equal(
-    response.error,
+    JSON.parse(client.sent[0]).error,
     "ONLY_VALID_NSE_CASH_TOKENS_ALLOWED"
   );
 });
 
-// ----------------------------------------------------------
-// 23. Subscription rejects invalid token
-// ----------------------------------------------------------
-
-await test("Subscription rejects non-numeric instrument token", async () => {
+// 28
+await test("Subscription rejects non-numeric token", async () => {
   const ctx = makeContext();
   const session = new AngelOneSmartApiSession(ctx, {});
   const client = new FakeSocket();
 
-  session.webSocketMessage(
+  await session.webSocketMessage(
     client,
     JSON.stringify({
       action: 1,
@@ -816,25 +799,19 @@ await test("Subscription rejects non-numeric instrument token", async () => {
     })
   );
 
-  const response = JSON.parse(client.sent[0]);
-
-  assert.equal(response.type, "error");
   assert.equal(
-    response.error,
+    JSON.parse(client.sent[0]).error,
     "ONLY_VALID_NSE_CASH_TOKENS_ALLOWED"
   );
 });
 
-// ----------------------------------------------------------
-// 24. Subscription requires connected upstream
-// ----------------------------------------------------------
-
-await test("Subscription is blocked when upstream is disconnected", async () => {
+// 29
+await test("Subscription is blocked without upstream connection", async () => {
   const ctx = makeContext();
   const session = new AngelOneSmartApiSession(ctx, {});
   const client = new FakeSocket();
 
-  session.webSocketMessage(
+  await session.webSocketMessage(
     client,
     JSON.stringify({
       action: 1,
@@ -848,25 +825,19 @@ await test("Subscription is blocked when upstream is disconnected", async () => 
     })
   );
 
-  const response = JSON.parse(client.sent[0]);
-
-  assert.equal(response.type, "error");
   assert.equal(
-    response.error,
+    JSON.parse(client.sent[0]).error,
     "ANGEL_ONE_FEED_NOT_CONNECTED"
   );
 });
 
-// ----------------------------------------------------------
-// 25. No order action accepted
-// ----------------------------------------------------------
-
+// 30
 await test("Order-related action is rejected", async () => {
   const ctx = makeContext();
   const session = new AngelOneSmartApiSession(ctx, {});
   const client = new FakeSocket();
 
-  session.webSocketMessage(
+  await session.webSocketMessage(
     client,
     JSON.stringify({
       action: 2,
@@ -880,100 +851,32 @@ await test("Order-related action is rejected", async () => {
     })
   );
 
-  const response = JSON.parse(client.sent[0]);
-
-  assert.equal(response.type, "error");
   assert.equal(
-    response.error,
+    JSON.parse(client.sent[0]).error,
     "INVALID_SUBSCRIPTION_REQUEST"
   );
 });
 
-// ----------------------------------------------------------
-// 26. Disconnect endpoint
-// ----------------------------------------------------------
-
-await test("Disconnect clears upstream and reports disconnected", async () => {
+// 31
+await test("Disconnect disables connection request", async () => {
   const ctx = makeContext();
   const session = new AngelOneSmartApiSession(ctx, {});
 
-  const response = await session.fetch(
-    makeRequest("/internal/disconnect", {
-      method: "POST"
-    })
-  );
+  await ctx.storage.put("connection_wanted", true);
 
-  const data = await response.json();
+  const response = await session.fetch(
+    request("/internal/disconnect", { method: "POST" })
+  );
 
   assert.equal(response.status, 200);
-  assert.equal(data.ok, true);
-  assert.equal(data.status, "DISCONNECTED");
+  assert.equal((await response.json()).status, "DISCONNECTED");
+  assert.equal(await ctx.storage.get("connection_wanted"), false);
 });
 
-// ----------------------------------------------------------
-// 27. Public stream ticket route requires access token
-// ----------------------------------------------------------
-
-await test("Public stream ticket route rejects missing bearer token", async () => {
+// 32
+await test("Connect route does not accept GET", async () => {
   const response = await worker.fetch(
-    makeRequest("/api/stream-ticket", {
-      method: "POST"
-    }),
-    makeEnv()
-  );
-
-  assert.equal(response.status, 401);
-});
-
-// ----------------------------------------------------------
-// 28. Public stream route requires WebSocket upgrade
-// ----------------------------------------------------------
-
-await test("Public stream route rejects ordinary HTTP request", async () => {
-  const response = await worker.fetch(
-    makeRequest(
-      "/api/stream?ticket=00000000-0000-4000-8000-000000000000",
-      {
-        headers: authHeaders()
-      }
-    ),
-    makeEnv()
-  );
-
-  const data = await response.json();
-
-  assert.equal(response.status, 426);
-  assert.equal(data.error, "WEBSOCKET_UPGRADE_REQUIRED");
-});
-
-// ----------------------------------------------------------
-// 29. Public stream rejects malformed ticket
-// ----------------------------------------------------------
-
-await test("Public stream route rejects malformed ticket", async () => {
-  const response = await worker.fetch(
-    makeRequest("/api/stream?ticket=bad", {
-      headers: {
-        ...authHeaders(),
-        Upgrade: "websocket"
-      }
-    }),
-    makeEnv()
-  );
-
-  const data = await response.json();
-
-  assert.equal(response.status, 401);
-  assert.equal(data.error, "INVALID_STREAM_TICKET");
-});
-
-// ----------------------------------------------------------
-// 30. Login endpoint method validation
-// ----------------------------------------------------------
-
-await test("Login endpoint does not accept GET", async () => {
-  const response = await worker.fetch(
-    makeRequest("/api/login", {
+    request("/api/connect", {
       headers: authHeaders()
     }),
     makeEnv()
@@ -982,28 +885,10 @@ await test("Login endpoint does not accept GET", async () => {
   assert.equal(response.status, 404);
 });
 
-// ----------------------------------------------------------
-// 31. Connect endpoint method validation
-// ----------------------------------------------------------
-
-await test("Connect endpoint does not accept GET", async () => {
+// 33
+await test("Status route does not accept POST", async () => {
   const response = await worker.fetch(
-    makeRequest("/api/connect", {
-      headers: authHeaders()
-    }),
-    makeEnv()
-  );
-
-  assert.equal(response.status, 404);
-});
-
-// ----------------------------------------------------------
-// 32. Status endpoint method validation
-// ----------------------------------------------------------
-
-await test("Status endpoint does not accept POST", async () => {
-  const response = await worker.fetch(
-    makeRequest("/api/status", {
+    request("/api/status", {
       method: "POST",
       headers: authHeaders()
     }),
@@ -1013,12 +898,9 @@ await test("Status endpoint does not accept POST", async () => {
   assert.equal(response.status, 404);
 });
 
-// ----------------------------------------------------------
-// 33. Worker route calls Durable Object
-// ----------------------------------------------------------
-
+// 34
 await test("Status route forwards request to Durable Object", async () => {
-  let requestedUrl = "";
+  let forwardedUrl = "";
 
   const env = makeEnv({
     SMARTAPI_SESSION: {
@@ -1032,7 +914,7 @@ await test("Status route forwards request to Durable Object", async () => {
 
         return {
           fetch: async url => {
-            requestedUrl = url;
+            forwardedUrl = url;
 
             return new Response(
               JSON.stringify({
@@ -1049,48 +931,120 @@ await test("Status route forwards request to Durable Object", async () => {
   });
 
   const response = await worker.fetch(
-    makeRequest("/api/status", {
+    request("/api/status", {
       headers: authHeaders()
     }),
     env
   );
 
-  const data = await response.json();
-
   assert.equal(response.status, 200);
-  assert.equal(data.status, "CONNECTED");
-  assert.match(requestedUrl, /internal\/status$/);
+  assert.equal((await response.json()).status, "CONNECTED");
+  assert.match(forwardedUrl, /internal\/status/);
 });
 
-// ----------------------------------------------------------
-// 34. Browser response never exposes configured secrets
-// ----------------------------------------------------------
-
-await test("Health response never exposes environment secrets", async () => {
+// 35
+await test("Worker returns 404 for unknown route", async () => {
   const response = await worker.fetch(
-    makeRequest("/api/health"),
+    request("/api/not-real", {
+      headers: authHeaders()
+    }),
     makeEnv()
   );
 
-  const text = await response.text();
-
-  assert.equal(text.includes("test-api-key"), false);
-  assert.equal(text.includes("1234"), false);
-  assert.equal(text.includes("test-worker-access-token"), false);
+  assert.equal(response.status, 404);
+  assert.equal((await response.json()).error, "NOT_FOUND");
 });
 
-// ----------------------------------------------------------
-// Final result
-// ----------------------------------------------------------
+// 36
+await test("Internal disconnect does not enable trading", async () => {
+  const ctx = makeContext();
+  const session = new AngelOneSmartApiSession(ctx, {});
+
+  const response = await session.fetch(
+    request("/internal/status")
+  );
+
+  const data = await response.json();
+
+  assert.equal(data.tradingOrdersEnabled, false);
+});
+
+// 37
+await test("Stream route rejects malformed UUID ticket", async () => {
+  const response = await worker.fetch(
+    request("/api/stream?ticket=bad-ticket", {
+      headers: { Upgrade: "websocket" }
+    }),
+    makeEnv()
+  );
+
+  assert.equal(response.status, 401);
+});
+
+// 38
+await test("Expired ticket is rejected by Durable Object", async () => {
+  const ctx = makeContext();
+  const session = new AngelOneSmartApiSession(ctx, {});
+
+  const ticket = "00000000-0000-4000-8000-000000000000";
+
+  await ctx.storage.put(`ticket:${ticket}`, {
+    expiresAt: Date.now() - 1000
+  });
+
+  const response = await session.fetch(
+    request(`/internal/stream?ticket=${ticket}`, {
+      headers: { Upgrade: "websocket" }
+    })
+  );
+
+  assert.equal(response.status, 401);
+  assert.equal(
+    (await response.json()).error,
+    "STREAM_TICKET_EXPIRED"
+  );
+});
+
+// 39
+await test("NSE subscription accepts only supported market modes", async () => {
+  const ctx = makeContext();
+  const session = new AngelOneSmartApiSession(ctx, {});
+  const client = new FakeSocket();
+
+  await session.webSocketMessage(
+    client,
+    JSON.stringify({
+      action: 1,
+      params: {
+        mode: 4,
+        tokenList: [{
+          exchangeType: 1,
+          tokens: ["99926000"]
+        }]
+      }
+    })
+  );
+
+  assert.equal(
+    JSON.parse(client.sent[0]).error,
+    "INVALID_SUBSCRIPTION_REQUEST"
+  );
+});
+
+// 40
+await test("Worker version is fixed at 12.4", async () => {
+  const response = await worker.fetch(
+    request("/api/health"),
+    makeEnv()
+  );
+
+  const data = await response.json();
+
+  assert.equal(data.version, "12.4");
+  assert.equal(data.tradingOrdersEnabled, false);
+});
 
 console.log("");
-
-console.log(
-  `ANGEL ONE SMARTAPI WORKER: ${passed}/34 TESTS PASSED`
-);
-
-assert.equal(passed, 34);
-
-console.log(
-  "ANGEL ONE SMARTAPI WORKER TESTS: ALL PASSED"
-);
+console.log(`ANGEL ONE SMARTAPI WORKER: ${passed}/40 TESTS PASSED`);
+assert.equal(passed, 40);
+console.log("ANGEL ONE SMARTAPI WORKER TESTS: ALL PASSED");

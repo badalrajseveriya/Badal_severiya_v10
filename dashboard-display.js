@@ -1,4 +1,3 @@
-
 // ======================================================
 // BADAL SEVERIYA V12
 // HISTORICAL DASHBOARD DISPLAY STRUCTURE
@@ -69,7 +68,9 @@ function validateDashboardData(data) {
   } else {
     for (const panel of REQUIRED_PANELS) {
       if (!isObject(data.panels[panel])) {
-        errors.push(`Missing dashboard panel: ${panel}`);
+        errors.push(
+          `Missing dashboard panel: ${panel}`
+        );
       }
     }
   }
@@ -89,6 +90,7 @@ function createDataQualityCard(panel) {
     id: "data-quality",
     title: "Data Quality",
     status: panel.quality ?? "UNKNOWN",
+
     details: {
       issueCount: panel.issueCount ?? 0,
       checks: safeObject(panel.checks)
@@ -105,22 +107,60 @@ function createMarketIndicatorsCard(panel) {
   };
 }
 
+// ------------------------------------------------------
+// MARKET STRUCTURE DISPLAY
+// Preserve all detail arrays from dashboard-data.js.
+// ------------------------------------------------------
+
 function createMarketStructureCard(panel) {
   return {
     id: "market-structure",
     title: "Market Structure",
+
     trend: panel.trend ?? null,
+
     details: {
-      pivotHighCount: panel.pivotHighCount ?? 0,
-      pivotLowCount: panel.pivotLowCount ?? 0,
+      pivotHighCount:
+        panel.pivotHighCount ?? 0,
+
+      pivotLowCount:
+        panel.pivotLowCount ?? 0,
+
       structureEventCount:
         panel.structureEventCount ?? 0,
+
+      liquidityCount:
+        panel.liquidityCount ??
+        safeArray(panel.liquidity).length,
+
       fairValueGapCount:
         panel.fairValueGapCount ?? 0,
+
       orderBlockCount:
-        panel.orderBlockCount ?? 0
+        panel.orderBlockCount ?? 0,
+
+      detailLimitPerGroup:
+        panel.detailLimitPerGroup ?? 20
     },
-    liquidity: safeArray(panel.liquidity)
+
+    // Complete detail records preserved
+    recentPivotHighs:
+      safeArray(panel.recentPivotHighs),
+
+    recentPivotLows:
+      safeArray(panel.recentPivotLows),
+
+    recentStructureEvents:
+      safeArray(panel.recentStructureEvents),
+
+    liquidity:
+      safeArray(panel.liquidity),
+
+    recentFairValueGaps:
+      safeArray(panel.recentFairValueGaps),
+
+    recentOrderBlocks:
+      safeArray(panel.recentOrderBlocks)
   };
 }
 
@@ -128,10 +168,18 @@ function createSupportResistanceCard(panel) {
   return {
     id: "support-resistance",
     title: "Support & Resistance",
-    supportCount: safeArray(panel.supports).length,
-    resistanceCount: safeArray(panel.resistances).length,
-    supports: safeArray(panel.supports),
-    resistances: safeArray(panel.resistances)
+
+    supportCount:
+      safeArray(panel.supports).length,
+
+    resistanceCount:
+      safeArray(panel.resistances).length,
+
+    supports:
+      safeArray(panel.supports),
+
+    resistances:
+      safeArray(panel.resistances)
   };
 }
 
@@ -139,9 +187,15 @@ function createFibonacciCard(panel) {
   return {
     id: "fibonacci",
     title: "Fibonacci Analysis",
-    swing: panel.swing ?? null,
-    retracement: safeArray(panel.retracement),
-    extensions: safeArray(panel.extensions)
+
+    swing:
+      panel.swing ?? null,
+
+    retracement:
+      safeArray(panel.retracement),
+
+    extensions:
+      safeArray(panel.extensions)
   };
 }
 
@@ -149,9 +203,15 @@ function createCandlePatternsCard(panel) {
   return {
     id: "candle-patterns",
     title: "Candle Pattern Summary",
-    totalPatterns: panel.totalPatterns ?? 0,
-    counts: safeObject(panel.counts),
-    patterns: safeArray(panel.patterns)
+
+    totalPatterns:
+      panel.totalPatterns ?? 0,
+
+    counts:
+      safeObject(panel.counts),
+
+    patterns:
+      safeArray(panel.patterns)
   };
 }
 
@@ -161,7 +221,8 @@ function createCandlePatternsCard(panel) {
 
 export function createHistoricalDashboardDisplay(data) {
   try {
-    const validation = validateDashboardData(data);
+    const validation =
+      validateDashboardData(data);
 
     if (!validation.valid) {
       throw new Error(
@@ -171,13 +232,31 @@ export function createHistoricalDashboardDisplay(data) {
 
     const panels = data.panels;
 
+    // Preserve existing six-card order and contract.
     const cards = [
-      createDataQualityCard(panels.dataQuality),
-      createMarketIndicatorsCard(panels.marketIndicators),
-      createMarketStructureCard(panels.marketStructure),
-      createSupportResistanceCard(panels.supportResistance),
-      createFibonacciCard(panels.fibonacci),
-      createCandlePatternsCard(panels.candlePatterns)
+      createDataQualityCard(
+        panels.dataQuality
+      ),
+
+      createMarketIndicatorsCard(
+        panels.marketIndicators
+      ),
+
+      createMarketStructureCard(
+        panels.marketStructure
+      ),
+
+      createSupportResistanceCard(
+        panels.supportResistance
+      ),
+
+      createFibonacciCard(
+        panels.fibonacci
+      ),
+
+      createCandlePatternsCard(
+        panels.candlePatterns
+      )
     ];
 
     return {
@@ -190,10 +269,13 @@ export function createHistoricalDashboardDisplay(data) {
         screenId: "historical-dashboard",
         title: "BADAL SEVERIYA V12",
         subtitle: "Historical Market Analysis",
+
         timeframe:
           data.dashboardInfo.timeframe ?? "15m",
+
         candleCount:
           data.dashboardInfo.candleCount ?? 0,
+
         generatedAt:
           data.dashboardInfo.generatedAt ?? null
       },

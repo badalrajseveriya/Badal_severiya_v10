@@ -27,7 +27,11 @@ function makeCandles(count = 40) {
   return candles;
 }
 
-function makeReport(candles, timeframe = "1d", trend = "BULLISH") {
+function makeReport(
+  candles,
+  timeframe = "1d",
+  trend = "BULLISH"
+) {
   return {
     status: "OK",
     dataType: "HISTORICAL_ONLY",
@@ -152,7 +156,8 @@ function makeStructure(candles) {
   console.log("PASS: Historical percentages total 100");
 }
 
-// 3. Bullish historical level labels and colors
+// 3. Bullish historical level labels, colors
+// and ordering
 {
   const candles = makeCandles();
 
@@ -174,10 +179,16 @@ function makeStructure(candles) {
   assert.equal(levels[1].color, "YELLOW");
   assert.equal(levels[2].color, "RED");
 
-  console.log("PASS: Bullish historical level labels and colors");
+  assert.ok(levels[0].price > levels[1].price);
+  assert.ok(levels[1].price > levels[2].price);
+
+  console.log(
+    "PASS: Bullish historical level labels, colors and ordering"
+  );
 }
 
-// 4. Bearish historical level labels and colors
+// 4. Bearish historical level labels, colors
+// and ordering
 {
   const candles = makeCandles();
 
@@ -199,7 +210,12 @@ function makeStructure(candles) {
   assert.equal(levels[1].color, "YELLOW");
   assert.equal(levels[2].color, "GREEN");
 
-  console.log("PASS: Bearish historical level labels and colors");
+  assert.ok(levels[0].price > levels[1].price);
+  assert.ok(levels[1].price > levels[2].price);
+
+  console.log(
+    "PASS: Bearish historical level labels, colors and ordering"
+  );
 }
 
 // 5. Historical SMC score bounds
@@ -332,4 +348,135 @@ function makeStructure(candles) {
   console.log("PASS: Historical-only safety");
 }
 
-console.log("ALL 11 MASTER ANALYSIS TESTS PASSED");
+// 12. Invalid support zone ignored.
+// A valid support must be selected instead.
+{
+  const candles = makeCandles();
+  const report = makeReport(candles, "1d", "BULLISH");
+
+  report.sections.supportResistance.supports = [
+    {
+      price: 101,
+      lower: 105,
+      upper: 100
+    },
+    {
+      price: 90,
+      lower: 88,
+      upper: 92
+    }
+  ];
+
+  const result = calculateHistoricalMasterAnalysis({
+    candles,
+    timeframe: "1d",
+    report,
+    structure: makeStructure(candles)
+  });
+
+  assert.equal(result.status, "OK");
+
+  const levels = result.historicalLevels.levels;
+
+  const entry = levels.find(level => level.name === "ENTRY");
+  const stopLoss = levels.find(
+    level => level.name === "STOP_LOSS"
+  );
+
+  assert.equal(entry.price, 90);
+  assert.equal(stopLoss.price, 88);
+
+  console.log(
+    "PASS: Invalid support zone ignored; valid support selected"
+  );
+}
+
+// 13. Invalid resistance zone ignored.
+// A valid resistance must be selected instead.
+{
+  const candles = makeCandles();
+  const report = makeReport(candles, "1d", "BEARISH");
+
+  report.sections.supportResistance.resistances = [
+    {
+      price: 130,
+      lower: 135,
+      upper: 125
+    },
+    {
+      price: 130,
+      lower: 128,
+      upper: 132
+    }
+  ];
+
+  const result = calculateHistoricalMasterAnalysis({
+    candles,
+    timeframe: "1d",
+    report,
+    structure: makeStructure(candles)
+  });
+
+  assert.equal(result.status, "OK");
+
+  const levels = result.historicalLevels.levels;
+
+  const stopLoss = levels.find(
+    level => level.name === "STOP_LOSS"
+  );
+
+  const entry = levels.find(level => level.name === "ENTRY");
+  const target = levels.find(level => level.name === "TARGET");
+
+  assert.equal(stopLoss.price, 132);
+  assert.equal(entry.price, 130);
+  assert.equal(target.price, 90);
+
+  console.log(
+    "PASS: Invalid resistance zone ignored; valid resistance selected"
+  );
+}
+
+// 14. No valid zones available.
+// Levels must be null, not invented or fabricated.
+{
+  const candles = makeCandles();
+  const report = makeReport(candles, "1d", "BULLISH");
+
+  report.sections.supportResistance.supports = [
+    {
+      price: 90,
+      lower: 95,
+      upper: 85
+    }
+  ];
+
+  report.sections.supportResistance.resistances = [
+    {
+      price: 130,
+      lower: 140,
+      upper: 120
+    }
+  ];
+
+  const result = calculateHistoricalMasterAnalysis({
+    candles,
+    timeframe: "1d",
+    report,
+    structure: makeStructure(candles)
+  });
+
+  assert.equal(result.status, "OK");
+
+  for (const level of result.historicalLevels.levels) {
+    assert.equal(level.price, null);
+  }
+
+  console.log(
+    "PASS: Invalid zones produce null historical levels"
+  );
+}
+
+console.log(
+  "ALL 14 MASTER ANALYSIS TESTS PASSED"
+);

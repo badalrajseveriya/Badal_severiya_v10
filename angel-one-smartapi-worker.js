@@ -5,8 +5,9 @@ const SMARTAPI_LOGIN_URL =
 const SMARTAPI_STREAM_URL =
   "wss://smartapisocket.angelone.in/smart-stream";
 
-const WORKER_VERSION = "12.3";
+const WORKER_VERSION = "12.4";
 const HEARTBEAT_INTERVAL_MS = 30_000;
+const HEARTBEAT_TIMEOUT_MS = 75_000;
 const CONNECTION_ROTATION_MS = 14 * 60_000;
 const RECONNECT_BASE_DELAY_MS = 5_000;
 const RECONNECT_MAX_DELAY_MS = 60_000;
@@ -104,6 +105,43 @@ export default {
           tradingOrdersEnabled: false,
           timestamp: new Date().toISOString()
         }, 200, origin);
+      }
+
+      /*
+       * Browser WebSocket authentication:
+       * The browser WebSocket API cannot attach a custom
+       * Authorization header. A short-lived, one-time ticket
+       * is issued by the protected /api/stream-ticket route.
+       * That ticket is the authorization capability here.
+       */
+      if (path === "/api/stream" && request.method === "GET") {
+        if (request.headers.get("Upgrade") !== "websocket") {
+          return jsonResponse({
+            ok: false,
+            error: "WEBSOCKET_UPGRADE_REQUIRED"
+          }, 426, origin);
+        }
+
+        const ticket = url.searchParams.get("ticket") || "";
+
+        if (!/^[a-f0-9-]{36}$/i.test(ticket)) {
+          return jsonResponse({
+            ok: false,
+            error: "INVALID_STREAM_TICKET"
+          }, 401, origin);
+        }
+
+        const id = env.SMARTAPI_SESSION.idFromName("primary");
+        const stub = env.SMARTAPI_SESSION.get(id);
+
+        return stub.fetch(
+          `https://smartapi-session.internal/internal/stream?ticket=${encodeURIComponent(ticket)}`,
+          {
+            headers: {
+              "Upgrade": "websocket"
+            }
+          }
+        );
       }
 
       if (!authorized(request, env)) {
@@ -256,36 +294,6 @@ export default {
         }, response.status, origin);
       }
 
-      if (path === "/api/stream" && request.method === "GET") {
-        if (request.headers.get("Upgrade") !== "websocket") {
-          return jsonResponse({
-            ok: false,
-            error: "WEBSOCKET_UPGRADE_REQUIRED"
-          }, 426, origin);
-        }
-
-        const ticket = url.searchParams.get("ticket") || "";
-
-        if (!/^[a-f0-9-]{36}$/i.test(ticket)) {
-          return jsonResponse({
-            ok: false,
-            error: "INVALID_STREAM_TICKET"
-          }, 401, origin);
-        }
-
-        const id = env.SMARTAPI_SESSION.idFromName("primary");
-        const stub = env.SMARTAPI_SESSION.get(id);
-
-        return stub.fetch(
-          `https://smartapi-session.internal/internal/stream?ticket=${encodeURIComponent(ticket)}`,
-          {
-            headers: {
-              "Upgrade": "websocket"
-            }
-          }
-        );
-      }
-
       return jsonResponse({
         ok: false,
         error: "NOT_FOUND"
@@ -307,13 +315,17 @@ export class AngelOneSmartApiSession {
   constructor(ctx, env) {
     this.ctx = ctx;
     this.env = env;
+
     this.upstream = null;
     this.heartbeat = null;
+
     this.lastTickAt = null;
     this.lastPongAt = null;
     this.lastError = null;
     this.connectedAt = null;
+
     this.reconnectAttempts = 0;
+    this.reconnectScheduled = false;
     this.connectionWanted = false;
   }
 
@@ -359,6 +371,7 @@ export class AngelOneSmartApiSession {
 
     if (path === "/internal/disconnect" && request.method === "POST") {
       this.connectionWanted = false;
+      this.reconnectScheduled = false;
 
       await this.ctx.storage.put("connection_wanted", false);
       await this.clearReconnectAlarm();
@@ -378,15 +391,18 @@ export class AngelOneSmartApiSession {
         ok: true,
         status: this.upstream?.readyState === 1
           ? "CONNECTED"
-          : wanted
-            ? "RECONNECTING"
-            : "DISCONNECTED",
+          : this.upstream?.readyState === 0
+            ? "CONNECTING"
+            : wanted
+              ? "RECONNECTING"
+              : "DISCONNECTED",
         authenticated: Boolean(session),
         connectionWanted: Boolean(wanted),
         lastTickAt: this.lastTickAt,
         lastPongAt: this.lastPongAt,
         connectedAt: this.connectedAt,
         reconnectAttempts: this.reconnectAttempts,
+        reconnectScheduled: this.reconnectScheduled,
         lastError: this.lastError,
         tradingOrdersEnabled: false
       });
@@ -479,6 +495,14 @@ export class AngelOneSmartApiSession {
       });
     }
 
+    if (this.upstream?.readyState === 0) {
+      return jsonResponse({
+        ok: true,
+        status: "CONNECTING"
+      });
+    }
+
+    this.upstream = null;
     await this.clearHeartbeat();
 
     try {
@@ -486,7 +510,11 @@ export class AngelOneSmartApiSession {
         method: "GET",
         headers: {
           "Upgrade": "websocket",
-          "Authorization": `Bearer ${session.jwtToken}`,
+
+          // SmartAPI WebSocket 2.0 expects the JWT token
+          // itself in Authorization, not the REST Bearer prefix.
+          "Authorization": session.jwtToken,
+
           "x-api-key": session.apiKey,
           "x-client-code": session.clientCode,
           "x-feed-token": session.feedToken
@@ -515,6 +543,7 @@ export class AngelOneSmartApiSession {
       this.connectedAt = new Date().toISOString();
       this.lastError = null;
       this.reconnectAttempts = 0;
+      this.reconnectScheduled = false;
       this.lastPongAt = null;
 
       socket.addEventListener("message", event => {
@@ -542,6 +571,8 @@ export class AngelOneSmartApiSession {
       });
 
       socket.addEventListener("error", () => {
+        if (this.upstream !== socket) return;
+
         this.lastError = "UPSTREAM_WEBSOCKET_ERROR";
 
         this.broadcast({
@@ -555,17 +586,36 @@ export class AngelOneSmartApiSession {
       });
 
       this.heartbeat = setInterval(() => {
-        if (this.upstream?.readyState === 1) {
-          try {
-            this.upstream.send("ping");
-          } catch {
-            this.lastError = "HEARTBEAT_SEND_FAILED";
+        if (this.upstream?.readyState !== 1) return;
 
-            try {
-              this.upstream.close(1011, "Heartbeat failed");
-            } catch {
-              // Socket may already be closed.
-            }
+        const lastResponseTime = this.lastPongAt
+          ? Date.parse(this.lastPongAt)
+          : Date.parse(this.connectedAt || "");
+
+        if (
+          Number.isFinite(lastResponseTime) &&
+          Date.now() - lastResponseTime > HEARTBEAT_TIMEOUT_MS
+        ) {
+          this.lastError = "HEARTBEAT_TIMEOUT";
+
+          try {
+            this.upstream.close(1011, "Heartbeat timeout");
+          } catch {
+            // Socket may already be closed.
+          }
+
+          return;
+        }
+
+        try {
+          this.upstream.send("ping");
+        } catch {
+          this.lastError = "HEARTBEAT_SEND_FAILED";
+
+          try {
+            this.upstream.close(1011, "Heartbeat failed");
+          } catch {
+            // Socket may already be closed.
           }
         }
       }, HEARTBEAT_INTERVAL_MS);
@@ -601,8 +651,9 @@ export class AngelOneSmartApiSession {
   }
 
   async scheduleReconnect() {
-    if (!this.connectionWanted) return;
+    if (!this.connectionWanted || this.reconnectScheduled) return;
 
+    this.reconnectScheduled = true;
     this.reconnectAttempts += 1;
 
     const exponent = Math.min(this.reconnectAttempts - 1, 4);
@@ -618,6 +669,7 @@ export class AngelOneSmartApiSession {
         await this.ctx.storage.setAlarm(Date.now() + delay);
       }
     } catch (error) {
+      this.reconnectScheduled = false;
       this.lastError = `RECONNECT_ALARM_FAILED: ${error?.message || "UNKNOWN"}`;
     }
 
@@ -655,12 +707,14 @@ export class AngelOneSmartApiSession {
   async alarm() {
     const wanted = await this.ctx.storage.get("connection_wanted");
 
-    if (!wanted || !this.connectionWanted && wanted !== true) {
+    if (wanted !== true) {
       this.connectionWanted = false;
+      this.reconnectScheduled = false;
       return;
     }
 
     this.connectionWanted = true;
+    this.reconnectScheduled = false;
 
     const clients = this.ctx.getWebSockets().filter(
       socket => socket.readyState === 1
@@ -668,8 +722,10 @@ export class AngelOneSmartApiSession {
 
     if (clients.length === 0) {
       this.connectionWanted = false;
+
       await this.ctx.storage.put("connection_wanted", false);
       await this.disconnectUpstream("NO_ACTIVE_BROWSER_CLIENTS");
+
       return;
     }
 
@@ -870,6 +926,7 @@ export class AngelOneSmartApiSession {
 
     if (activeClients.length === 0) {
       this.connectionWanted = false;
+      this.reconnectScheduled = false;
 
       await this.ctx.storage.put("connection_wanted", false);
       await this.clearReconnectAlarm();
@@ -890,6 +947,8 @@ export class AngelOneSmartApiSession {
 
     if (activeClients.length === 0) {
       this.connectionWanted = false;
+      this.reconnectScheduled = false;
+
       await this.ctx.storage.put("connection_wanted", false);
       await this.clearReconnectAlarm();
       await this.disconnectUpstream("NO_ACTIVE_BROWSER_CLIENTS");

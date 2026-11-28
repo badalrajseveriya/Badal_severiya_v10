@@ -1,269 +1,213 @@
 
-import { parseHistoricalDataText } from "./historical-data-import.js";
-import {
-  calculateHistoricalCandleComposition
-} from "./historical-candle-composition.js";
-import { fetchHistoricalCandlePages } from "./historical-candle-pagination.js";
+ // ======================================================
+ // BADAL SEVERIYA V12
+ // HISTORICAL CANDLE COMPOSITION
+ // Retrospective description only
+ // No forecasts, probabilities or trading signals
+ // ======================================================
 
-const API_BASE =
-  "https://badal-severiya-data.mrstarrdbs.workers.dev";
-
-const MAX_CLOUD_CANDLES = 25000;
-const API_PAGE_SIZE = 5000;
-
-const TIMEFRAMES = {
-  "1d": {
-    up: "up-percent-1d",
-    down: "down-percent-1d",
-    neutral: "unclear-percent-1d",
-    status: "summary-status-1d",
-    input: "historical-file",
-    storageKey: "badal-severiya-v12-historical-import-1d"
-  },
-  "15m": {
-    up: "up-percent-15m",
-    down: "down-percent-15m",
-    neutral: "unclear-percent-15m",
-    status: "summary-status-15m",
-    input: "historical-file-15m",
-    storageKey: "badal-severiya-v12-historical-import-15m"
-  }
+const DEFAULTS = {
+  minCandles: 20,
+  dojiBodyRatio: 0.10
 };
 
-function getElement(id) {
-  return document.getElementById(id);
-}
+/*
+ * Convert counts into percentages that sum to exactly
+ * 100.0 using largest-remainder allocation.
+ *
+ * Percentages are represented internally in tenths:
+ * 100.0% = 1000 units.
+ *
+ * This prevents independently rounded percentages from
+ * producing totals such as 99.9% or 100.1%.
+ *
+ * Counts are never modified or fabricated.
+ */
+function calculateBalancedPercentages(counts, total) {
+  const keys = ["bullish", "bearish", "neutral"];
+  const totalUnits = 1000;
 
-function setText(id, value) {
-  const element = getElement(id);
-  if (element) element.textContent = value;
-}
+  const allocations = keys.map(key => {
+    const exactUnits = (counts[key] / total) * totalUnits;
+    const baseUnits = Math.floor(exactUnits);
 
-function resetSummary(timeframe, message) {
-  const config = TIMEFRAMES[timeframe];
+    return {
+      key,
+      units: baseUnits,
+      remainder: exactUnits - baseUnits
+    };
+  });
 
-  setText(config.up, "--%");
-  setText(config.down, "--%");
-  setText(config.neutral, "--%");
-  setText(config.status, message);
-}
-
-function showComposition(timeframe, candles) {
-  const config = TIMEFRAMES[timeframe];
-
-  const result = calculateHistoricalCandleComposition(
-    candles,
-    { timeframe }
+  let allocatedUnits = allocations.reduce(
+    (sum, item) => sum + item.units,
+    0
   );
 
-  if (result.status !== "OK") {
-    throw new Error("ऐतिहासिक कैंडल अनुपात की गणना नहीं हो सकी।");
+  let remainingUnits = totalUnits - allocatedUnits;
+
+  /*
+   * Largest remainder first.
+   * Stable tie order: bullish, bearish, neutral.
+   */
+  const ranked = [...allocations].sort(
+    (a, b) =>
+      b.remainder - a.remainder ||
+      keys.indexOf(a.key) - keys.indexOf(b.key)
+  );
+
+  for (
+    let i = 0;
+    remainingUnits > 0;
+    i++
+  ) {
+    ranked[i % ranked.length].units++;
+    remainingUnits--;
   }
 
-  setText(
-    config.up,
-    `${result.percentages.bullish}%`
+  const percentages = {};
+
+  for (const item of allocations) {
+    percentages[item.key] = item.units / 10;
+  }
+
+  /*
+   * Final integrity check: integer tenths must total 1000.
+   */
+  allocatedUnits = allocations.reduce(
+    (sum, item) => sum + item.units,
+    0
   );
 
-  setText(
-    config.down,
-    `${result.percentages.bearish}%`
-  );
+  if (allocatedUnits !== totalUnits) {
+    throw new Error(
+      "Percentage balancing failed to produce 100.0%."
+    );
+  }
 
-  setText(
-    config.neutral,
-    `${result.percentages.neutral}%`
-  );
+  return percentages;
+}
 
-  setText(
-    config.status,
-    `पिछली ${result.sampleSize} कैंडल्स का ऐतिहासिक अनुपात। ` +
-    `बुलिश: ${result.counts.bullish}, ` +
-    `बेयरिश: ${result.counts.bearish}, ` +
-    `न्यूट्रल: ${result.counts.neutral}। ` +
-    `यह भविष्य का अनुमान नहीं है।`
-  );
+export function calculateHistoricalCandleComposition(
+  candles,
+  options = {}
+) {
+  if (!Array.isArray(candles)) {
+    throw new Error("Historical candles must be an array.");
+  }
+
+  const config = {
+    ...DEFAULTS,
+    ...options
+  };
+
+  if (
+    !Number.isInteger(config.minCandles) ||
+    config.minCandles < 1 ||
+    !Number.isFinite(config.dojiBodyRatio) ||
+    config.dojiBodyRatio <= 0 ||
+    config.dojiBodyRatio >= 1
+  ) {
+    throw new Error("Invalid composition configuration.");
+  }
+
+  if (candles.length < config.minCandles) {
+    throw new Error(
+      `At least ${config.minCandles} historical candles are required.`
+    );
+  }
+
+  let previousTime = -Infinity;
+
+  const counts = {
+    bullish: 0,
+    bearish: 0,
+    neutral: 0
+  };
+
+  for (let i = 0; i < candles.length; i++) {
+    const candle = candles[i];
+    const timestamp = Date.parse(candle?.timestamp);
+
+    if (
+      !Number.isFinite(timestamp) ||
+      timestamp <= previousTime
+    ) {
+      throw new Error(
+        `Invalid timestamp at candle index ${i}.`
+      );
+    }
+
+    previousTime = timestamp;
+
+    const values = [
+      candle.open,
+      candle.high,
+      candle.low,
+      candle.close
+    ];
+
+    if (
+      !values.every(Number.isFinite) ||
+      values.some(value => value <= 0) ||
+      candle.high < Math.max(
+        candle.open,
+        candle.close,
+        candle.low
+      ) ||
+      candle.low > Math.min(
+        candle.open,
+        candle.close,
+        candle.high
+      )
+    ) {
+      throw new Error(
+        `Invalid OHLC values at candle index ${i}.`
+      );
+    }
+
+    const body = Math.abs(
+      candle.close - candle.open
+    );
+
+    const range = candle.high - candle.low;
+
+    const isDoji =
+      range === 0 ||
+      body / range <= config.dojiBodyRatio;
+
+    if (isDoji) {
+      counts.neutral++;
+    } else if (candle.close > candle.open) {
+      counts.bullish++;
+    } else if (candle.close < candle.open) {
+      counts.bearish++;
+    } else {
+      counts.neutral++;
+    }
+  }
+
+  const total = candles.length;
+
+  const percentages =
+    calculateBalancedPercentages(counts, total);
+
+  const result = {
+    status: "OK",
+    dataType: "HISTORICAL_ONLY",
+    timeframe: options.timeframe ?? "UNKNOWN",
+    sampleSize: total,
+
+    counts: {
+      bullish: counts.bullish,
+      bearish: counts.bearish,
+      neutral: counts.neutral
+    },
+
+    percentages,
+
+    note:
+      "These percentages describe the composition of past candles only. They are not future probabilities, forecasts or trading signals."
+  };
 
   return result;
 }
-
-function parseCandles(candles, timeframe, filename) {
-  const imported = parseHistoricalDataText(
-    JSON.stringify(candles),
-    filename,
-    timeframe,
-    { maxCandles: MAX_CLOUD_CANDLES }
-  );
-
-  if (imported.status !== "OK") {
-    throw new Error(imported.error);
-  }
-
-  return imported.candles;
-}
-
-function loadSavedData(timeframe) {
-  const config = TIMEFRAMES[timeframe];
-
-  try {
-    const savedText = localStorage.getItem(
-      config.storageKey
-    );
-
-    if (!savedText) return false;
-
-    const saved = JSON.parse(savedText);
-
-    if (
-      !saved ||
-      !Array.isArray(saved.candles) ||
-      saved.timeframe !== timeframe
-    ) {
-      return false;
-    }
-
-    const candles = parseCandles(
-      saved.candles,
-      timeframe,
-      "saved-historical-data.json"
-    );
-
-    showComposition(timeframe, candles);
-    return true;
-  } catch (error) {
-    console.warn(
-      `${timeframe} saved composition data error:`,
-      error
-    );
-
-    return false;
-  }
-}
-
-async function loadCloudflareData(timeframe) {
-  const fetched = await fetchHistoricalCandlePages({
-    apiBase: API_BASE,
-    timeframe,
-    index: "NIFTY",
-    maxCandles: MAX_CLOUD_CANDLES,
-    pageSize: API_PAGE_SIZE
-  });
-
-  if (!fetched || fetched.status !== "OK") {
-    throw new Error(
-      fetched?.error || "Cloudflare historical pagination failed."
-    );
-  }
-
-  if (!Array.isArray(fetched.candles)) {
-    throw new Error("Cloudflare API ने सही candle array नहीं दिया।");
-  }
-
-  if (fetched.candles.length === 0) {
-    return false;
-  }
-
-  const candles = parseCandles(
-    fetched.candles,
-    timeframe,
-    `cloudflare-${timeframe}.json`
-  );
-
-  showComposition(timeframe, candles);
-  return true;
-}
-
-async function initializeTimeframe(timeframe) {
-  resetSummary(
-    timeframe,
-    "ऐतिहासिक डेटा की प्रतीक्षा है।"
-  );
-
-  // Priority 1: Use valid user-imported data saved locally.
-  // Keep the composition UI consistent with the Master UI.
-  if (loadSavedData(timeframe)) {
-    return;
-  }
-
-  // Priority 2: Use Cloudflare only when no valid local import exists.
-  try {
-    const loaded = await loadCloudflareData(timeframe);
-
-    if (loaded) return;
-
-    resetSummary(
-      timeframe,
-      timeframe === "15m"
-        ? "15M डेटा उपलब्ध नहीं है — WAITING_FOR_DATA"
-        : "पर्याप्त ऐतिहासिक कैंडल डेटा उपलब्ध नहीं है।"
-    );
-  } catch (error) {
-    console.warn(
-      `${timeframe} composition loading error:`,
-      error
-    );
-
-    // Local data is checked again in case it became available
-    // while the remote request was in progress.
-    if (loadSavedData(timeframe)) return;
-
-    resetSummary(
-      timeframe,
-      timeframe === "15m"
-        ? "15M डेटा उपलब्ध नहीं है — WAITING_FOR_DATA"
-        : `ऐतिहासिक गणना उपलब्ध नहीं: ${error.message}`
-    );
-  }
-}
-
-function setupFileImport(timeframe) {
-  const config = TIMEFRAMES[timeframe];
-  const input = getElement(config.input);
-
-  if (!input) {
-    console.warn(
-      `File input missing for ${timeframe}`
-    );
-    return;
-  }
-
-  input.addEventListener("change", async event => {
-    const file = event.target.files?.[0];
-
-    if (!file) return;
-
-    setText(
-      config.status,
-      "फाइल से ऐतिहासिक कैंडल्स की गणना हो रही है..."
-    );
-
-    try {
-      const imported = parseHistoricalDataText(
-        await file.text(),
-        file.name,
-        timeframe
-      );
-
-      if (imported.status !== "OK") {
-        throw new Error(imported.error);
-      }
-
-      showComposition(
-        timeframe,
-        imported.candles
-      );
-    } catch (error) {
-      resetSummary(
-        timeframe,
-        `गणना नहीं हो सकी: ${error.message}`
-      );
-    }
-  });
-}
-
-for (const timeframe of ["1d", "15m"]) {
-  setupFileImport(timeframe);
-}
-
-initializeTimeframe("1d");
-initializeTimeframe("15m");

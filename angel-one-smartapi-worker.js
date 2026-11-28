@@ -3,7 +3,7 @@ const SMARTAPI_LOGIN_URL =
   "https://apiconnect.angelone.in/rest/auth/angelbroking/user/v1/loginByPassword";
 
 const SMARTAPI_STREAM_URL =
-  "https://smartapisocket.angelone.in/smart-stream";
+  "wss://smartapisocket.angelone.in/smart-stream";
 
 const JSON_HEADERS = {
   "Content-Type": "application/json",
@@ -41,6 +41,7 @@ function authorized(request, env) {
   }
 
   let difference = 0;
+
   for (let i = 0; i < supplied.length; i++) {
     difference |= supplied.charCodeAt(i) ^ expected.charCodeAt(i);
   }
@@ -202,6 +203,7 @@ export default {
         });
 
         const data = await response.json().catch(() => null);
+
         return jsonResponse(data || {
           ok: false,
           error: "CONNECT_FAILED"
@@ -214,6 +216,7 @@ export default {
         });
 
         const data = await response.json().catch(() => null);
+
         return jsonResponse(data || {
           ok: false,
           error: "DISCONNECT_FAILED"
@@ -236,6 +239,7 @@ export default {
         });
 
         const data = await response.json().catch(() => null);
+
         return jsonResponse(data || {
           ok: false,
           error: "TICKET_CREATION_FAILED"
@@ -338,6 +342,7 @@ export class AngelOneSmartApiSession {
 
     if (path === "/internal/disconnect" && request.method === "POST") {
       await this.disconnectUpstream("USER_REQUEST");
+
       return jsonResponse({
         ok: true,
         status: "DISCONNECTED"
@@ -410,7 +415,10 @@ export class AngelOneSmartApiSession {
       const [client, server] = Object.values(pair);
 
       this.ctx.acceptWebSocket(server);
-      server.serializeAttachment({
+
+      // Cloudflare Durable Object sockets support attachments.
+      // Optional chaining keeps lightweight Node test doubles compatible.
+      server.serializeAttachment?.({
         connectedAt: Date.now()
       });
 
@@ -544,6 +552,7 @@ export class AngelOneSmartApiSession {
           status: "ALIVE",
           timestamp: Date.now()
         });
+
         return;
       }
 
@@ -565,8 +574,6 @@ export class AngelOneSmartApiSession {
 
     this.lastTickAt = new Date().toISOString();
 
-    // Forward the original binary packet.
-    // The browser-side provider adapter validates and parses it.
     this.broadcastBinary(data);
   }
 
@@ -584,6 +591,7 @@ export class AngelOneSmartApiSession {
         type: "error",
         error: "INVALID_SUBSCRIPTION_JSON"
       });
+
       return;
     }
 
@@ -601,6 +609,7 @@ export class AngelOneSmartApiSession {
         type: "error",
         error: "INVALID_SUBSCRIPTION_REQUEST"
       });
+
       return;
     }
 
@@ -617,6 +626,7 @@ export class AngelOneSmartApiSession {
         type: "error",
         error: "ONLY_VALID_NSE_CASH_TOKENS_ALLOWED"
       });
+
       return;
     }
 
@@ -625,11 +635,10 @@ export class AngelOneSmartApiSession {
         type: "error",
         error: "ANGEL_ONE_FEED_NOT_CONNECTED"
       });
+
       return;
     }
 
-    // Only market-data subscription messages are forwarded.
-    // No order-related message is accepted or forwarded.
     const safeRequest = {
       correlationID: String(request.correlationID || "BADALSEV01").slice(0, 10),
       action,

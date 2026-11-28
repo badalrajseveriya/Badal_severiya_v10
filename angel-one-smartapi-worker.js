@@ -5,6 +5,12 @@ const SMARTAPI_LOGIN_URL =
 const SMARTAPI_STREAM_URL =
   "wss://smartapisocket.angelone.in/smart-stream";
 
+const WORKER_VERSION = "12.3";
+const HEARTBEAT_INTERVAL_MS = 30_000;
+const CONNECTION_ROTATION_MS = 14 * 60_000;
+const RECONNECT_BASE_DELAY_MS = 5_000;
+const RECONNECT_MAX_DELAY_MS = 60_000;
+
 const JSON_HEADERS = {
   "Content-Type": "application/json",
   "Accept": "application/json"
@@ -93,7 +99,7 @@ export default {
         return jsonResponse({
           ok: true,
           service: "BADAL SEVERIYA ANGEL ONE LIVE",
-          version: "12.2",
+          version: WORKER_VERSION,
           mode: "MARKET_DATA_ONLY",
           tradingOrdersEnabled: false,
           timestamp: new Date().toISOString()
@@ -304,8 +310,11 @@ export class AngelOneSmartApiSession {
     this.upstream = null;
     this.heartbeat = null;
     this.lastTickAt = null;
+    this.lastPongAt = null;
     this.lastError = null;
     this.connectedAt = null;
+    this.reconnectAttempts = 0;
+    this.connectionWanted = false;
   }
 
   async fetch(request) {
@@ -341,10 +350,18 @@ export class AngelOneSmartApiSession {
     }
 
     if (path === "/internal/connect" && request.method === "POST") {
+      this.connectionWanted = true;
+
+      await this.ctx.storage.put("connection_wanted", true);
+
       return this.connectUpstream();
     }
 
     if (path === "/internal/disconnect" && request.method === "POST") {
+      this.connectionWanted = false;
+
+      await this.ctx.storage.put("connection_wanted", false);
+      await this.clearReconnectAlarm();
       await this.disconnectUpstream("USER_REQUEST");
 
       return jsonResponse({
@@ -355,15 +372,21 @@ export class AngelOneSmartApiSession {
 
     if (path === "/internal/status" && request.method === "GET") {
       const session = await this.ctx.storage.get("smartapi_session");
+      const wanted = await this.ctx.storage.get("connection_wanted");
 
       return jsonResponse({
         ok: true,
         status: this.upstream?.readyState === 1
           ? "CONNECTED"
-          : "DISCONNECTED",
+          : wanted
+            ? "RECONNECTING"
+            : "DISCONNECTED",
         authenticated: Boolean(session),
+        connectionWanted: Boolean(wanted),
         lastTickAt: this.lastTickAt,
+        lastPongAt: this.lastPongAt,
         connectedAt: this.connectedAt,
+        reconnectAttempts: this.reconnectAttempts,
         lastError: this.lastError,
         tradingOrdersEnabled: false
       });
@@ -440,6 +463,8 @@ export class AngelOneSmartApiSession {
     const session = await this.ctx.storage.get("smartapi_session");
 
     if (!session) {
+      this.lastError = "NOT_AUTHENTICATED";
+
       return jsonResponse({
         ok: false,
         error: "NOT_AUTHENTICATED",
@@ -471,6 +496,10 @@ export class AngelOneSmartApiSession {
       if (response.status !== 101 || !response.webSocket) {
         this.lastError = `SMARTAPI_HANDSHAKE_FAILED_${response.status}`;
 
+        if (this.connectionWanted) {
+          await this.scheduleReconnect();
+        }
+
         return jsonResponse({
           ok: false,
           error: "SMARTAPI_WEBSOCKET_HANDSHAKE_FAILED",
@@ -485,6 +514,8 @@ export class AngelOneSmartApiSession {
       this.upstream = socket;
       this.connectedAt = new Date().toISOString();
       this.lastError = null;
+      this.reconnectAttempts = 0;
+      this.lastPongAt = null;
 
       socket.addEventListener("message", event => {
         this.handleUpstreamMessage(event.data);
@@ -493,15 +524,21 @@ export class AngelOneSmartApiSession {
       socket.addEventListener("close", event => {
         this.clearHeartbeat();
 
-        this.upstream = null;
-        this.lastError = `UPSTREAM_CLOSED_${event.code}`;
+        if (this.upstream === socket) {
+          this.upstream = null;
+          this.lastError = `UPSTREAM_CLOSED_${event.code}`;
 
-        this.broadcast({
-          type: "status",
-          status: "DISCONNECTED",
-          code: event.code,
-          reason: event.reason || ""
-        });
+          this.broadcast({
+            type: "status",
+            status: "DISCONNECTED",
+            code: event.code,
+            reason: event.reason || ""
+          });
+
+          if (this.connectionWanted) {
+            this.scheduleReconnect();
+          }
+        }
       });
 
       socket.addEventListener("error", () => {
@@ -511,6 +548,10 @@ export class AngelOneSmartApiSession {
           type: "status",
           status: "ERROR"
         });
+
+        if (this.connectionWanted) {
+          this.scheduleReconnect();
+        }
       });
 
       this.heartbeat = setInterval(() => {
@@ -519,9 +560,18 @@ export class AngelOneSmartApiSession {
             this.upstream.send("ping");
           } catch {
             this.lastError = "HEARTBEAT_SEND_FAILED";
+
+            try {
+              this.upstream.close(1011, "Heartbeat failed");
+            } catch {
+              // Socket may already be closed.
+            }
           }
         }
-      }, 30_000);
+      }, HEARTBEAT_INTERVAL_MS);
+
+      await this.restoreSubscriptions();
+      await this.scheduleConnectionRotation();
 
       this.broadcast({
         type: "status",
@@ -538,6 +588,10 @@ export class AngelOneSmartApiSession {
     } catch (error) {
       this.lastError = error?.message || "CONNECTION_FAILED";
 
+      if (this.connectionWanted) {
+        await this.scheduleReconnect();
+      }
+
       return jsonResponse({
         ok: false,
         error: "SMARTAPI_CONNECTION_FAILED",
@@ -546,9 +600,138 @@ export class AngelOneSmartApiSession {
     }
   }
 
+  async scheduleReconnect() {
+    if (!this.connectionWanted) return;
+
+    this.reconnectAttempts += 1;
+
+    const exponent = Math.min(this.reconnectAttempts - 1, 4);
+    const delay = Math.min(
+      RECONNECT_BASE_DELAY_MS * (2 ** exponent),
+      RECONNECT_MAX_DELAY_MS
+    );
+
+    this.lastError = this.lastError || "RECONNECT_SCHEDULED";
+
+    try {
+      if (typeof this.ctx.storage.setAlarm === "function") {
+        await this.ctx.storage.setAlarm(Date.now() + delay);
+      }
+    } catch (error) {
+      this.lastError = `RECONNECT_ALARM_FAILED: ${error?.message || "UNKNOWN"}`;
+    }
+
+    this.broadcast({
+      type: "status",
+      status: "RECONNECTING",
+      attempt: this.reconnectAttempts,
+      retryInMs: delay,
+      error: this.lastError
+    });
+  }
+
+  async scheduleConnectionRotation() {
+    try {
+      if (typeof this.ctx.storage.setAlarm === "function") {
+        await this.ctx.storage.setAlarm(
+          Date.now() + CONNECTION_ROTATION_MS
+        );
+      }
+    } catch (error) {
+      this.lastError = `ROTATION_ALARM_FAILED: ${error?.message || "UNKNOWN"}`;
+    }
+  }
+
+  async clearReconnectAlarm() {
+    try {
+      if (typeof this.ctx.storage.deleteAlarm === "function") {
+        await this.ctx.storage.deleteAlarm();
+      }
+    } catch {
+      // Alarm may not exist.
+    }
+  }
+
+  async alarm() {
+    const wanted = await this.ctx.storage.get("connection_wanted");
+
+    if (!wanted || !this.connectionWanted && wanted !== true) {
+      this.connectionWanted = false;
+      return;
+    }
+
+    this.connectionWanted = true;
+
+    const clients = this.ctx.getWebSockets().filter(
+      socket => socket.readyState === 1
+    );
+
+    if (clients.length === 0) {
+      this.connectionWanted = false;
+      await this.ctx.storage.put("connection_wanted", false);
+      await this.disconnectUpstream("NO_ACTIVE_BROWSER_CLIENTS");
+      return;
+    }
+
+    await this.disconnectUpstream("CONTROLLED_CONNECTION_ROTATION");
+    await this.connectUpstream();
+  }
+
+  async restoreSubscriptions() {
+    if (!this.upstream || this.upstream.readyState !== 1) return;
+
+    const subscriptions =
+      await this.ctx.storage.get("active_subscriptions") || [];
+
+    for (const subscription of subscriptions) {
+      if (!this.upstream || this.upstream.readyState !== 1) return;
+
+      const request = {
+        correlationID: "BADALSEV01",
+        action: 1,
+        params: {
+          mode: subscription.mode,
+          tokenList: [{
+            exchangeType: 1,
+            tokens: subscription.tokens
+          }]
+        }
+      };
+
+      try {
+        this.upstream.send(JSON.stringify(request));
+      } catch {
+        this.lastError = "SUBSCRIPTION_RESTORE_FAILED";
+        return;
+      }
+    }
+  }
+
+  async saveSubscription(action, mode, tokens) {
+    const existing =
+      await this.ctx.storage.get("active_subscriptions") || [];
+
+    const key = `${mode}:${tokens.join(",")}`;
+
+    const filtered = existing.filter(
+      item => `${item.mode}:${item.tokens.join(",")}` !== key
+    );
+
+    if (action === 1) {
+      filtered.push({
+        mode,
+        tokens
+      });
+    }
+
+    await this.ctx.storage.put("active_subscriptions", filtered);
+  }
+
   handleUpstreamMessage(data) {
     if (typeof data === "string") {
       if (data.toLowerCase() === "pong") {
+        this.lastPongAt = new Date().toISOString();
+
         this.broadcast({
           type: "heartbeat",
           status: "ALIVE",
@@ -575,11 +758,10 @@ export class AngelOneSmartApiSession {
     }
 
     this.lastTickAt = new Date().toISOString();
-
     this.broadcastBinary(data);
   }
 
-  webSocketMessage(clientSocket, message) {
+  async webSocketMessage(clientSocket, message) {
     if (typeof message !== "string") {
       return;
     }
@@ -641,6 +823,8 @@ export class AngelOneSmartApiSession {
       return;
     }
 
+    const tokens = group.tokens.map(String);
+
     const safeRequest = {
       correlationID: String(request.correlationID || "BADALSEV01").slice(0, 10),
       action,
@@ -648,7 +832,7 @@ export class AngelOneSmartApiSession {
         mode,
         tokenList: [{
           exchangeType: 1,
-          tokens: group.tokens.map(String)
+          tokens
         }]
       }
     };
@@ -656,12 +840,14 @@ export class AngelOneSmartApiSession {
     try {
       this.upstream.send(JSON.stringify(safeRequest));
 
+      await this.saveSubscription(action, mode, tokens);
+
       this.sendClient(clientSocket, {
         type: "subscription",
         status: action === 1 ? "SUBSCRIBE_SENT" : "UNSUBSCRIBE_SENT",
         exchange: "NSE_CASH",
         mode,
-        tokens: safeRequest.params.tokenList[0].tokens
+        tokens
       });
     } catch {
       this.sendClient(clientSocket, {
@@ -671,11 +857,42 @@ export class AngelOneSmartApiSession {
     }
   }
 
-  webSocketClose(socket) {
+  async webSocketClose(socket) {
     try {
       socket.close();
     } catch {
       // Socket is already closed.
+    }
+
+    const activeClients = this.ctx.getWebSockets().filter(
+      item => item.readyState === 1
+    );
+
+    if (activeClients.length === 0) {
+      this.connectionWanted = false;
+
+      await this.ctx.storage.put("connection_wanted", false);
+      await this.clearReconnectAlarm();
+      await this.disconnectUpstream("NO_ACTIVE_BROWSER_CLIENTS");
+    }
+  }
+
+  async webSocketError(socket) {
+    try {
+      socket.close(1011, "Browser socket error");
+    } catch {
+      // Socket is already closed.
+    }
+
+    const activeClients = this.ctx.getWebSockets().filter(
+      item => item.readyState === 1
+    );
+
+    if (activeClients.length === 0) {
+      this.connectionWanted = false;
+      await this.ctx.storage.put("connection_wanted", false);
+      await this.clearReconnectAlarm();
+      await this.disconnectUpstream("NO_ACTIVE_BROWSER_CLIENTS");
     }
   }
 

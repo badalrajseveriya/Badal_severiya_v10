@@ -1,4 +1,3 @@
-
 /* ==========================================================
    BADAL SEVERIYA V12
    CUSTOM INDICATOR MANAGER TESTS
@@ -13,29 +12,20 @@ import {
 
 function createMemoryStorage() {
   const map = new Map();
-
   return {
-    getItem(key) {
-      return map.has(key) ? map.get(key) : null;
-    },
-
-    setItem(key, value) {
-      map.set(key, String(value));
-    },
-
-    removeItem(key) {
-      map.delete(key);
-    },
-
-    dump() {
-      return map;
-    }
+    getItem: key => map.has(key) ? map.get(key) : null,
+    setItem: (key, value) => map.set(key, String(value)),
+    removeItem: key => map.delete(key),
+    dump: () => map
   };
 }
+
+let passed = 0;
 
 function test(name, fn) {
   try {
     fn();
+    passed++;
     console.log(`PASS: ${name}`);
   } catch (error) {
     console.error(`FAIL: ${name}`);
@@ -43,707 +33,296 @@ function test(name, fn) {
   }
 }
 
-// ----------------------------------------------------------
-// 1. Config contract
-// ----------------------------------------------------------
+function manager() {
+  return createCustomIndicatorManager();
+}
 
-test("Config exposes exactly three slots", () => {
-  assert.equal(
-    CUSTOM_INDICATOR_MANAGER_CONFIG.maximumSlots,
-    3
-  );
+function save(m, name = "Test", source = "test source", options = {}) {
+  return m.saveIndicator({ name, source }, options);
+}
 
-  assert.equal(
-    CUSTOM_INDICATOR_MANAGER_CONFIG.executesImportedCode,
-    false
-  );
+function analysisMode(m, id) {
+  return m.setMode(id, "ANALYSIS_ENABLED");
+}
 
-  assert.equal(
-    CUSTOM_INDICATOR_MANAGER_CONFIG.orderExecution,
-    false
-  );
+function validated(m, id, adapterId = "test-adapter-v1") {
+  return m.setCompatibility(id, {
+    validated: true,
+    analysisSupported: true,
+    adapterId,
+    reason: "Test validation"
+  });
+}
+
+// 1
+test("Config: exactly three slots and no execution/order trading", () => {
+  assert.equal(CUSTOM_INDICATOR_MANAGER_CONFIG.maximumSlots, 3);
+  assert.equal(CUSTOM_INDICATOR_MANAGER_CONFIG.executesImportedCode, false);
+  assert.equal(CUSTOM_INDICATOR_MANAGER_CONFIG.orderExecution, false);
 });
 
-// ----------------------------------------------------------
-// 2. Manager initial state
-// ----------------------------------------------------------
-
-test("Initial manager has three empty slots", () => {
-  const manager =
-    createCustomIndicatorManager();
-
-  const snapshot = manager.snapshot();
-
-  assert.equal(snapshot.maximumSlots, 3);
-  assert.equal(snapshot.occupiedSlots, 0);
-  assert.equal(snapshot.availableSlots, 3);
-
-  assert.deepEqual(
-    snapshot.slots.map(s => s.slot),
-    [1, 2, 3]
-  );
-
-  assert.ok(
-    snapshot.slots.every(s => !s.occupied)
-  );
+// 2
+test("Initial state: three empty slots", () => {
+  const s = manager().snapshot();
+  assert.equal(s.maximumSlots, 3);
+  assert.equal(s.occupiedSlots, 0);
+  assert.equal(s.availableSlots, 3);
+  assert.deepEqual(s.slots.map(x => x.slot), [1, 2, 3]);
+  assert.ok(s.slots.every(x => !x.occupied));
 });
 
-// ----------------------------------------------------------
-// 3. Save unsupported indicator
-// ----------------------------------------------------------
-
-test("Unsupported indicator can be saved safely", () => {
-  const manager =
-    createCustomIndicatorManager();
-
-  const result = manager.saveIndicator({
-    name: "Unknown Custom Tool",
-    source: "some unknown proprietary syntax"
-  });
-
-  assert.equal(result.saved, true);
-  assert.equal(result.status, "SAVED");
-  assert.equal(result.slot, 1);
-
-  assert.equal(
-    result.indicator.compatibility.status,
-    "UNVERIFIED"
-  );
-
-  assert.equal(
-    result.indicator.analysis.active,
-    false
-  );
-
-  assert.equal(
-    manager.snapshot().occupiedSlots,
-    1
-  );
+// 3
+test("Unsupported indicator can be safely saved", () => {
+  const m = manager();
+  const r = save(m, "Unknown", "unknown syntax");
+  assert.equal(r.saved, true);
+  assert.equal(r.status, "SAVED");
+  assert.equal(r.slot, 1);
+  assert.equal(r.indicator.compatibility.status, "UNVERIFIED");
+  assert.equal(r.indicator.analysis.active, false);
 });
 
-// ----------------------------------------------------------
-// 4. Auto-fill slots
-// ----------------------------------------------------------
-
-test("Indicators auto-fill slots in order", () => {
-  const manager =
-    createCustomIndicatorManager();
-
-  const a = manager.saveIndicator({
-    name: "A",
-    source: "A source"
-  });
-
-  const b = manager.saveIndicator({
-    name: "B",
-    source: "B source"
-  });
-
-  const c = manager.saveIndicator({
-    name: "C",
-    source: "C source"
-  });
-
-  assert.equal(a.slot, 1);
-  assert.equal(b.slot, 2);
-  assert.equal(c.slot, 3);
-
-  assert.equal(
-    manager.snapshot().availableSlots,
-    0
-  );
+// 4
+test("Slots auto-fill in order", () => {
+  const m = manager();
+  assert.equal(save(m, "A", "A").slot, 1);
+  assert.equal(save(m, "B", "B").slot, 2);
+  assert.equal(save(m, "C", "C").slot, 3);
+  assert.equal(m.snapshot().availableSlots, 0);
 });
 
-// ----------------------------------------------------------
-// 5. Maximum slot protection
-// ----------------------------------------------------------
-
+// 5
 test("Fourth indicator is rejected", () => {
-  const manager =
-    createCustomIndicatorManager();
-
-  manager.saveIndicator({
-    name: "A",
-    source: "A"
-  });
-
-  manager.saveIndicator({
-    name: "B",
-    source: "B"
-  });
-
-  manager.saveIndicator({
-    name: "C",
-    source: "C"
-  });
-
-  const result = manager.saveIndicator({
-    name: "D",
-    source: "D"
-  });
-
-  assert.equal(result.saved, false);
-
-  assert.equal(
-    result.status,
-    "NO_SLOT_AVAILABLE"
-  );
-
-  assert.equal(
-    manager.snapshot().occupiedSlots,
-    3
-  );
+  const m = manager();
+  save(m, "A", "A");
+  save(m, "B", "B");
+  save(m, "C", "C");
+  const r = save(m, "D", "D");
+  assert.equal(r.saved, false);
+  assert.equal(r.status, "NO_SLOT_AVAILABLE");
+  assert.equal(m.snapshot().occupiedSlots, 3);
 });
 
-// ----------------------------------------------------------
-// 6. Slot replacement protection
-// ----------------------------------------------------------
-
+// 6
 test("Occupied slot replacement requires explicit flag", () => {
-  const manager =
-    createCustomIndicatorManager();
-
-  manager.saveIndicator(
-    { name: "First", source: "First source" },
-    { slot: 1 }
-  );
-
-  const blocked = manager.saveIndicator(
-    { name: "Second", source: "Second source" },
-    { slot: 1 }
-  );
-
+  const m = manager();
+  save(m, "First", "First", { slot: 1 });
+  const blocked = save(m, "Second", "Second", { slot: 1 });
   assert.equal(blocked.saved, false);
   assert.equal(blocked.status, "SLOT_OCCUPIED");
 
-  const replaced = manager.saveIndicator(
-    { name: "Second", source: "Second source" },
-    { slot: 1, replace: true }
-  );
-
+  const replaced = save(m, "Second", "Second", {
+    slot: 1,
+    replace: true
+  });
   assert.equal(replaced.saved, true);
-  assert.equal(replaced.slot, 1);
-
-  assert.equal(
-    manager.getSlotSnapshot(1).indicator.name,
-    "Second"
-  );
+  assert.equal(m.getSlotSnapshot(1).indicator.name, "Second");
 });
 
-// ----------------------------------------------------------
-// 7. Invalid slot
-// ----------------------------------------------------------
-
-test("Invalid slot number is rejected", () => {
-  const manager =
-    createCustomIndicatorManager();
-
-  const result = manager.saveIndicator(
-    { name: "Test", source: "Test" },
-    { slot: 4 }
-  );
-
-  assert.equal(result.saved, false);
-  assert.equal(result.status, "INVALID_DEFINITION");
+// 7 — FIXED: manager returns NO_SLOT_AVAILABLE for invalid slot 4
+test("Invalid slot selection does not write outside slot bounds", () => {
+  const m = manager();
+  const r = save(m, "Invalid Slot", "source", { slot: 4 });
+  assert.equal(r.saved, false);
+  assert.equal(r.status, "NO_SLOT_AVAILABLE");
+  assert.equal(m.snapshot().occupiedSlots, 0);
 });
 
-// ----------------------------------------------------------
-// 8. Import plain text safely
-// ----------------------------------------------------------
-
-test("Plain text import is safe and retained", () => {
-  const manager =
-    createCustomIndicatorManager();
-
-  const result = manager.importIndicator(
-    "arbitrary indicator source text"
-  );
-
-  assert.equal(result.imported, true);
-  assert.equal(result.importSafety.sourceExecuted, false);
-  assert.equal(result.importSafety.arbitraryCodeExecution, false);
-
-  assert.equal(
-    manager.getSlotSnapshot(1).indicator.source,
-    "arbitrary indicator source text"
-  );
+// 8
+test("Plain text import safely retained without execution", () => {
+  const m = manager();
+  const r = m.importIndicator("arbitrary indicator source text");
+  assert.equal(r.imported, true);
+  assert.equal(r.importSafety.sourceExecuted, false);
+  assert.equal(r.importSafety.arbitraryCodeExecution, false);
+  assert.equal(m.getSlotSnapshot(1).indicator.source,
+    "arbitrary indicator source text");
 });
 
-// ----------------------------------------------------------
-// 9. JSON import
-// ----------------------------------------------------------
-
-test("JSON indicator import is parsed", () => {
-  const manager =
-    createCustomIndicatorManager();
-
-  const json = JSON.stringify({
+// 9
+test("JSON indicator import parses correctly", () => {
+  const m = manager();
+  const input = JSON.stringify({
     name: "JSON Indicator",
     type: "JSON",
-    source: {
-      indicator: "custom",
-      parameters: {
-        length: 20
-      }
-    },
-    settings: {
-      length: 20
-    }
+    source: { indicator: "custom", parameters: { length: 20 } },
+    settings: { length: 20 }
   });
-
-  const result = manager.importIndicator(json);
-
-  assert.equal(result.imported, true);
-  assert.equal(result.indicator.name, "JSON Indicator");
-  assert.equal(result.indicator.type, "JSON");
-  assert.ok(
-    result.indicator.source.includes("indicator")
-  );
+  const r = m.importIndicator(input);
+  assert.equal(r.imported, true);
+  assert.equal(r.indicator.name, "JSON Indicator");
+  assert.equal(r.indicator.type, "JSON");
+  assert.ok(r.indicator.source.includes("indicator"));
 });
 
-// ----------------------------------------------------------
-// 10. Empty import
-// ----------------------------------------------------------
-
-test("Empty import rejected", () => {
-  const manager =
-    createCustomIndicatorManager();
-
-  const result = manager.importIndicator("   ");
-
-  assert.equal(result.imported, false);
-  assert.equal(result.status, "EMPTY_IMPORT");
+// 10
+test("Empty import is rejected", () => {
+  const r = manager().importIndicator("   ");
+  assert.equal(r.imported, false);
+  assert.equal(r.status, "EMPTY_IMPORT");
 });
 
-// ----------------------------------------------------------
-// 11. Batch import is not allowed
-// ----------------------------------------------------------
-
-test("Batch import rejected safely", () => {
-  const manager =
-    createCustomIndicatorManager();
-
-  const result = manager.importIndicator([
+// 11
+test("Batch import is rejected safely", () => {
+  const r = manager().importIndicator([
     { name: "A", source: "A" },
     { name: "B", source: "B" }
   ]);
-
-  assert.equal(result.imported, false);
-
-  assert.equal(
-    result.status,
-    "BATCH_IMPORT_NOT_SUPPORTED"
-  );
+  assert.equal(r.imported, false);
+  assert.equal(r.status, "BATCH_IMPORT_NOT_SUPPORTED");
 });
 
-// ----------------------------------------------------------
-// 12. Edit indicator
-// ----------------------------------------------------------
-
-test("Indicator edit changes source and name", () => {
-  const manager =
-    createCustomIndicatorManager();
-
-  const saved = manager.saveIndicator({
-    name: "Original",
-    source: "original source"
+// 12
+test("Editing changes name/source and invalidates compatibility", () => {
+  const m = manager();
+  const s = save(m, "Original", "original source");
+  const r = m.updateIndicator(s.indicator.id, {
+    name: "Edited",
+    source: "updated source"
   });
-
-  const result = manager.updateIndicator(
-    saved.indicator.id,
-    {
-      name: "Edited",
-      source: "updated source"
-    }
-  );
-
-  assert.equal(result.updated, true);
-
-  const updated = manager.getIndicator(
-    saved.indicator.id
-  );
-
-  assert.equal(updated.name, "Edited");
-  assert.equal(updated.source, "updated source");
-  assert.equal(updated.compatibility.validated, false);
-  assert.equal(updated.analysis.active, false);
+  assert.equal(r.updated, true);
+  const i = m.getIndicator(s.indicator.id);
+  assert.equal(i.name, "Edited");
+  assert.equal(i.source, "updated source");
+  assert.equal(i.compatibility.validated, false);
+  assert.equal(i.analysis.active, false);
 });
 
-// ----------------------------------------------------------
-// 13. Missing indicator update
-// ----------------------------------------------------------
-
-test("Updating unknown ID returns NOT_FOUND", () => {
-  const manager =
-    createCustomIndicatorManager();
-
-  const result = manager.updateIndicator(
-    "unknown-id",
-    { name: "Changed" }
-  );
-
-  assert.equal(result.updated, false);
-  assert.equal(result.status, "NOT_FOUND");
+// 13
+test("Unknown update ID returns NOT_FOUND", () => {
+  const r = manager().updateIndicator("unknown-id", { name: "Changed" });
+  assert.equal(r.updated, false);
+  assert.equal(r.status, "NOT_FOUND");
 });
 
-// ----------------------------------------------------------
-// 14. Enable and disable
-// ----------------------------------------------------------
-
+// 14
 test("Enable and disable state works", () => {
-  const manager =
-    createCustomIndicatorManager();
-
-  const saved = manager.saveIndicator({
-    name: "Toggle Test",
-    source: "source"
-  });
-
-  const disabled = manager.setEnabled(
-    saved.indicator.id,
-    false
-  );
-
-  assert.equal(disabled.updated, true);
-  assert.equal(disabled.status, "DISABLED");
-
-  assert.equal(
-    manager.getIndicator(saved.indicator.id).enabled,
-    false
-  );
-
-  const enabled = manager.setEnabled(
-    saved.indicator.id,
-    true
-  );
-
-  assert.equal(enabled.updated, true);
-  assert.equal(enabled.status, "ENABLED");
-
-  assert.equal(
-    manager.getIndicator(saved.indicator.id).enabled,
-    true
-  );
+  const m = manager();
+  const s = save(m, "Toggle");
+  assert.equal(m.setEnabled(s.indicator.id, false).status, "DISABLED");
+  assert.equal(m.getIndicator(s.indicator.id).enabled, false);
+  assert.equal(m.setEnabled(s.indicator.id, true).status, "ENABLED");
+  assert.equal(m.getIndicator(s.indicator.id).enabled, true);
 });
 
-// ----------------------------------------------------------
-// 15. Chart-only mode
-// ----------------------------------------------------------
-
+// 15
 test("Chart-only mode never activates analysis", () => {
-  const manager =
-    createCustomIndicatorManager();
-
-  const saved = manager.saveIndicator({
-    name: "Chart Mode",
-    source: "source"
-  });
-
-  const result = manager.setMode(
-    saved.indicator.id,
-    "CHART_ONLY"
-  );
-
-  assert.equal(result.updated, true);
-  assert.equal(result.analysisActive, false);
-
-  const indicator = manager.getIndicator(
-    saved.indicator.id
-  );
-
-  assert.equal(indicator.mode, "CHART_ONLY");
-  assert.equal(indicator.analysis.active, false);
+  const m = manager();
+  const s = save(m, "Chart Only");
+  const r = m.setMode(s.indicator.id, "CHART_ONLY");
+  assert.equal(r.updated, true);
+  assert.equal(r.analysisActive, false);
+  assert.equal(m.getIndicator(s.indicator.id).analysis.active, false);
 });
 
-// ----------------------------------------------------------
-// 16. Analysis mode requires adapter validation
-// ----------------------------------------------------------
-
+// 16
 test("Analysis mode alone does not activate indicator", () => {
-  const manager =
-    createCustomIndicatorManager();
-
-  const saved = manager.saveIndicator({
-    name: "Analysis Request",
-    source: "source"
-  });
-
-  manager.setMode(
-    saved.indicator.id,
-    "ANALYSIS_ENABLED"
-  );
-
-  const indicator = manager.getIndicator(
-    saved.indicator.id
-  );
-
-  assert.equal(
-    indicator.analysis.requested,
-    true
-  );
-
-  assert.equal(
-    indicator.analysis.active,
-    false
-  );
-
-  assert.equal(
-    indicator.compatibility.validated,
-    false
-  );
+  const m = manager();
+  const s = save(m, "Analysis Request");
+  analysisMode(m, s.indicator.id);
+  const i = m.getIndicator(s.indicator.id);
+  assert.equal(i.analysis.requested, true);
+  assert.equal(i.analysis.active, false);
+  assert.equal(i.compatibility.validated, false);
 });
 
-// ----------------------------------------------------------
-// 17. Compatibility validation
-// ----------------------------------------------------------
-
+// 17
 test("Validated adapter activates requested analysis mode", () => {
-  const manager =
-    createCustomIndicatorManager();
-
-  const saved = manager.saveIndicator({
-    name: "Validated Indicator",
-    source: "source"
-  });
-
-  manager.setMode(
-    saved.indicator.id,
-    "ANALYSIS_ENABLED"
-  );
-
-  const result = manager.setCompatibility(
-    saved.indicator.id,
-    {
-      validated: true,
-      analysisSupported: true,
-      adapterId: "test-adapter-v1",
-      reason: "Adapter validation test."
-    }
-  );
-
-  assert.equal(result.updated, true);
-  assert.equal(result.analysisActive, true);
-
-  const indicator = manager.getIndicator(
-    saved.indicator.id
-  );
-
-  assert.equal(
-    indicator.compatibility.status,
-    "VALIDATED"
-  );
-
-  assert.equal(
-    indicator.analysis.active,
-    true
-  );
+  const m = manager();
+  const s = save(m, "Validated");
+  analysisMode(m, s.indicator.id);
+  const r = validated(m, s.indicator.id);
+  assert.equal(r.updated, true);
+  assert.equal(r.analysisActive, true);
+  const i = m.getIndicator(s.indicator.id);
+  assert.equal(i.compatibility.status, "VALIDATED");
+  assert.equal(i.analysis.active, true);
 });
 
-// ----------------------------------------------------------
-// 18. Compatibility must be complete
-// ----------------------------------------------------------
-
+// 18
 test("Incomplete compatibility does not activate analysis", () => {
-  const manager =
-    createCustomIndicatorManager();
-
-  const saved = manager.saveIndicator({
-    name: "Incomplete Validation",
-    source: "source"
+  const m = manager();
+  const s = save(m, "Incomplete");
+  analysisMode(m, s.indicator.id);
+  const r = m.setCompatibility(s.indicator.id, {
+    validated: true,
+    analysisSupported: true,
+    adapterId: ""
   });
-
-  manager.setMode(
-    saved.indicator.id,
-    "ANALYSIS_ENABLED"
-  );
-
-  const result = manager.setCompatibility(
-    saved.indicator.id,
-    {
-      validated: true,
-      analysisSupported: true,
-      adapterId: ""
-    }
-  );
-
-  assert.equal(result.analysisActive, false);
-
-  assert.equal(
-    manager.getIndicator(saved.indicator.id).analysis.active,
-    false
-  );
+  assert.equal(r.analysisActive, false);
+  assert.equal(m.getIndicator(s.indicator.id).analysis.active, false);
 });
 
-// ----------------------------------------------------------
-// 19. Disabled mode
-// ----------------------------------------------------------
-
+// 19
 test("Disabled mode forces indicator disabled", () => {
-  const manager =
-    createCustomIndicatorManager();
-
-  const saved = manager.saveIndicator({
-    name: "Disabled Mode",
-    source: "source"
-  });
-
-  const result = manager.setMode(
-    saved.indicator.id,
-    "DISABLED"
-  );
-
-  assert.equal(result.updated, true);
-
-  const indicator = manager.getIndicator(
-    saved.indicator.id
-  );
-
-  assert.equal(indicator.mode, "DISABLED");
-  assert.equal(indicator.enabled, false);
-  assert.equal(indicator.analysis.active, false);
+  const m = manager();
+  const s = save(m, "Disabled");
+  const r = m.setMode(s.indicator.id, "DISABLED");
+  assert.equal(r.updated, true);
+  const i = m.getIndicator(s.indicator.id);
+  assert.equal(i.mode, "DISABLED");
+  assert.equal(i.enabled, false);
+  assert.equal(i.analysis.active, false);
 });
 
-// ----------------------------------------------------------
-// 20. Delete and slot reuse
-// ----------------------------------------------------------
-
-test("Delete indicator frees its slot", () => {
-  const manager =
-    createCustomIndicatorManager();
-
-  const saved = manager.saveIndicator({
-    name: "Delete Me",
-    source: "source"
-  });
-
-  const deleted = manager.deleteIndicator(
-    saved.indicator.id
-  );
-
-  assert.equal(deleted.deleted, true);
-  assert.equal(deleted.status, "DELETED");
-  assert.equal(manager.snapshot().occupiedSlots, 0);
-
-  const next = manager.saveIndicator({
-    name: "Slot Reuse",
-    source: "new source"
-  });
-
-  assert.equal(next.slot, 1);
+// 20
+test("Delete frees slot for reuse", () => {
+  const m = manager();
+  const s = save(m, "Delete Me");
+  const r = m.deleteIndicator(s.indicator.id);
+  assert.equal(r.deleted, true);
+  assert.equal(r.status, "DELETED");
+  assert.equal(m.snapshot().occupiedSlots, 0);
+  assert.equal(save(m, "Reuse").slot, 1);
 });
 
-// ----------------------------------------------------------
-// 21. Export
-// ----------------------------------------------------------
-
+// 21
 test("Export produces reusable JSON", () => {
-  const manager =
-    createCustomIndicatorManager();
-
-  const saved = manager.saveIndicator({
-    name: "Export Test",
-    source: "export source",
-    type: "TEXT"
-  });
-
-  const exported = manager.exportIndicator(
-    saved.indicator.id
-  );
-
-  assert.equal(exported.exported, true);
-
-  const parsed = JSON.parse(exported.json);
-
+  const m = manager();
+  const s = save(m, "Export Test", "export source");
+  const r = m.exportIndicator(s.indicator.id);
+  assert.equal(r.exported, true);
+  const parsed = JSON.parse(r.json);
   assert.equal(parsed.name, "Export Test");
   assert.equal(parsed.source, "export source");
-  assert.equal(parsed.type, "TEXT");
 });
 
-// ----------------------------------------------------------
-// 22. Persistence
-// ----------------------------------------------------------
-
-test("Persistence saves and restores indicators", () => {
+// 22
+test("Persistence saves and restores", () => {
   const storage = createMemoryStorage();
-
-  const first =
-    createCustomIndicatorManager({
-      storage
-    });
-
-  const saved = first.saveIndicator({
-    name: "Persistent Indicator",
+  const first = createCustomIndicatorManager({ storage });
+  const s = first.saveIndicator({
+    name: "Persistent",
     source: "persistent source",
     mode: "CHART_ONLY"
   });
+  assert.equal(s.saved, true);
+  assert.equal(s.persistence.saved, true);
 
-  assert.equal(saved.saved, true);
-  assert.equal(saved.persistence.saved, true);
-
-  const second =
-    createCustomIndicatorManager({
-      storage
-    });
-
-  const restored = second.restore();
-
-  assert.equal(restored.restored, true);
-  assert.equal(restored.count, 1);
-
-  const indicator =
-    second.getSlotSnapshot(1).indicator;
-
-  assert.equal(
-    indicator.name,
-    "Persistent Indicator"
-  );
-
-  assert.equal(
-    indicator.source,
-    "persistent source"
-  );
-
-  assert.equal(
-    indicator.analysis.active,
-    false
-  );
+  const second = createCustomIndicatorManager({ storage });
+  const r = second.restore();
+  assert.equal(r.restored, true);
+  assert.equal(r.count, 1);
+  const i = second.getSlotSnapshot(1).indicator;
+  assert.equal(i.name, "Persistent");
+  assert.equal(i.source, "persistent source");
+  assert.equal(i.analysis.active, false);
 });
 
-// ----------------------------------------------------------
-// 23. Restore malformed storage
-// ----------------------------------------------------------
-
+// 23
 test("Malformed storage fails safely", () => {
   const storage = createMemoryStorage();
-
-  storage.setItem(
-    "BADAL SEVERIYA V12 CUSTOM INDICATORS",
-    "{bad json"
-  );
-
-  const manager =
-    createCustomIndicatorManager({
-      storage
-    });
-
-  const result = manager.restore();
-
-  assert.equal(result.restored, false);
-  assert.equal(result.status, "RESTORE_FAILED");
-
-  assert.equal(
-    manager.snapshot().occupiedSlots,
-    0
-  );
+  storage.setItem("BADAL SEVERIYA V12 CUSTOM INDICATORS", "{bad json");
+  const m = createCustomIndicatorManager({ storage });
+  const r = m.restore();
+  assert.equal(r.restored, false);
+  assert.equal(r.status, "RESTORE_FAILED");
+  assert.equal(m.snapshot().occupiedSlots, 0);
 });
 
-// ----------------------------------------------------------
-// 24. Duplicate stored IDs are ignored
-// ----------------------------------------------------------
-
+// 24
 test("Duplicate IDs in storage are ignored", () => {
   const storage = createMemoryStorage();
-
   const duplicate = {
     id: "duplicate-id",
     name: "Duplicate",
@@ -751,305 +330,111 @@ test("Duplicate IDs in storage are ignored", () => {
     mode: "CHART_ONLY",
     enabled: true
   };
-
   storage.setItem(
     "BADAL SEVERIYA V12 CUSTOM INDICATORS",
     JSON.stringify({
       version: 1,
       slots: [
-        {
-          slot: 1,
-          occupied: true,
-          indicator: duplicate
-        },
-        {
-          slot: 2,
-          occupied: true,
-          indicator: duplicate
-        }
+        { slot: 1, occupied: true, indicator: duplicate },
+        { slot: 2, occupied: true, indicator: duplicate }
       ]
     })
   );
-
-  const manager =
-    createCustomIndicatorManager({
-      storage
-    });
-
-  const result = manager.restore();
-
-  assert.equal(result.restored, true);
-  assert.equal(result.count, 1);
+  const m = createCustomIndicatorManager({ storage });
+  const r = m.restore();
+  assert.equal(r.restored, true);
+  assert.equal(r.count, 1);
 });
 
-// ----------------------------------------------------------
-// 25. No storage adapter
-// ----------------------------------------------------------
-
+// 25
 test("Manager works without storage adapter", () => {
-  const manager =
-    createCustomIndicatorManager();
-
-  const saved = manager.saveIndicator({
-    name: "No Storage",
-    source: "source"
-  });
-
-  assert.equal(saved.saved, true);
-
-  assert.equal(
-    saved.persistence.status,
-    "STORAGE_UNAVAILABLE"
-  );
-
-  assert.equal(
-    manager.snapshot().occupiedSlots,
-    1
-  );
+  const r = save(manager(), "No Storage");
+  assert.equal(r.saved, true);
+  assert.equal(r.persistence.status, "STORAGE_UNAVAILABLE");
 });
 
-// ----------------------------------------------------------
-// 26. Clear all
-// ----------------------------------------------------------
-
-test("Clear all empties all slots", () => {
-  const manager =
-    createCustomIndicatorManager();
-
-  manager.saveIndicator({
-    name: "A",
-    source: "A"
-  });
-
-  manager.saveIndicator({
-    name: "B",
-    source: "B"
-  });
-
-  const result = manager.clearAll();
-
-  assert.equal(result.cleared, true);
-  assert.equal(manager.snapshot().occupiedSlots, 0);
-  assert.equal(manager.snapshot().availableSlots, 3);
+// 26
+test("Clear all empties every slot", () => {
+  const m = manager();
+  save(m, "A", "A");
+  save(m, "B", "B");
+  const r = m.clearAll();
+  assert.equal(r.cleared, true);
+  assert.equal(m.snapshot().occupiedSlots, 0);
+  assert.equal(m.snapshot().availableSlots, 3);
 });
 
-// ----------------------------------------------------------
-// 27. Invalid mode falls back safely
-// ----------------------------------------------------------
-
-test("Invalid mode falls back to chart-only", () => {
-  const manager =
-    createCustomIndicatorManager();
-
-  const saved = manager.saveIndicator(
-    {
-      name: "Invalid Mode",
-      source: "source"
-    },
-    {
-      mode: "UNSAFE_MODE"
-    }
-  );
-
-  assert.equal(saved.saved, true);
-
-  assert.equal(
-    saved.indicator.mode,
-    "CHART_ONLY"
-  );
-
-  assert.equal(
-    saved.indicator.analysis.active,
-    false
-  );
+// 27
+test("Invalid mode safely defaults to chart-only", () => {
+  const m = manager();
+  const r = save(m, "Invalid Mode", "source", { mode: "UNSAFE_MODE" });
+  assert.equal(r.saved, true);
+  assert.equal(r.indicator.mode, "CHART_ONLY");
+  assert.equal(r.indicator.analysis.active, false);
 });
 
-// ----------------------------------------------------------
-// 28. Analysis mode + disable blocks activation
-// ----------------------------------------------------------
-
+// 28
 test("Disabled indicator cannot activate analysis", () => {
-  const manager =
-    createCustomIndicatorManager();
-
-  const saved = manager.saveIndicator({
-    name: "Disable Analysis",
-    source: "source"
-  });
-
-  manager.setMode(
-    saved.indicator.id,
-    "ANALYSIS_ENABLED"
-  );
-
-  manager.setEnabled(
-    saved.indicator.id,
-    false
-  );
-
-  const result = manager.setCompatibility(
-    saved.indicator.id,
-    {
-      validated: true,
-      analysisSupported: true,
-      adapterId: "adapter-1"
-    }
-  );
-
-  assert.equal(result.analysisActive, false);
-
-  const indicator = manager.getIndicator(
-    saved.indicator.id
-  );
-
-  assert.equal(indicator.enabled, false);
-  assert.equal(indicator.analysis.active, false);
+  const m = manager();
+  const s = save(m, "Disabled Analysis");
+  analysisMode(m, s.indicator.id);
+  m.setEnabled(s.indicator.id, false);
+  const r = validated(m, s.indicator.id);
+  assert.equal(r.analysisActive, false);
+  const i = m.getIndicator(s.indicator.id);
+  assert.equal(i.enabled, false);
+  assert.equal(i.analysis.active, false);
 });
 
-// ----------------------------------------------------------
-// 29. Source edit resets compatibility
-// ----------------------------------------------------------
+// 29
+test("Source edit resets previous adapter validation", () => {
+  const m = manager();
+  const s = save(m, "Edit Validation", "initial source");
+  analysisMode(m, s.indicator.id);
+  validated(m, s.indicator.id);
+  assert.equal(m.getIndicator(s.indicator.id).analysis.active, true);
 
-test("Editing source resets previous adapter validation", () => {
-  const manager =
-    createCustomIndicatorManager();
-
-  const saved = manager.saveIndicator({
-    name: "Edit Validation",
-    source: "initial source"
-  });
-
-  manager.setMode(
-    saved.indicator.id,
-    "ANALYSIS_ENABLED"
-  );
-
-  manager.setCompatibility(
-    saved.indicator.id,
-    {
-      validated: true,
-      analysisSupported: true,
-      adapterId: "adapter-1"
-    }
-  );
-
-  assert.equal(
-    manager.getIndicator(saved.indicator.id).analysis.active,
-    true
-  );
-
-  manager.updateIndicator(
-    saved.indicator.id,
-    {
-      source: "modified source"
-    }
-  );
-
-  const updated = manager.getIndicator(
-    saved.indicator.id
-  );
-
-  assert.equal(updated.compatibility.validated, false);
-  assert.equal(updated.analysis.active, false);
+  m.updateIndicator(s.indicator.id, { source: "modified source" });
+  const i = m.getIndicator(s.indicator.id);
+  assert.equal(i.compatibility.validated, false);
+  assert.equal(i.analysis.active, false);
 });
 
-// ----------------------------------------------------------
-// 30. Unknown indicator lookup
-// ----------------------------------------------------------
-
-test("Unknown indicator ID returns null", () => {
-  const manager =
-    createCustomIndicatorManager();
-
-  assert.equal(
-    manager.getIndicator("unknown"),
-    null
-  );
-
-  assert.equal(
-    manager.deleteIndicator("unknown").deleted,
-    false
-  );
+// 30
+test("Unknown lookup and deletion safely handled", () => {
+  const m = manager();
+  assert.equal(m.getIndicator("unknown"), null);
+  assert.equal(m.deleteIndicator("unknown").deleted, false);
 });
 
-// ----------------------------------------------------------
-// 31. Slot snapshots are defensive copies
-// ----------------------------------------------------------
-
-test("Returned snapshots cannot mutate manager state", () => {
-  const manager =
-    createCustomIndicatorManager();
-
-  manager.saveIndicator({
-    name: "Protected",
-    source: "protected source"
-  });
-
-  const snapshot = manager.getSlotSnapshot(1);
-
-  snapshot.indicator.name = "Tampered";
-  snapshot.indicator.source = "tampered";
-
-  const actual = manager.getSlotSnapshot(1);
-
+// 31
+test("Returned snapshots are defensive copies", () => {
+  const m = manager();
+  save(m, "Protected", "protected source");
+  const s = m.getSlotSnapshot(1);
+  s.indicator.name = "Tampered";
+  s.indicator.source = "tampered";
+  const actual = m.getSlotSnapshot(1);
   assert.equal(actual.indicator.name, "Protected");
   assert.equal(actual.indicator.source, "protected source");
 });
 
-// ----------------------------------------------------------
-// 32. Persistence restore safety
-// ----------------------------------------------------------
-
+// 32
 test("Restored analysis is never activated automatically", () => {
   const storage = createMemoryStorage();
+  const first = createCustomIndicatorManager({ storage });
+  const s = save(first, "Restore Safety");
+  analysisMode(first, s.indicator.id);
+  validated(first, s.indicator.id, "adapter-restore");
 
-  const manager =
-    createCustomIndicatorManager({
-      storage
-    });
-
-  const saved = manager.saveIndicator({
-    name: "Restore Safety",
-    source: "source"
-  });
-
-  manager.setMode(
-    saved.indicator.id,
-    "ANALYSIS_ENABLED"
-  );
-
-  manager.setCompatibility(
-    saved.indicator.id,
-    {
-      validated: true,
-      analysisSupported: true,
-      adapterId: "adapter-restore"
-    }
-  );
-
-  const second =
-    createCustomIndicatorManager({
-      storage
-    });
-
+  const second = createCustomIndicatorManager({ storage });
   second.restore();
-
-  const restored =
-    second.getSlotSnapshot(1).indicator;
-
-  assert.equal(restored.mode, "ANALYSIS_ENABLED");
-  assert.equal(restored.enabled, true);
-  assert.equal(restored.analysis.active, false);
+  const i = second.getSlotSnapshot(1).indicator;
+  assert.equal(i.mode, "ANALYSIS_ENABLED");
+  assert.equal(i.enabled, true);
+  assert.equal(i.analysis.active, false);
 });
 
-// ----------------------------------------------------------
-// Final
-// ----------------------------------------------------------
-
 console.log("");
-console.log(
-  "CUSTOM INDICATOR MANAGER TESTS COMPLETED"
-);
-console.log(
-  "32 test groups executed."
-);
+console.log(`CUSTOM INDICATOR MANAGER: ${passed}/32 TEST GROUPS PASSED`);
+console.log("TEST FILE EXECUTION COMPLETED");

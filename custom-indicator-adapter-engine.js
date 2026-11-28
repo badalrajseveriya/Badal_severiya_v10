@@ -1,4 +1,3 @@
-
 // ==========================================================
 // BADAL SEVERIYA V12
 // CUSTOM INDICATOR ADAPTER ENGINE
@@ -157,7 +156,8 @@ function normalizeCandles(input) {
         valid: false,
         status: "INVALID_CHRONOLOGY",
         candles: [],
-        reason: "Candles must be strictly chronological without duplicate timestamps."
+        reason:
+          "Candles must be strictly chronological without duplicate timestamps."
       };
     }
 
@@ -518,12 +518,14 @@ function extractPeriod(definition, source, fallback) {
   }
 
   // Inspect common Pine-style calls safely.
-  const pattern = new RegExp(
-    `(?:ta\\.)?(?:sma|ema|rsi|atr)\\s*\\([^,]+,\\s*(\\d+)\\s*\\)`,
-    "i"
-  );
+  const patterns = [
+    /(?:ta\.)?(?:sma|ema|rsi)\s*\([^,]+,\s*(\d+)\s*\)/i,
+    /(?:ta\.)?atr\s*\(\s*(\d+)\s*\)/i
+  ];
 
-  const match = safeString(source).match(pattern);
+  const match = patterns
+    .map(pattern => safeString(source).match(pattern))
+    .find(Boolean);
 
   return match
     ? Number(match[1])
@@ -590,7 +592,7 @@ function calculateBuiltin(identified, candles) {
       20
     );
 
-    if (!period) {
+    if (!Number.isInteger(period) || period < 1) {
       return {
         valid: false,
         status: "INVALID_PERIOD",
@@ -616,7 +618,7 @@ function calculateBuiltin(identified, candles) {
       20
     );
 
-    if (!period) {
+    if (!Number.isInteger(period) || period < 1) {
       return {
         valid: false,
         status: "INVALID_PERIOD",
@@ -671,7 +673,7 @@ function calculateBuiltin(identified, candles) {
       14
     );
 
-    if (!period) {
+    if (!Number.isInteger(period) || period < 1) {
       return {
         valid: false,
         status: "INVALID_PERIOD",
@@ -700,7 +702,8 @@ function calculateBuiltin(identified, candles) {
       return {
         valid: false,
         status: "INVALID_MACD_PARAMETERS",
-        reason: "MACD parameters must be positive integers with slow > fast."
+        reason:
+          "MACD parameters must be positive integers with slow > fast."
       };
     }
 
@@ -732,7 +735,8 @@ function calculateBuiltin(identified, candles) {
       status: "INSUFFICIENT_DATA",
       requiredCandles,
       availableCandles: candles.length,
-      reason: `This indicator requires at least ${requiredCandles} candles.`
+      reason:
+        `This indicator requires at least ${requiredCandles} candles.`
     };
   }
 
@@ -832,6 +836,15 @@ function interpretResult(result) {
     };
   }
 
+  if (type === "CUSTOM") {
+    return {
+      direction: "NEUTRAL",
+      context: "CUSTOM_INDICATOR_CONTEXT",
+      explanation:
+        "Trusted custom adapter numeric context only; no standalone forecast."
+    };
+  }
+
   if (type === "ATR") {
     return {
       direction: "NEUTRAL",
@@ -888,7 +901,8 @@ export function createCustomIndicatorAdapterEngine(
       return {
         registered: false,
         status: "INVALID_ADAPTER_INTERFACE",
-        reason: "Adapter must provide detect and calculate functions."
+        reason:
+          "Adapter must provide detect and calculate functions."
       };
     }
 
@@ -912,7 +926,8 @@ export function createCustomIndicatorAdapterEngine(
 
       // Adapter implementations are trusted engine code,
       // not imported indicator source.
-      trustedAdapter: adapter.trustedAdapter === true
+      trustedAdapter: adapter.trustedAdapter === true,
+      minimumCandles: adapter.minimumCandles
     });
 
     return {
@@ -986,8 +1001,48 @@ export function createCustomIndicatorAdapterEngine(
     ];
   }
 
+  // --------------------------------------------------------
+  // Custom adapter matching
+  // Only trusted engine adapters may enter runtime analysis.
+  // Imported indicator source itself is never executed.
+  // --------------------------------------------------------
+
+  function findTrustedCustomAdapter(indicator) {
+    for (const adapter of adapters.values()) {
+      if (adapter.trustedAdapter !== true) continue;
+
+      try {
+        if (adapter.detect(indicator) === true) {
+          return adapter;
+        }
+      } catch {
+        // Isolate faulty adapter detection.
+      }
+    }
+
+    return null;
+  }
+
   function validateIndicator(indicator) {
     const identified = identifyIndicator(indicator);
+
+    if (!identified.supported) {
+      const customAdapter = findTrustedCustomAdapter(indicator);
+
+      if (customAdapter) {
+        return {
+          valid: true,
+          validated: true,
+          status: "VALIDATED_CUSTOM_ADAPTER",
+          adapterId: customAdapter.id,
+          indicatorType: "CUSTOM",
+          analysisSupported: true,
+          reason:
+            "Recognized by a registered trusted adapter. Runtime validation is still required.",
+          chartOnlyRecommended: false
+        };
+      }
+    }
 
     if (!identified.supported) {
       return {
@@ -1023,24 +1078,37 @@ export function createCustomIndicatorAdapterEngine(
       return {
         status: "WAIT",
         valid: false,
-        reason: "Only 1D and 15M timeframes are supported.",
+        reason:
+          "Only 1D and 15M timeframes are supported.",
         timeframe: input.timeframe ?? null
       };
     }
 
     const indicator = input.indicator;
 
-    const identified = identifyIndicator(indicator);
+    let identified = identifyIndicator(indicator);
 
     if (!identified.supported) {
-      return {
-        status: "UNSUPPORTED",
-        valid: false,
-        timeframe,
-        adapterId: null,
-        reason: identified.reason,
-        chartOnly: true
-      };
+      const customAdapter = findTrustedCustomAdapter(indicator);
+
+      if (customAdapter) {
+        identified = {
+          supported: true,
+          adapterId: customAdapter.id,
+          type: "CUSTOM",
+          definition: indicator,
+          customAdapter
+        };
+      } else {
+        return {
+          status: "UNSUPPORTED",
+          valid: false,
+          timeframe,
+          adapterId: null,
+          reason: identified.reason,
+          chartOnly: true
+        };
+      }
     }
 
     const normalized = normalizeCandles(
@@ -1090,10 +1158,89 @@ export function createCustomIndicatorAdapterEngine(
     let result;
 
     try {
-      result = calculateBuiltin(
-        identified,
-        candles
-      );
+      // ----------------------------------------------------
+      // Registered custom adapter runtime
+      // ----------------------------------------------------
+
+      if (identified.type === "CUSTOM") {
+        const adapter = identified.customAdapter;
+        const adapterMinimum = Number(adapter.minimumCandles);
+
+        const requiredCandles =
+          Number.isInteger(adapterMinimum) &&
+          adapterMinimum > 0
+            ? Math.max(
+                config.minimumCandles,
+                adapterMinimum
+              )
+            : config.minimumCandles;
+
+        if (candles.length < requiredCandles) {
+          return {
+            status: "WAIT",
+            valid: false,
+            timeframe,
+            adapterId: adapter.id,
+            reason:
+              `Custom adapter requires at least ${requiredCandles} candles.`,
+            requiredCandles,
+            availableCandles: candles.length
+          };
+        }
+
+        // Adapter receives normalized copies of candles.
+        // Imported source/script is NOT executed.
+        const raw = adapter.calculate({
+          indicator,
+          timeframe,
+          candles: candles.map(candle => ({ ...candle })),
+          minimumCandles: requiredCandles,
+          maximumCandles: config.maximumCandles
+        });
+
+        const customValue =
+          typeof raw === "number"
+            ? raw
+            : isObject(raw)
+              ? Number(raw.latestValue ?? raw.value)
+              : NaN;
+
+        if (!Number.isFinite(customValue)) {
+          result = {
+            valid: false,
+            status: "CUSTOM_ADAPTER_INVALID_RESULT",
+            reason:
+              "Trusted custom adapter must return a finite number or an object containing latestValue/value."
+          };
+        } else {
+          const previous =
+            isObject(raw) && raw.previousValue !== undefined
+              ? Number(raw.previousValue)
+              : null;
+
+          result = {
+            valid: true,
+            status: "VALID",
+            type: "CUSTOM",
+            adapterId: adapter.id,
+            latestValue: customValue,
+            previousValue: Number.isFinite(previous)
+              ? previous
+              : null,
+            marketClose: candles.at(-1).close,
+            details:
+              isObject(raw) && isObject(raw.details)
+                ? raw.details
+                : {},
+            requiredCandles
+          };
+        }
+      } else {
+        result = calculateBuiltin(
+          identified,
+          candles
+        );
+      }
     } catch (error) {
       return {
         status: "CALCULATION_ERROR",

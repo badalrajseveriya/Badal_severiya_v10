@@ -1,4 +1,3 @@
-
 import { test, expect } from "@playwright/test";
 import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
@@ -25,6 +24,7 @@ const CORS_HEADERS = {
 
 function getContentType(filePath) {
   const extension = path.extname(filePath).toLowerCase();
+
   const types = {
     ".html": "text/html; charset=utf-8",
     ".js": "text/javascript; charset=utf-8",
@@ -32,39 +32,111 @@ function getContentType(filePath) {
     ".json": "application/json; charset=utf-8",
     ".svg": "image/svg+xml"
   };
+
   return types[extension] || "application/octet-stream";
+}
+
+/*
+ * Creates realistic synthetic historical OHLC data.
+ * The wave pattern deliberately produces confirmed swing highs/lows.
+ * This is test-only data, not market data.
+ */
+function makeCandles(
+  count,
+  intervalMinutes,
+  start = Date.UTC(2026, 0, 1, 3, 45)
+) {
+  const candles = [];
+  let previousClose = 25000;
+
+  for (let i = 0; i < count; i++) {
+    const trend = i * 0.8;
+    const wave =
+      Math.sin(i * 0.42) * 80 +
+      Math.sin(i * 0.13) * 35;
+
+    const close = 25000 + trend + wave;
+
+    const open =
+      i === 0
+        ? close - 2
+        : previousClose + Math.sin(i * 0.71) * 3;
+
+    const candleRange =
+      5 + Math.abs(Math.sin(i * 0.37)) * 8;
+
+    const high =
+      Math.max(open, close) + candleRange;
+
+    const low =
+      Math.min(open, close) - candleRange;
+
+    candles.push([
+      new Date(
+        start + i * intervalMinutes * 60 * 1000
+      ).toISOString(),
+      Number(open.toFixed(2)),
+      Number(high.toFixed(2)),
+      Number(low.toFixed(2)),
+      Number(close.toFixed(2)),
+      1000 + i
+    ]);
+
+    previousClose = close;
+  }
+
+  return candles;
 }
 
 test.beforeAll(async () => {
   server = createServer(async (request, response) => {
     try {
-      const requestUrl = new URL(request.url, "http://localhost");
+      const requestUrl = new URL(
+        request.url,
+        "http://localhost"
+      );
+
       let pathname = decodeURIComponent(requestUrl.pathname);
 
-      if (pathname === "/") pathname = "/index.html";
+      if (pathname === "/") {
+        pathname = "/index.html";
+      }
 
       const filePath = path.resolve(ROOT, `.${pathname}`);
-      const rootPrefix = ROOT.endsWith(path.sep) ? ROOT : ROOT + path.sep;
 
-      if (filePath !== ROOT && !filePath.startsWith(rootPrefix)) {
+      const rootPrefix = ROOT.endsWith(path.sep)
+        ? ROOT
+        : ROOT + path.sep;
+
+      if (
+        filePath !== ROOT &&
+        !filePath.startsWith(rootPrefix)
+      ) {
         response.writeHead(403);
         response.end("Forbidden");
         return;
       }
 
       const content = await readFile(filePath);
+
       response.writeHead(200, {
         "content-type": getContentType(filePath),
         "cache-control": "no-store"
       });
+
       response.end(content);
     } catch (error) {
-      const status = error.code === "ENOENT" ? 404 : 500;
+      const status =
+        error.code === "ENOENT" ? 404 : 500;
+
       response.writeHead(status, {
         "content-type": "text/plain; charset=utf-8"
       });
+
       response.end(
-        status === 404 ? "Not found" : "Browser test server error"
+        status === 404
+          ? "Not found"
+          : "Browser test server error"
       );
     }
   });
@@ -75,6 +147,7 @@ test.beforeAll(async () => {
   });
 
   const address = server.address();
+
   baseUrl = `http://127.0.0.1:${address.port}`;
 });
 
@@ -82,30 +155,11 @@ test.afterAll(async () => {
   if (!server) return;
 
   await new Promise((resolve, reject) => {
-    server.close(error => error ? reject(error) : resolve());
+    server.close(error =>
+      error ? reject(error) : resolve()
+    );
   });
 });
-
-function makeCandles(
-  count,
-  intervalMinutes,
-  start = Date.UTC(2026, 0, 1, 3, 45)
-) {
-  return Array.from({ length: count }, (_, i) => {
-    const close = 25000 + i;
-
-    return [
-      new Date(
-        start + i * intervalMinutes * 60 * 1000
-      ).toISOString(),
-      close - 2,
-      close + 5,
-      close - 5,
-      close,
-      1000 + i
-    ];
-  });
-}
 
 async function mockNews(page) {
   await page.route(
@@ -154,13 +208,15 @@ async function mockHistoricalApi(page) {
           contentType: "application/json",
           body: JSON.stringify({
             app: "BADAL SEVERIYA DATA V11",
-            index: url.searchParams.get("index") || "NIFTY",
+            index:
+              url.searchParams.get("index") || "NIFTY",
             timeframe,
             candles: [],
             hasMore: false,
             count: 0
           })
         });
+
         return;
       }
 
@@ -217,7 +273,7 @@ test(
   async ({ page }) => {
     const apiCalls = await openDashboard(page);
 
-    const rows = makeCandles(20, 1440);
+    const rows = makeCandles(240, 1440);
 
     await importJsonFile(
       page,
@@ -252,14 +308,13 @@ test(
 
     await expect(
       page.locator("#summary-status-1d")
-    ).toContainText("20 candles");
+    ).toContainText("240 candles");
 
     await expect(
       page.locator("#summary-status-1d")
     ).toContainText("persistence-test-1d.json");
 
-    // Reload should restore the local import without
-    // requesting Cloudflare for the saved timeframe.
+    // Reload should restore local data without a new Cloudflare request.
     expect(apiCalls["1d"]).toBe(1);
   }
 );
@@ -269,7 +324,7 @@ test(
   async ({ page }) => {
     const apiCalls = await openDashboard(page);
 
-    const rows = makeCandles(220, 15);
+    const rows = makeCandles(240, 15);
 
     await importJsonFile(
       page,
@@ -304,13 +359,13 @@ test(
 
     await expect(
       page.locator("#summary-status-15m")
-    ).toContainText("220 candles");
+    ).toContainText("240 candles");
 
     await expect(
       page.locator("#summary-status-15m")
     ).toContainText("persistence-test-15m.json");
 
-    // Locally saved 15M import takes priority over Cloudflare.
+    // Local 15M data should take priority after reload.
     expect(apiCalls["15m"]).toBe(1);
   }
 );
@@ -320,7 +375,7 @@ test(
   async ({ page }) => {
     const apiCalls = await openDashboard(page);
 
-    const validRows = makeCandles(20, 1440);
+    const validRows = makeCandles(240, 1440);
 
     await importJsonFile(
       page,
@@ -367,7 +422,7 @@ test(
       "valid-before-error.json"
     );
 
-    expect(storedBeforeReload.candles).toHaveLength(20);
+    expect(storedBeforeReload.candles).toHaveLength(240);
 
     await page.reload();
 
@@ -394,9 +449,9 @@ test(
       "valid-before-error.json"
     );
 
-    expect(storedAfterReload.candles).toHaveLength(20);
+    expect(storedAfterReload.candles).toHaveLength(240);
 
-    // Valid saved data must survive the failed import and reload.
+    // Valid saved data survives failed import and reload.
     expect(apiCalls["1d"]).toBe(1);
   }
 );

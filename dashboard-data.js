@@ -18,6 +18,8 @@ const REQUIRED_SECTIONS = [
   "candlePatterns"
 ];
 
+const RECENT_STRUCTURE_LIMIT = 20;
+
 // ------------------------------------------------------
 // SAFE HELPERS
 // ------------------------------------------------------
@@ -43,6 +45,16 @@ function safeArray(value) {
 
 function safeObject(value) {
   return isObject(value) ? value : {};
+}
+
+function recentRecords(value) {
+  return safeArray(value).slice(-RECENT_STRUCTURE_LIMIT);
+}
+
+function safeCount(value, fallback = 0) {
+  return isFiniteNumber(value) && value >= 0
+    ? value
+    : fallback;
 }
 
 // ------------------------------------------------------
@@ -123,9 +135,9 @@ function buildDataQualityPanel(section) {
   return {
     status: section.status ?? "UNKNOWN",
     quality: section.quality ?? "UNKNOWN",
-    issueCount: isFiniteNumber(section.issueCount)
-      ? section.issueCount
-      : 0,
+
+    issueCount: safeCount(section.issueCount),
+
     checks: safeObject(section.checks)
   };
 }
@@ -161,33 +173,80 @@ function buildMarketIndicatorsPanel(section) {
 // ------------------------------------------------------
 
 function buildMarketStructurePanel(section) {
+  const pivotHighs = safeArray(
+    section.recentPivotHighs
+  );
+
+  const pivotLows = safeArray(
+    section.recentPivotLows
+  );
+
+  const structureEvents = safeArray(
+    section.recentStructureEvents
+  );
+
+  const liquidity = safeArray(
+    section.liquidity
+  );
+
+  const fairValueGaps = safeArray(
+    section.recentFairValueGaps
+  );
+
+  const orderBlocks = safeArray(
+    section.recentOrderBlocks
+  );
+
   return {
-    trend: section.trend ?? null,
+    trend: section.trend ?? "UNKNOWN",
 
-    pivotHighCount: isFiniteNumber(section.pivotHighCount)
-      ? section.pivotHighCount
-      : 0,
+    pivotHighCount: safeCount(
+      section.pivotHighCount
+    ),
 
-    pivotLowCount: isFiniteNumber(section.pivotLowCount)
-      ? section.pivotLowCount
-      : 0,
+    pivotLowCount: safeCount(
+      section.pivotLowCount
+    ),
 
-    structureEventCount:
-      isFiniteNumber(section.structureEventCount)
-        ? section.structureEventCount
-        : 0,
+    structureEventCount: safeCount(
+      section.structureEventCount
+    ),
 
-    liquidity: safeArray(section.liquidity),
+    liquidityCount: safeCount(
+      section.liquidityCount,
+      liquidity.length
+    ),
 
-    fairValueGapCount:
-      isFiniteNumber(section.fairValueGapCount)
-        ? section.fairValueGapCount
-        : 0,
+    fairValueGapCount: safeCount(
+      section.fairValueGapCount
+    ),
 
-    orderBlockCount:
-      isFiniteNumber(section.orderBlockCount)
-        ? section.orderBlockCount
-        : 0
+    orderBlockCount: safeCount(
+      section.orderBlockCount
+    ),
+
+    recentPivotHighs:
+      recentRecords(pivotHighs),
+
+    recentPivotLows:
+      recentRecords(pivotLows),
+
+    recentStructureEvents:
+      recentRecords(structureEvents),
+
+    liquidity:
+      recentRecords(liquidity),
+
+    recentFairValueGaps:
+      recentRecords(fairValueGaps),
+
+    recentOrderBlocks:
+      recentRecords(orderBlocks),
+
+    detailLimitPerGroup: safeCount(
+      section.detailLimitPerGroup,
+      RECENT_STRUCTURE_LIMIT
+    )
   };
 }
 
@@ -227,8 +286,13 @@ function buildCandlePatternsPanel(section) {
   const patterns = safeArray(section.patterns);
 
   return {
-    totalPatterns: patterns.length,
+    totalPatterns: safeCount(
+      section.totalPatterns,
+      patterns.length
+    ),
+
     counts: safeObject(section.counts),
+
     patterns
   };
 }
@@ -284,8 +348,11 @@ export function formatHistoricalDashboardData(report) {
 
       dashboardInfo: {
         timeframe: report.reportInfo.timeframe ?? "15m",
+
         candleCount: report.reportInfo.candleCount,
+
         generatedAt: report.reportInfo.generatedAt,
+
         panelCount: Object.keys(panels).length
       },
 
@@ -298,11 +365,18 @@ export function formatHistoricalDashboardData(report) {
 
       overview: {
         dataQuality: report.summary.dataQuality,
-        dataQualityIssues: report.summary.dataQualityIssues,
+
+        dataQualityIssues:
+          report.summary.dataQualityIssues,
+
         totalCandlePatterns:
-          report.summary.totalCandlePatterns,
-        supportZones: report.summary.supportZones,
-        resistanceZones: report.summary.resistanceZones
+          panels.candlePatterns.totalPatterns,
+
+        supportZones:
+          panels.supportResistance.supportCount,
+
+        resistanceZones:
+          panels.supportResistance.resistanceCount
       },
 
       panels,

@@ -13,6 +13,7 @@ on:
       - "historical-master-news-context.js"
       - "historical-master-news-context-ui.js"
       - "historical-master-news-context-ui.browser.spec.js"
+      - "historical-master-import-persistence.browser.spec.js"
       - "historical-master-news-context-ui.test.js"
       - "package.json"
       - "package-lock.json"
@@ -41,5 +42,8 @@ jobs:
       - name: Install Playwright Chromium
         run: npx playwright install --with-deps chromium
 
-      - name: Run Historical Master Browser Tests
-        run: npm run test:historical-master-news-context-ui-browser
+      - name: Run Existing News Context Browser Tests
+        run: npx playwright test historical-master-news-context-ui.browser.spec.js
+
+      - name: Run Historical Import Persistence Browser Tests
+        run: npx playwright test historical-master-import-persistence.browser.spec.js

@@ -36,6 +36,8 @@ function makeEnv(overrides = {}) {
     ANGEL_CLIENT_CODE: "TESTCLIENT",
     ANGEL_PIN: "1234",
     ANGEL_MAC_ADDRESS: "00:11:22:33:44:55",
+    ANGEL_CLIENT_LOCAL_IP: "192.168.1.10",
+    ANGEL_CLIENT_PUBLIC_IP: "203.0.113.10",
     SMARTAPI_SESSION: {
       idFromName: () => "test-session-id",
       get: () => ({
@@ -180,7 +182,7 @@ await test("Health endpoint is publicly accessible", async () => {
 
   assert.equal(response.status, 200);
   assert.equal(data.ok, true);
-  assert.equal(data.version, "12.1");
+  assert.equal(data.version, "12.2");
   assert.equal(data.mode, "MARKET_DATA_ONLY");
   assert.equal(data.tradingOrdersEnabled, false);
 });
@@ -319,7 +321,7 @@ await test("Login rejects missing Angel One secrets", async () => {
   const data = await response.json();
 
   assert.equal(response.status, 503);
-  assert.equal(data.error, "MISSING_CLOUDflare_SECRETS");
+  assert.equal(data.error, "MISSING_CLOUDFLARE_SECRETS");
 });
 
 // ----------------------------------------------------------
@@ -471,6 +473,16 @@ await test("Successful login stores session without returning credentials", asyn
     assert.equal(
       loginRequest.options.headers["X-PrivateKey"],
       "test-api-key"
+    );
+
+    assert.equal(
+      loginRequest.options.headers["X-ClientLocalIP"],
+      "192.168.1.10"
+    );
+
+    assert.equal(
+      loginRequest.options.headers["X-ClientPublicIP"],
+      "203.0.113.10"
     );
 
     assert.equal(storedSession.jwtToken, "jwt-secret");
